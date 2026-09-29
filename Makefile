@@ -3,7 +3,7 @@ export
 
 MIGRATIONS_DIR := migrations
 
-.PHONY: db-up db-down migrate-up migrate-down run test
+.PHONY: db-up db-down migrate-up migrate-down seed run test fe-dev fe-test
 
 db-up: ## Start PostgreSQL and MinIO and wait until they are healthy
 	docker compose up -d --wait
@@ -19,8 +19,18 @@ migrate-down: ## Revert the last migration
 	@test -n "$$DATABASE_URL" || { echo "DATABASE_URL is not set (see README)"; exit 1; }
 	migrate -path $(MIGRATIONS_DIR) -database "$$DATABASE_URL" down 1
 
+seed: ## Insert the admin user (idempotent)
+	@test -n "$$DATABASE_URL" || { echo "DATABASE_URL is not set (see README)"; exit 1; }
+	cd backend && go run ./cmd/seed
+
 run: ## Start the API
 	cd backend && go run ./cmd/api
 
 test: ## Run backend tests
 	cd backend && go test ./...
+
+fe-dev: ## Start the frontend dev server
+	cd frontend && npm run dev
+
+fe-test: ## Run frontend tests
+	cd frontend && npm test

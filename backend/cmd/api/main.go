@@ -11,7 +11,13 @@ import (
 	"syscall"
 	"time"
 
+	authhttp "github.com/valium69mg/finances-app/backend/internal/auth/adapters/http"
+	authpg "github.com/valium69mg/finances-app/backend/internal/auth/adapters/postgres"
+	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/ratelimit"
+	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/resend"
+	authapp "github.com/valium69mg/finances-app/backend/internal/auth/app"
 	"github.com/valium69mg/finances-app/backend/internal/platform/config"
+	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
 	"github.com/valium69mg/finances-app/backend/internal/platform/postgres"
 )
@@ -40,12 +46,28 @@ func run() error {
 	}
 	defer pool.Close()
 
+	authSvc := authapp.NewService(authapp.Deps{
+		Users:              authpg.NewUserRepo(pool),
+		RefreshTokens:      authpg.NewRefreshTokenRepo(pool),
+		VerificationTokens: authpg.NewVerificationTokenRepo(pool),
+		Mailer:             resend.New(cfg.ResendAPIKey, cfg.ResendFrom, "", nil),
+		Limiter:            ratelimit.New(nil),
+		JWTSecret:          []byte(cfg.JWTSecret),
+		AppBaseURL:         cfg.AppBaseURL,
+	})
+
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", health.Handler(pool))
+	authhttp.New(authSvc, slog.Default()).Register(mux)
+
+	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
+	if err != nil {
+		return fmt.Errorf("derive CORS origin: %w", err)
+	}
 
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
+		Handler:           cors.Middleware(corsOrigin)(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      15 * time.Second,

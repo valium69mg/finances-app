@@ -24,7 +24,7 @@ the owner before the affected work starts. Nothing is defaulted silently.
 |---|---|---|
 | Backend | Go | confirmed |
 | Database | PostgreSQL | confirmed |
-| Frontend | installable web app (PWA) with React + TypeScript, built with Vite | confirmed; routing, data fetching, styling **OPEN** |
+| Frontend | installable web app (PWA) with React + TypeScript, built with Vite | confirmed; React Router, TanStack Query, Tailwind **DECIDED** |
 | Email | Resend | confirmed; first used for login email verification (phase 3), later for bill reminders (phase 7) |
 | Infra | AWS + Terraform | confirmed; deferred until the app is ready |
 | Local runtime | Docker Compose for PostgreSQL | confirmed; host port 5442 mapped to container 5432 (5432 is taken by another local instance); PostgreSQL 18 (latest stable major; 19 is still beta). The compose file must define health checks (`pg_isready`) and dependent services wait on them |
@@ -82,14 +82,16 @@ category (emergency fund, aguinaldo and vacation, future expenses, investments, 
 - Seeding **DECIDED:** the admin is seeded into PostgreSQL with only that email and a random password (stored as a bcrypt hash). No password or hash comes from `.env`, and no plaintext credential is ever in source or git history. The seed marks the user **unverified** (flag on the user row). A `.env.example` with placeholders is committed; the real `.env` is not.
 - Email verification **DECIDED:** while the unverified flag is on, logging in leads to a forced flow: the app sends the user an email through Resend to verify the address and change the password. Completing it clears the flag. Resend API key comes from `RESEND_API_KEY` (in `.env`, placeholder in `.env.example`).
 - First credential **DECIDED:** the admin never needs the random password. Submitting the login form for an unverified user sends the verification email (verify the address and set a new password) instead of authenticating. The response is identical whether or not the email exists or is verified, so it cannot be used to probe accounts, and sending is rate limited.
-- Still **OPEN** (email flow): verification link token design (lifetime, single use, stored hashed); Resend sender address and domain; what an unverified session may access.
+- Verification token **DECIDED:** 32 random bytes (base64url), stored SHA-256 hashed, 1 hour lifetime, single use.
+- Resend sender **DECIDED:** `onboarding@resend.dev` for now, overridable via `RESEND_FROM`; a custom domain comes later.
+- Unverified users **DECIDED:** never receive a session, so there is nothing an unverified session can access.
 - Session mechanism **DECIDED:** JWT access token (15 min) plus an opaque refresh token, both returned in the login response body. No cookies.
 - Refresh flow **DECIDED:** using a refresh token issues a new JWT and a new refresh token, and invalidates the used one (rotation). Refresh tokens are stored hashed in PostgreSQL.
 - Refresh token lifetime **DECIDED:** 7 days.
 - JWT signing **DECIDED:** HS256. The secret comes from configuration, never from source.
 - Client-side token storage **DECIDED:** localStorage for both tokens. Accepted risk: an XSS bug could read them, so the frontend must avoid `dangerouslySetInnerHTML`, ship a strict Content-Security-Policy, and keep dependencies minimal.
 - Refresh token reuse **DECIDED:** presenting an already-used refresh token revokes all of the user's refresh tokens.
-- Still **OPEN:** logout behavior.
+- Logout **DECIDED:** `POST /auth/logout` revokes the presented refresh token; the client clears localStorage.
 
 ## 6. Data model (draft, to be designed)
 

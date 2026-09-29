@@ -13,6 +13,23 @@ func env(vars map[string]string) func(string) string {
 
 func TestLoad(t *testing.T) {
 	const validURL = "postgres://u:p@localhost:5442/db?sslmode=disable"
+	const secret = "0123456789abcdef0123456789abcdef"
+
+	base := func(extra map[string]string) map[string]string {
+		vars := map[string]string{"DATABASE_URL": validURL, "JWT_SECRET": secret, "RESEND_API_KEY": "re_key"}
+		for k, v := range extra {
+			vars[k] = v
+		}
+		return vars
+	}
+	want := func(mod func(*config.Config)) config.Config {
+		c := config.Config{
+			DatabaseURL: validURL, HTTPAddr: ":8080", JWTSecret: secret, ResendAPIKey: "re_key",
+			ResendFrom: "onboarding@resend.dev", AppBaseURL: "http://localhost:5173",
+		}
+		mod(&c)
+		return c
+	}
 
 	tests := []struct {
 		name    string
@@ -22,38 +39,64 @@ func TestLoad(t *testing.T) {
 	}{
 		{
 			name: "valid values",
-			vars: map[string]string{"DATABASE_URL": validURL, "HTTP_ADDR": ":9090"},
-			want: config.Config{DatabaseURL: validURL, HTTPAddr: ":9090"},
+			vars: base(map[string]string{
+				"HTTP_ADDR": ":9090", "RESEND_FROM": "me@x.io", "APP_BASE_URL": "https://app.example.com/",
+			}),
+			want: want(func(c *config.Config) {
+				c.HTTPAddr, c.ResendFrom, c.AppBaseURL = ":9090", "me@x.io", "https://app.example.com"
+			}),
 		},
 		{
-			name: "http addr defaults",
-			vars: map[string]string{"DATABASE_URL": validURL},
-			want: config.Config{DatabaseURL: validURL, HTTPAddr: ":8080"},
+			name: "defaults",
+			vars: base(nil),
+			want: want(func(*config.Config) {}),
 		},
 		{
 			name:    "missing database url",
-			vars:    map[string]string{},
+			vars:    map[string]string{"JWT_SECRET": secret, "RESEND_API_KEY": "k"},
 			wantErr: []string{"DATABASE_URL is required"},
 		},
 		{
 			name:    "wrong scheme",
-			vars:    map[string]string{"DATABASE_URL": "mysql://u:p@localhost/db"},
+			vars:    base(map[string]string{"DATABASE_URL": "mysql://u:p@localhost/db"}),
 			wantErr: []string{"DATABASE_URL is invalid", "scheme"},
 		},
 		{
 			name:    "missing host",
-			vars:    map[string]string{"DATABASE_URL": "postgres:///db"},
+			vars:    base(map[string]string{"DATABASE_URL": "postgres:///db"}),
 			wantErr: []string{"DATABASE_URL is invalid", "host is required"},
 		},
 		{
 			name:    "invalid http addr",
-			vars:    map[string]string{"DATABASE_URL": validURL, "HTTP_ADDR": "not-an-addr"},
+			vars:    base(map[string]string{"HTTP_ADDR": "not-an-addr"}),
 			wantErr: []string{"HTTP_ADDR is invalid"},
 		},
 		{
-			name:    "reports every problem",
-			vars:    map[string]string{"HTTP_ADDR": "nope"},
-			wantErr: []string{"DATABASE_URL is required", "HTTP_ADDR is invalid"},
+			name:    "missing jwt secret",
+			vars:    base(map[string]string{"JWT_SECRET": ""}),
+			wantErr: []string{"JWT_SECRET is required"},
+		},
+		{
+			name:    "short jwt secret",
+			vars:    base(map[string]string{"JWT_SECRET": "too-short"}),
+			wantErr: []string{"JWT_SECRET must be at least 32 bytes"},
+		},
+		{
+			name:    "missing resend api key",
+			vars:    base(map[string]string{"RESEND_API_KEY": ""}),
+			wantErr: []string{"RESEND_API_KEY is required"},
+		},
+		{
+			name:    "invalid app base url",
+			vars:    base(map[string]string{"APP_BASE_URL": "ftp://x"}),
+			wantErr: []string{"APP_BASE_URL is invalid", "scheme"},
+		},
+		{
+			name: "reports every problem",
+			vars: map[string]string{"HTTP_ADDR": "nope"},
+			wantErr: []string{
+				"DATABASE_URL is required", "HTTP_ADDR is invalid", "JWT_SECRET is required", "RESEND_API_KEY is required",
+			},
 		},
 	}
 
@@ -89,5 +132,17 @@ func TestLoadDoesNotLeakPassword(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "s3cret") {
 		t.Fatalf("error leaks the password: %v", err)
+	}
+}
+
+func TestLoadDoesNotLeakJWTSecret(t *testing.T) {
+	_, err := config.Load(env(map[string]string{
+		"DATABASE_URL": "postgres://u:p@localhost/db", "RESEND_API_KEY": "k", "JWT_SECRET": "short-s3cret",
+	}))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "short-s3cret") {
+		t.Fatalf("error leaks the JWT secret: %v", err)
 	}
 }

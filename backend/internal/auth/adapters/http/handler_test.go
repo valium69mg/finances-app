@@ -1,0 +1,264 @@
+package authhttp_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	authhttp "github.com/valium69mg/finances-app/backend/internal/auth/adapters/http"
+	"github.com/valium69mg/finances-app/backend/internal/auth/app"
+	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
+)
+
+type fakeService struct {
+	loginSession *app.Session
+	loginErr     error
+	refreshSess  *app.Session
+	refreshErr   error
+	logoutErr    error
+	verifyErr    error
+	me           domain.User
+	meErr        error
+
+	gotIP, gotEmail, gotRefresh string
+	gotVerifyToken, gotPassword string
+}
+
+func (f *fakeService) Login(_ context.Context, email, _ string, ip string) (*app.Session, error) {
+	f.gotEmail, f.gotIP = email, ip
+	return f.loginSession, f.loginErr
+}
+
+func (f *fakeService) Refresh(_ context.Context, tok string) (*app.Session, error) {
+	f.gotRefresh = tok
+	return f.refreshSess, f.refreshErr
+}
+
+func (f *fakeService) Logout(_ context.Context, tok string) error {
+	f.gotRefresh = tok
+	return f.logoutErr
+}
+
+func (f *fakeService) CompleteVerification(_ context.Context, tok, pw string) error {
+	f.gotVerifyToken, f.gotPassword = tok, pw
+	return f.verifyErr
+}
+
+func (f *fakeService) Authenticate(token string) (string, error) {
+	if token == "good" {
+		return "u1", nil
+	}
+	return "", domain.ErrInvalidToken
+}
+
+func (f *fakeService) Me(context.Context, string) (domain.User, error) { return f.me, f.meErr }
+
+func newServer(svc *fakeService) http.Handler {
+	mux := http.NewServeMux()
+	authhttp.New(svc, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(mux)
+	return mux
+}
+
+func do(t *testing.T, h http.Handler, method, path, body, auth string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.RemoteAddr = "203.0.113.9:5555"
+	if auth != "" {
+		req.Header.Set("Authorization", auth)
+	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func decodeMap(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+		t.Fatalf("body %q is not JSON: %v", rec.Body.String(), err)
+	}
+	return m
+}
+
+var goodSession = &app.Session{AccessToken: "acc", RefreshToken: "ref", ExpiresIn: 15 * time.Minute}
+
+func TestLogin(t *testing.T) {
+	tests := []struct {
+		name       string
+		svc        fakeService
+		body       string
+		wantStatus int
+		wantKey    string
+		wantValue  any
+	}{
+		{"verified user gets tokens", fakeService{loginSession: goodSession}, `{"email":"a@b.co","password":"pw"}`,
+			200, "access_token", "acc"},
+		{"generic response", fakeService{}, `{"email":"a@b.co","password":"pw"}`,
+			202, "status", "verification_pending"},
+		{"wrong password", fakeService{loginErr: domain.ErrInvalidCredentials}, `{"email":"a@b.co","password":"x"}`,
+			401, "error", "invalid_credentials"},
+		{"rate limited", fakeService{loginErr: domain.ErrRateLimited}, `{"email":"a@b.co","password":"x"}`,
+			429, "error", "rate_limited"},
+		{"invalid email", fakeService{loginErr: domain.ErrInvalidEmail}, `{"email":"nope","password":"x"}`,
+			400, "error", "invalid_email"},
+		{"malformed json", fakeService{}, `{`, 400, "error", "invalid_request"},
+		{"unknown field", fakeService{}, `{"email":"a@b.co","extra":1}`, 400, "error", "invalid_request"},
+		{"internal error hides details", fakeService{loginErr: errors.New("db password=hunter2")}, `{"email":"a@b.co"}`,
+			500, "error", "internal_error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := tt.svc
+			rec := do(t, newServer(&svc), "POST", "/auth/login", tt.body, "")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tt.wantStatus, rec.Body)
+			}
+			if got := decodeMap(t, rec)[tt.wantKey]; got != tt.wantValue {
+				t.Fatalf("%s = %v, want %v", tt.wantKey, got, tt.wantValue)
+			}
+			if strings.Contains(rec.Body.String(), "hunter2") {
+				t.Fatal("internal error details leaked")
+			}
+			if rec.Header().Get("Cache-Control") != "no-store" {
+				t.Error("responses must not be cacheable")
+			}
+		})
+	}
+}
+
+func TestLoginBodyAndClientIP(t *testing.T) {
+	svc := &fakeService{loginSession: goodSession}
+	rec := do(t, newServer(svc), "POST", "/auth/login", `{"email":"a@b.co","password":"pw"}`, "")
+	body := decodeMap(t, rec)
+	if body["refresh_token"] != "ref" || body["token_type"] != "Bearer" || body["expires_in"] != float64(900) {
+		t.Fatalf("session body = %v", body)
+	}
+	if svc.gotIP != "203.0.113.9" || svc.gotEmail != "a@b.co" {
+		t.Fatalf("ip=%q email=%q", svc.gotIP, svc.gotEmail)
+	}
+}
+
+func TestGenericLoginResponsesAreIdentical(t *testing.T) {
+	// The handler cannot tell unknown from unverified: both reach it as (nil, nil).
+	a := do(t, newServer(&fakeService{}), "POST", "/auth/login", `{"email":"ghost@b.co","password":"x"}`, "")
+	b := do(t, newServer(&fakeService{}), "POST", "/auth/login", `{"email":"new@b.co","password":"x"}`, "")
+	if a.Code != b.Code || a.Body.String() != b.Body.String() {
+		t.Fatalf("responses differ: %d %q vs %d %q", a.Code, a.Body, b.Code, b.Body)
+	}
+}
+
+func TestRefresh(t *testing.T) {
+	tests := []struct {
+		name       string
+		svc        fakeService
+		body       string
+		wantStatus int
+	}{
+		{"ok", fakeService{refreshSess: goodSession}, `{"refresh_token":"r1"}`, 200},
+		{"invalid or reused", fakeService{refreshErr: domain.ErrInvalidToken}, `{"refresh_token":"r1"}`, 401},
+		{"internal", fakeService{refreshErr: errors.New("boom")}, `{"refresh_token":"r1"}`, 500},
+		{"bad body", fakeService{}, `nope`, 400},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := tt.svc
+			rec := do(t, newServer(&svc), "POST", "/auth/refresh", tt.body, "")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if tt.wantStatus == 200 && svc.gotRefresh != "r1" {
+				t.Errorf("refresh token passed = %q", svc.gotRefresh)
+			}
+		})
+	}
+}
+
+func TestLogout(t *testing.T) {
+	svc := &fakeService{}
+	rec := do(t, newServer(svc), "POST", "/auth/logout", `{"refresh_token":"r9"}`, "")
+	if rec.Code != http.StatusNoContent || svc.gotRefresh != "r9" {
+		t.Fatalf("status=%d token=%q", rec.Code, svc.gotRefresh)
+	}
+	rec = do(t, newServer(&fakeService{logoutErr: errors.New("db")}), "POST", "/auth/logout", `{"refresh_token":"r"}`, "")
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestVerify(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantError  string
+	}{
+		{"ok", nil, 204, ""},
+		{"invalid token", domain.ErrInvalidToken, 400, "invalid_token"},
+		{"weak password", domain.ErrWeakPassword, 400, "weak_password"},
+		{"internal", errors.New("boom"), 500, "internal_error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{verifyErr: tt.err}
+			rec := do(t, newServer(svc), "POST", "/auth/verify", `{"token":"t","password":"pw"}`, "")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if tt.wantError != "" && decodeMap(t, rec)["error"] != tt.wantError {
+				t.Fatalf("body = %s", rec.Body)
+			}
+			if svc.gotVerifyToken != "t" || svc.gotPassword != "pw" {
+				t.Errorf("args = %q %q", svc.gotVerifyToken, svc.gotPassword)
+			}
+		})
+	}
+}
+
+func TestMe(t *testing.T) {
+	user := domain.User{ID: "u1", Email: "a@b.co", Verified: true, PasswordHash: "secret-hash"}
+	tests := []struct {
+		name       string
+		svc        fakeService
+		auth       string
+		wantStatus int
+	}{
+		{"ok", fakeService{me: user}, "Bearer good", 200},
+		{"no header", fakeService{me: user}, "", 401},
+		{"wrong scheme", fakeService{me: user}, "Basic good", 401},
+		{"bad token", fakeService{me: user}, "Bearer bad", 401},
+		{"user gone", fakeService{meErr: domain.ErrInvalidToken}, "Bearer good", 401},
+		{"internal", fakeService{meErr: errors.New("boom")}, "Bearer good", 500},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := tt.svc
+			rec := do(t, newServer(&svc), "GET", "/auth/me", "", tt.auth)
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if tt.wantStatus == 200 {
+				m := decodeMap(t, rec)
+				if m["email"] != "a@b.co" || m["verified"] != true || m["id"] != "u1" {
+					t.Fatalf("body = %v", m)
+				}
+				if strings.Contains(rec.Body.String(), "secret-hash") {
+					t.Fatal("password hash leaked")
+				}
+			}
+		})
+	}
+}
+
+func TestMethodNotAllowed(t *testing.T) {
+	rec := do(t, newServer(&fakeService{}), "GET", "/auth/login", "", "")
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
