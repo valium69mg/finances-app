@@ -25,6 +25,12 @@ const (
 	KindSavings Kind = "Ahorro"
 )
 
+// Currency codes handled by the app.
+const (
+	CurrencyUSD = "USD"
+	CurrencyMXN = "MXN"
+)
+
 // Category names the domain logic depends on. They match the seeded configuration.
 const (
 	CategoryTaxes             = "Impuestos"
