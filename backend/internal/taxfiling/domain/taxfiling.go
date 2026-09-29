@@ -64,18 +64,6 @@ func activeInvoices(all []invoices.Invoice, period string, clientID string) []in
 	return out
 }
 
-// rateFor returns the RESICO rate for an income, using the first bracket when
-// there is no income.
-func rateFor(cfg settings.Config, incomeMXN decimal.Decimal) (decimal.Decimal, error) {
-	if incomeMXN.IsPositive() {
-		return cfg.ResicoRate(incomeMXN)
-	}
-	if len(cfg.Brackets) == 0 {
-		return decimal.Zero, fmt.Errorf("%w: resico_brackets", settings.ErrMissingConfig)
-	}
-	return cfg.Brackets[0].Rate, nil
-}
-
 // ComputeDeclaration computes the monthly RESICO declaration from the active
 // (prepared or issued) invoices of the period.
 //
@@ -102,7 +90,7 @@ func ComputeDeclaration(cfg settings.Config, all []invoices.Invoice, period stri
 		}
 	}
 
-	rate, err := rateFor(cfg, incomeCollected)
+	rate, err := cfg.ResicoRateOrFirst(incomeCollected)
 	if err != nil {
 		return Declaration{}, err
 	}
@@ -132,7 +120,7 @@ func AOnlyISR(cfg settings.Config, all []invoices.Invoice, period string) (decim
 	for _, inv := range activeInvoices(all, period, settings.ClientUSA) {
 		incomeA = incomeA.Add(inv.SubtotalMXN)
 	}
-	rate, err := rateFor(cfg, incomeA)
+	rate, err := cfg.ResicoRateOrFirst(incomeA)
 	if err != nil {
 		return decimal.Zero, err
 	}

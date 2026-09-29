@@ -39,6 +39,24 @@ func TestResicoRateBoundaries(t *testing.T) {
 	}
 }
 
+func TestResicoRateOrFirst(t *testing.T) {
+	cfg := settingstest.RealConfig()
+	tests := []struct{ income, want string }{
+		{"0", "0.01"},      // no income: first bracket
+		{"-5", "0.01"},     // negative income behaves like no income
+		{"62090", "0.015"}, // positive income: regular lookup
+	}
+	for _, tc := range tests {
+		got, err := cfg.ResicoRateOrFirst(d(tc.income))
+		if err != nil || !got.Equal(d(tc.want)) {
+			t.Errorf("ResicoRateOrFirst(%s) = %s, %v; want %s", tc.income, got, err, tc.want)
+		}
+	}
+	if _, err := (settings.Config{}).ResicoRateOrFirst(d("0")); !errors.Is(err, settings.ErrMissingConfig) {
+		t.Errorf("empty brackets error = %v, want ErrMissingConfig", err)
+	}
+}
+
 func TestValidateReportsMissingKeys(t *testing.T) {
 	if err := settingstest.RealConfig().Validate(); err != nil {
 		t.Fatalf("real config should be valid: %v", err)

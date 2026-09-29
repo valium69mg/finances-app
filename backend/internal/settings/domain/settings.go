@@ -121,6 +121,18 @@ func (c Config) ResicoRate(income decimal.Decimal) (decimal.Decimal, error) {
 	return c.Brackets[len(c.Brackets)-1].Rate, nil
 }
 
+// ResicoRateOrFirst is ResicoRate for a positive income and the first bracket's
+// rate when there is no income (the rate applied to an empty month).
+func (c Config) ResicoRateOrFirst(income decimal.Decimal) (decimal.Decimal, error) {
+	if income.IsPositive() {
+		return c.ResicoRate(income)
+	}
+	if len(c.Brackets) == 0 {
+		return decimal.Zero, fmt.Errorf("%w: resico_brackets", ErrMissingConfig)
+	}
+	return c.Brackets[0].Rate, nil
+}
+
 // SplitRate returns the configured extra-income split rate or the default.
 func (c Config) SplitRate(key string, def decimal.Decimal) decimal.Decimal {
 	if r, ok := c.ExtraIncomeSplit[key]; ok {
