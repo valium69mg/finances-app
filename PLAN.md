@@ -1,8 +1,11 @@
 # finances-app — Project Plan
 
 Personal finance web app for a Mexican RESICO freelancer. Built from scratch as a
-successor to the `~/finances` Python CLI (`fin.py`). Everything is written in English:
-code, comments, UI copy, docs, commit messages.
+successor to the `~/finances` Python CLI (`fin.py`).
+
+**Language rule (DECIDED):** the product is in Spanish; the codebase is in English.
+- Spanish: everything the user sees in the frontend (UI copy, labels, messages, emails) and catalog/data values (categories, types, states, instrument types, payment methods), e.g. `KindIncome Kind = "Ingreso"`.
+- English: identifiers (variables, functions, types, packages, constants' names), code comments, tests, docs, commit messages, API field names and file names.
 
 Status: **planning**. No code exists yet. Decisions marked **OPEN** must be answered by
 the owner before the affected work starts. Nothing is defaulted silently.
@@ -114,7 +117,7 @@ Document storage for uploaded CFDIs **DECIDED:** S3-compatible object storage. M
 5. ~~Module build order~~ **DECIDED** (see phase 4).
 6. ~~CFDI upload storage~~ **DECIDED:** MinIO in Docker Compose (S3 API). Host ports **DECIDED:** 9100 (API), 9101 (console).
 7. ~~How the non-emergency savings categories are shown~~ **DECIDED:** Portfolio tab dropped; Savings covers all savings categories.
-8. ~~Official Mexican terms~~ **DECIDED:** CFDI, RFC, SAT, RESICO, IVA, ISR, aguinaldo and similar official terms stay as-is inside otherwise English UI text, code and docs.
+8. ~~Official Mexican terms~~ **DECIDED:** CFDI, RFC, SAT, RESICO, IVA, ISR, aguinaldo and similar official terms stay as-is everywhere (UI text is Spanish, code and docs English; see the language rule at the top).
 9. ~~Data import~~ **DECIDED:** seed from `~/finances/config.json` with a one-time import (categories, budgets, clients, instruments, tax parameters, split rules). Whether the single existing movement is imported too, and the import mechanics, are **OPEN**.
 10. ~~Branch name~~ **DECIDED:** `main` (already renamed). Remote hosting (GitHub or other) still **OPEN**, deferred until the first push.
 
