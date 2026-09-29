@@ -3,7 +3,7 @@ export
 
 MIGRATIONS_DIR := migrations
 
-.PHONY: db-up db-down migrate-up migrate-down seed run test fe-dev fe-test
+.PHONY: db-up db-down migrate-up migrate-down seed run test fe-dev fe-test fe-e2e
 
 db-up: ## Start PostgreSQL and MinIO and wait until they are healthy
 	docker compose up -d --wait
@@ -34,3 +34,6 @@ fe-dev: ## Start the frontend dev server
 
 fe-test: ## Run frontend tests
 	cd frontend && npm test
+
+fe-e2e: ## Run frontend Playwright e2e tests (API is mocked)
+	cd frontend && npm run e2e
