@@ -106,7 +106,7 @@ Document storage for uploaded CFDIs **DECIDED:** S3-compatible object storage. M
 3. **Auth + shell:** login, session, admin seed with random password and unverified flag, email verification and password change flow via Resend, app layout with tabs.
 4. **Modules, in this order (DECIDED):** Settings, Expenses, Income, Savings, Dashboard, Invoices, Tax Filing, Filed Records, Bills & Subscriptions, Month Close.
 5. **PWA:** manifest, service worker, installability.
-6. **Hardening:** tests across modules, backups, error handling.
+6. **Hardening:** tests across modules, backups, error handling. Edge proxy **DECIDED:** nginx in Docker Compose (with a health check) serves the frontend and reverse-proxies `/api/*` to the backend on the same origin, so CORS is only needed in development. nginx owns per-IP `limit_req` on all routes, body size limits, timeouts, TLS and security headers/CSP. The per-email login limit stays in the app (nginx cannot read the JSON body). Because the backend ignores `X-Forwarded-For`, it must trust that header only when it comes from nginx (or drop its per-IP limit), otherwise every client shares one IP bucket. On AWS the ALB/CloudFront/WAF play this role (phase 8). Also in this phase: rate limit `/auth/refresh` and `/auth/verify`.
 7. **Email reminders (later, after the app works locally):** scheduled job for expiring and unregistered bills. Email provider **DECIDED:** Resend. Schedule **OPEN**.
 8. **AWS + Terraform (later):** network, database, compute, secrets, HTTPS, backups.
 
