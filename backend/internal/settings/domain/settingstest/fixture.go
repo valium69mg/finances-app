@@ -36,7 +36,7 @@ func RealConfig() settings.Config {
 			"inversiones":          D("0.35"),
 			"aguinaldo_vacaciones": D("0.15"),
 		},
-		InvestmentAllocation: map[string]decimal.Decimal{"voo": D("1")},
+		InvestmentAllocation: []settings.Weight{{Key: "voo", Value: D("1")}},
 		Instruments: []settings.Instrument{
 			{ID: "liquidez-gbm", Name: "Liquidez diaria GBM (p.ej. Smart Cash)", Type: "liquidez", Platform: "GBM"},
 			{ID: "cetes-28", Name: "CETES 28 días", Type: "deuda", Platform: "GBM"},

@@ -21,6 +21,13 @@ type Bracket struct {
 	Rate  decimal.Decimal
 }
 
+// Weight is the share of a split assigned to a key (for example an instrument
+// ID). Order matters: it breaks ties when distributing rounding remainders.
+type Weight struct {
+	Key   string
+	Value decimal.Decimal
+}
+
 // Category is an income, expense or savings category. A nil Budget means no
 // budget; a zero Budget is also treated as "no budget" by percentage and
 // deviation calculations.
@@ -64,7 +71,7 @@ type Config struct {
 
 	// InvestmentAllocation holds the weight of each instrument for the
 	// investments category (asignacion_inversiones).
-	InvestmentAllocation map[string]decimal.Decimal
+	InvestmentAllocation []Weight
 
 	Instruments          []Instrument
 	InstrumentByCategory map[string]string
