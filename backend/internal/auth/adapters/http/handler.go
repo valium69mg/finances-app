@@ -18,6 +18,7 @@ const maxBodyBytes = 1 << 20
 
 // Service is the set of use cases the handlers need.
 type Service interface {
+	Identify(ctx context.Context, email, ip string) (app.IdentifyStatus, error)
 	Login(ctx context.Context, email, password, ip string) (*app.Session, error)
 	Refresh(ctx context.Context, refreshToken string) (*app.Session, error)
 	Logout(ctx context.Context, refreshToken string) error
@@ -42,6 +43,7 @@ func New(svc Service, logger *slog.Logger) *Handler {
 
 // Register mounts the auth routes on mux.
 func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("POST /auth/identify", h.identify)
 	mux.HandleFunc("POST /auth/login", h.login)
 	mux.HandleFunc("POST /auth/refresh", h.refresh)
 	mux.HandleFunc("POST /auth/logout", h.logout)
@@ -73,6 +75,10 @@ func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, userID)))
 	})
+}
+
+type identifyRequest struct {
+	Email string `json:"email"`
 }
 
 type loginRequest struct {
@@ -119,10 +125,29 @@ func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		h.internalError(w, "login", err)
 	case sess == nil:
-		// Identical for unknown and unverified emails.
-		writeJSON(w, http.StatusAccepted, map[string]string{"status": "verification_pending"})
+		// Contract violation: Login returns a session or an error, never neither.
+		h.internalError(w, "login", errors.New("login returned no session and no error"))
 	default:
 		writeSession(w, sess)
+	}
+}
+
+func (h *Handler) identify(w http.ResponseWriter, r *http.Request) {
+	var req identifyRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	status, err := h.svc.Identify(r.Context(), req.Email, clientIP(r))
+	switch {
+	case errors.Is(err, domain.ErrInvalidEmail):
+		writeError(w, http.StatusBadRequest, "invalid_email")
+	case errors.Is(err, domain.ErrRateLimited):
+		w.Header().Set("Retry-After", "900")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+	case err != nil:
+		h.internalError(w, "identify", err)
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"status": string(status)})
 	}
 }
 

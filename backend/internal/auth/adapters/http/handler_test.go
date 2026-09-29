@@ -18,17 +18,27 @@ import (
 )
 
 type fakeService struct {
-	loginSession *app.Session
-	loginErr     error
-	refreshSess  *app.Session
-	refreshErr   error
-	logoutErr    error
-	verifyErr    error
-	me           domain.User
-	meErr        error
+	identifyStatus app.IdentifyStatus
+	identifyErr    error
+	loginSession   *app.Session
+	loginErr       error
+	refreshSess    *app.Session
+	refreshErr     error
+	logoutErr      error
+	verifyErr      error
+	me             domain.User
+	meErr          error
+
+	identifyCalls int
 
 	gotIP, gotEmail, gotRefresh string
 	gotVerifyToken, gotPassword string
+}
+
+func (f *fakeService) Identify(_ context.Context, email, ip string) (app.IdentifyStatus, error) {
+	f.gotEmail, f.gotIP = email, ip
+	f.identifyCalls++
+	return f.identifyStatus, f.identifyErr
 }
 
 func (f *fakeService) Login(_ context.Context, email, _ string, ip string) (*app.Session, error) {
@@ -100,8 +110,8 @@ func TestLogin(t *testing.T) {
 	}{
 		{"verified user gets tokens", fakeService{loginSession: goodSession}, `{"email":"a@b.co","password":"pw"}`,
 			200, "access_token", "acc"},
-		{"generic response", fakeService{}, `{"email":"a@b.co","password":"pw"}`,
-			202, "status", "verification_pending"},
+		{"nil session without error is an internal error", fakeService{}, `{"email":"a@b.co","password":"pw"}`,
+			500, "error", "internal_error"},
 		{"wrong password", fakeService{loginErr: domain.ErrInvalidCredentials}, `{"email":"a@b.co","password":"x"}`,
 			401, "error", "invalid_credentials"},
 		{"rate limited", fakeService{loginErr: domain.ErrRateLimited}, `{"email":"a@b.co","password":"x"}`,
@@ -145,10 +155,137 @@ func TestLoginBodyAndClientIP(t *testing.T) {
 	}
 }
 
-func TestGenericLoginResponsesAreIdentical(t *testing.T) {
-	// The handler cannot tell unknown from unverified: both reach it as (nil, nil).
-	a := do(t, newServer(&fakeService{}), "POST", "/auth/login", `{"email":"ghost@b.co","password":"x"}`, "")
-	b := do(t, newServer(&fakeService{}), "POST", "/auth/login", `{"email":"new@b.co","password":"x"}`, "")
+func TestLoginNeverAnswers202(t *testing.T) {
+	// A nil session with no error must not surface as a "pending" response any more.
+	// The service contract is (session, nil) or (nil, error); guard the JSON anyway.
+	for _, err := range []error{domain.ErrInvalidCredentials, domain.ErrRateLimited, domain.ErrInvalidEmail} {
+		rec := do(t, newServer(&fakeService{loginErr: err}), "POST", "/auth/login", `{"email":"a@b.co","password":"x"}`, "")
+		if rec.Code == http.StatusAccepted {
+			t.Fatalf("err %v produced 202", err)
+		}
+	}
+}
+
+func TestLoginRateLimitedSetsRetryAfter(t *testing.T) {
+	rec := do(t, newServer(&fakeService{loginErr: domain.ErrRateLimited}), "POST", "/auth/login", `{"email":"a@b.co","password":"x"}`, "")
+	if rec.Header().Get("Retry-After") != "900" {
+		t.Fatalf("Retry-After = %q", rec.Header().Get("Retry-After"))
+	}
+}
+
+func TestLoginAndUnknownUnverifiedAreIdentical(t *testing.T) {
+	// Wrong password, unknown and unverified all reach the handler as ErrInvalidCredentials.
+	a := do(t, newServer(&fakeService{loginErr: domain.ErrInvalidCredentials}), "POST", "/auth/login", `{"email":"ghost@b.co","password":"x"}`, "")
+	b := do(t, newServer(&fakeService{loginErr: domain.ErrInvalidCredentials}), "POST", "/auth/login", `{"email":"new@b.co","password":"x"}`, "")
+	if a.Code != 401 || a.Code != b.Code || a.Body.String() != b.Body.String() {
+		t.Fatalf("responses differ: %d %q vs %d %q", a.Code, a.Body, b.Code, b.Body)
+	}
+}
+
+func TestIdentify(t *testing.T) {
+	tests := []struct {
+		name       string
+		svc        fakeService
+		body       string
+		wantStatus int
+		wantKey    string
+		wantValue  any
+	}{
+		{"verified account", fakeService{identifyStatus: app.IdentifyPasswordRequired}, `{"email":"a@b.co"}`,
+			200, "status", "password_required"},
+		{"unverified or unknown", fakeService{identifyStatus: app.IdentifyVerificationSent}, `{"email":"a@b.co"}`,
+			200, "status", "verification_sent"},
+		{"invalid email", fakeService{identifyErr: domain.ErrInvalidEmail}, `{"email":"nope"}`,
+			400, "error", "invalid_email"},
+		{"rate limited", fakeService{identifyErr: domain.ErrRateLimited}, `{"email":"a@b.co"}`,
+			429, "error", "rate_limited"},
+		{"internal error hides details", fakeService{identifyErr: errors.New("db password=hunter2")}, `{"email":"a@b.co"}`,
+			500, "error", "internal_error"},
+		{"malformed json", fakeService{}, `{`, 400, "error", "invalid_request"},
+		{"empty body", fakeService{}, ``, 400, "error", "invalid_request"},
+		{"not an object", fakeService{}, `["a@b.co"]`, 400, "error", "invalid_request"},
+		{"wrong type", fakeService{}, `{"email":42}`, 400, "error", "invalid_request"},
+		{"unknown field", fakeService{}, `{"email":"a@b.co","password":"x"}`, 400, "error", "invalid_request"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := tt.svc
+			rec := do(t, newServer(&svc), "POST", "/auth/identify", tt.body, "")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tt.wantStatus, rec.Body)
+			}
+			body := decodeMap(t, rec)
+			if body[tt.wantKey] != tt.wantValue {
+				t.Fatalf("%s = %v, want %v", tt.wantKey, body[tt.wantKey], tt.wantValue)
+			}
+			if len(body) != 1 {
+				t.Fatalf("body must contain only %q: %v", tt.wantKey, body)
+			}
+			if strings.Contains(rec.Body.String(), "hunter2") {
+				t.Fatal("internal error details leaked")
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("content type = %q", got)
+			}
+			if rec.Header().Get("Cache-Control") != "no-store" {
+				t.Error("responses must not be cacheable")
+			}
+			if (tt.wantStatus == 429) != (rec.Header().Get("Retry-After") != "") {
+				t.Errorf("Retry-After = %q on status %d", rec.Header().Get("Retry-After"), tt.wantStatus)
+			}
+			if tt.wantStatus == 400 && tt.svc.identifyErr == nil && svc.identifyCalls != 0 {
+				t.Error("service must not be called for an undecodable body")
+			}
+		})
+	}
+}
+
+func TestIdentifyPassesEmailAndPeerIP(t *testing.T) {
+	svc := &fakeService{identifyStatus: app.IdentifyPasswordRequired}
+	do(t, newServer(svc), "POST", "/auth/identify", `{"email":" A@B.co "}`, "")
+	if svc.gotEmail != " A@B.co " || svc.gotIP != "203.0.113.9" {
+		t.Fatalf("email=%q ip=%q", svc.gotEmail, svc.gotIP)
+	}
+}
+
+func TestIdentifyDoesNotTrustForwardingHeaders(t *testing.T) {
+	svc := &fakeService{identifyStatus: app.IdentifyPasswordRequired}
+	req := httptest.NewRequest("POST", "/auth/identify", strings.NewReader(`{"email":"a@b.co"}`))
+	req.RemoteAddr = "203.0.113.9:5555"
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	req.Header.Set("X-Real-IP", "5.6.7.8")
+	req.Header.Set("Forwarded", "for=9.9.9.9")
+	newServer(svc).ServeHTTP(httptest.NewRecorder(), req)
+	if svc.gotIP != "203.0.113.9" {
+		t.Fatalf("ip = %q, want the peer address", svc.gotIP)
+	}
+}
+
+func TestIdentifyBodySizeLimit(t *testing.T) {
+	svc := &fakeService{identifyStatus: app.IdentifyPasswordRequired}
+	huge := `{"email":"` + strings.Repeat("a", 2<<20) + `@b.co"}`
+	rec := do(t, newServer(svc), "POST", "/auth/identify", huge, "")
+	if rec.Code != http.StatusBadRequest || decodeMap(t, rec)["error"] != "invalid_request" {
+		t.Fatalf("status = %d body = %.80s", rec.Code, rec.Body)
+	}
+	if svc.identifyCalls != 0 {
+		t.Fatal("oversized bodies must not reach the service")
+	}
+}
+
+func TestIdentifyWrongMethod(t *testing.T) {
+	for _, method := range []string{"GET", "PUT", "DELETE", "PATCH"} {
+		rec := do(t, newServer(&fakeService{}), method, "/auth/identify", `{"email":"a@b.co"}`, "")
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Errorf("%s: status = %d, want 405", method, rec.Code)
+		}
+	}
+}
+
+func TestIdentifyResponsesForUnverifiedAndUnknownAreIdentical(t *testing.T) {
+	// Both reach the handler as IdentifyVerificationSent.
+	a := do(t, newServer(&fakeService{identifyStatus: app.IdentifyVerificationSent}), "POST", "/auth/identify", `{"email":"ghost@b.co"}`, "")
+	b := do(t, newServer(&fakeService{identifyStatus: app.IdentifyVerificationSent}), "POST", "/auth/identify", `{"email":"new@b.co"}`, "")
 	if a.Code != b.Code || a.Body.String() != b.Body.String() {
 		t.Fatalf("responses differ: %d %q vs %d %q", a.Code, a.Body, b.Code, b.Body)
 	}

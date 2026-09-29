@@ -11,13 +11,50 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
 )
 
+// Rate limits. All windows are fixed windows measured by the limiter's clock.
 const (
-	loginEmailLimit  = 5
-	loginIPLimit     = 20
-	loginWindow      = 15 * time.Minute
+	// IdentifyIPLimit is the number of identify calls one client IP may make per
+	// IdentifyIPWindow. There is deliberately no per-email identify limit: it
+	// would let anyone lock the account owner out of the first step.
+	IdentifyIPLimit  = 10
+	IdentifyIPWindow = 15 * time.Minute
+
+	// VerifyMailCooldown is the minimum gap between two verification emails to
+	// the same address; VerifyMailHourlyLimit caps them per VerifyMailHourWindow.
+	// When exceeded the email is silently not sent.
+	VerifyMailCooldown    = 60 * time.Second
+	VerifyMailHourlyLimit = 5
+	VerifyMailHourWindow  = time.Hour
+
+	// LoginEmailFailLimit and LoginIPFailLimit bound FAILED password attempts per
+	// LoginFailWindow, per email and per client IP. Successful logins and
+	// identify calls never consume this budget.
+	LoginEmailFailLimit = 5
+	LoginIPFailLimit    = 20
+	LoginFailWindow     = 15 * time.Minute
+)
+
+const (
+	keyIdentifyIP     = "identify:ip:"
+	keyVerifyCooldown = "verify:cooldown:"
+	keyVerifyHourly   = "verify:hourly:"
+	keyLoginFailEmail = "login:fail:email:"
+	keyLoginFailIP    = "login:fail:ip:"
+
 	mailSendTimeout  = 15 * time.Second
 	verifyLinkParam  = "token"
 	verifyLinkSuffix = "/verify"
+)
+
+// IdentifyStatus is the outcome of the email-first identification step.
+type IdentifyStatus string
+
+const (
+	// IdentifyPasswordRequired means the account exists and is verified.
+	IdentifyPasswordRequired IdentifyStatus = "password_required"
+	// IdentifyVerificationSent is returned for unverified AND unknown emails so
+	// the two cases look identical; only "verified account" is disclosed.
+	IdentifyVerificationSent IdentifyStatus = "verification_sent"
 )
 
 // Session is the token pair returned after a successful login or refresh.
@@ -39,7 +76,7 @@ type Deps struct {
 	// AppBaseURL is the frontend origin; the verification link is <AppBaseURL>/verify?token=...
 	AppBaseURL string
 	// Spawn runs background work (the verification email). Defaults to a goroutine;
-	// sending in the background keeps login timing independent of the account state.
+	// sending in the background keeps identify timing independent of the account state.
 	Spawn  func(func())
 	Logger *slog.Logger
 }
@@ -63,40 +100,78 @@ func NewService(d Deps) *Service {
 	return &Service{Deps: d}
 }
 
-// Login authenticates a verified user. For an unknown or unverified email it
-// returns (nil, nil) and, for an unverified one, sends a verification email in
-// the background: callers must answer both cases identically.
+// Identify is step one of the email-first login. It reports whether the email
+// belongs to a verified account (password step next). For an unverified account
+// it triggers the verification email in the background; for an unknown email it
+// does nothing but answers exactly like the unverified case. Enumeration of
+// verified accounts is an accepted trade-off (see PLAN.md §5).
+func (s *Service) Identify(ctx context.Context, rawEmail, ip string) (IdentifyStatus, error) {
+	if !s.Limiter.Allow(keyIdentifyIP+ip, IdentifyIPLimit, IdentifyIPWindow) {
+		return "", domain.ErrRateLimited
+	}
+	email, err := domain.NormalizeEmail(rawEmail)
+	if err != nil {
+		return "", err
+	}
+
+	user, err := s.Users.FindByEmail(ctx, email)
+	if errors.Is(err, domain.ErrNotFound) {
+		return IdentifyVerificationSent, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("find user: %w", err)
+	}
+	if user.Verified {
+		return IdentifyPasswordRequired, nil
+	}
+
+	s.sendVerificationInBackground(ctx, user)
+	return IdentifyVerificationSent, nil
+}
+
+// sendVerificationInBackground emails a verification link unless the address
+// hit its cooldown or hourly cap, in which case it silently does nothing.
+// Sending in the background keeps response timing independent of the account state.
+func (s *Service) sendVerificationInBackground(ctx context.Context, user domain.User) {
+	// A request suppressed by one limit must not consume the other: the hourly
+	// budget is only peeked first and recorded once the cooldown lets it through.
+	if !s.Limiter.Peek(keyVerifyHourly+user.Email, VerifyMailHourlyLimit, VerifyMailHourWindow) ||
+		!s.Limiter.Allow(keyVerifyCooldown+user.Email, 1, VerifyMailCooldown) {
+		s.Logger.Info("verification email suppressed by rate limit", "user_id", user.ID)
+		return
+	}
+	s.Limiter.Record(keyVerifyHourly+user.Email, VerifyMailHourWindow)
+	bg := context.WithoutCancel(ctx)
+	s.Spawn(func() {
+		bg, cancel := context.WithTimeout(bg, mailSendTimeout)
+		defer cancel()
+		if err := s.RequestVerification(bg, user); err != nil {
+			s.Logger.Error("send verification email", "error", err)
+		}
+	})
+}
+
+// Login is step two: it only authenticates. Unknown, unverified and wrong-password
+// cases all return domain.ErrInvalidCredentials, and no email is ever sent.
+// Only failed attempts consume the per-email and per-IP budgets.
 func (s *Service) Login(ctx context.Context, rawEmail, password, ip string) (*Session, error) {
 	email, err := domain.NormalizeEmail(rawEmail)
 	if err != nil {
 		return nil, err
 	}
-	if !s.Limiter.Allow("login:email:"+email, loginEmailLimit, loginWindow) ||
-		!s.Limiter.Allow("login:ip:"+ip, loginIPLimit, loginWindow) {
+	emailKey, ipKey := keyLoginFailEmail+email, keyLoginFailIP+ip
+	if !s.Limiter.Peek(emailKey, LoginEmailFailLimit, LoginFailWindow) ||
+		!s.Limiter.Peek(ipKey, LoginIPFailLimit, LoginFailWindow) {
 		return nil, domain.ErrRateLimited
 	}
 
 	user, err := s.Users.FindByEmail(ctx, email)
-	if errors.Is(err, domain.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
+	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return nil, fmt.Errorf("find user: %w", err)
 	}
-
-	if !user.Verified {
-		bg := context.WithoutCancel(ctx)
-		s.Spawn(func() {
-			bg, cancel := context.WithTimeout(bg, mailSendTimeout)
-			defer cancel()
-			if err := s.RequestVerification(bg, user); err != nil {
-				s.Logger.Error("send verification email", "error", err)
-			}
-		})
-		return nil, nil
-	}
-
-	if !domain.CheckPassword(user.PasswordHash, password) {
+	if err != nil || !user.Verified || !domain.CheckPassword(user.PasswordHash, password) {
+		s.Limiter.Record(emailKey, LoginFailWindow)
+		s.Limiter.Record(ipKey, LoginFailWindow)
 		return nil, domain.ErrInvalidCredentials
 	}
 	return s.issueSession(ctx, user.ID)

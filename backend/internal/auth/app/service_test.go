@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/url"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/ratelimit"
 	"github.com/valium69mg/finances-app/backend/internal/auth/app"
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
 )
@@ -131,10 +133,6 @@ func (f *fakeMailer) SendVerification(_ context.Context, to, link string) error 
 	return nil
 }
 
-type fakeLimiter struct{ deny bool }
-
-func (f *fakeLimiter) Allow(string, int, time.Duration) bool { return !f.deny }
-
 type env struct {
 	svc     *app.Service
 	clock   *fakeClock
@@ -142,13 +140,13 @@ type env struct {
 	refresh *fakeRefresh
 	verif   *fakeVerification
 	mailer  *fakeMailer
-	limiter *fakeLimiter
 }
 
 const (
-	verifiedEmail   = "ok@example.com"
-	unverifiedEmail = "new@example.com"
-	password        = "correct horse battery"
+	verifiedEmail        = "ok@example.com"
+	unverifiedEmail      = "new@example.com"
+	otherUnverifiedEmail = "other@example.com"
+	password             = "correct horse battery"
 )
 
 func newEnv(t *testing.T) *env {
@@ -162,11 +160,11 @@ func newEnv(t *testing.T) *env {
 		users: &fakeUsers{byID: map[string]domain.User{
 			"u1": {ID: "u1", Email: verifiedEmail, PasswordHash: hash, Verified: true},
 			"u2": {ID: "u2", Email: unverifiedEmail, PasswordHash: hash, Verified: false},
+			"u3": {ID: "u3", Email: otherUnverifiedEmail, PasswordHash: hash, Verified: false},
 		}},
 		refresh: &fakeRefresh{tokens: map[string]*domain.RefreshToken{}},
 		verif:   &fakeVerification{tokens: map[string]*domain.VerificationToken{}},
 		mailer:  &fakeMailer{},
-		limiter: &fakeLimiter{},
 	}
 	e.svc = app.NewService(app.Deps{
 		Users:              e.users,
@@ -174,7 +172,7 @@ func newEnv(t *testing.T) *env {
 		VerificationTokens: e.verif,
 		Mailer:             e.mailer,
 		Clock:              e.clock,
-		Limiter:            e.limiter,
+		Limiter:            ratelimit.New(e.clock.Now),
 		JWTSecret:          []byte(strings.Repeat("k", 32)),
 		AppBaseURL:         "https://app.example.com",
 		Spawn:              func(fn func()) { fn() },
@@ -183,72 +181,77 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
-func TestLogin(t *testing.T) {
+const wrongPassword = "nope nope nope"
+
+var ctx = context.Background()
+
+func ipN(i int) string { return fmt.Sprintf("198.51.100.%d", i) }
+
+func TestIdentify(t *testing.T) {
 	tests := []struct {
-		name        string
-		email       string
-		password    string
-		wantSession bool
-		wantErr     error
-		wantMails   int
+		name       string
+		email      string
+		wantStatus app.IdentifyStatus
+		wantErr    error
+		wantMailTo string
 	}{
-		{"verified user with right password", verifiedEmail, password, true, nil, 0},
-		{"email is normalized", "  OK@Example.com ", password, true, nil, 0},
-		{"verified user with wrong password", verifiedEmail, "nope nope nope", false, domain.ErrInvalidCredentials, 0},
-		{"unknown email is generic", "ghost@example.com", password, false, nil, 0},
-		{"unverified is generic and sends mail", unverifiedEmail, "whatever", false, nil, 1},
-		{"invalid email", "not-an-email", password, false, domain.ErrInvalidEmail, 0},
+		{"verified account needs a password", verifiedEmail, app.IdentifyPasswordRequired, nil, ""},
+		{"verified email is normalized", "  OK@Example.com ", app.IdentifyPasswordRequired, nil, ""},
+		{"unverified account gets a verification email", unverifiedEmail, app.IdentifyVerificationSent, nil, unverifiedEmail},
+		{"unverified email is normalized before sending", "\tNEW@EXAMPLE.COM\n", app.IdentifyVerificationSent, nil, unverifiedEmail},
+		{"unknown email sends nothing", "ghost@example.com", app.IdentifyVerificationSent, nil, ""},
+		{"empty", "", "", domain.ErrInvalidEmail, ""},
+		{"only whitespace", "   ", "", domain.ErrInvalidEmail, ""},
+		{"no at sign", "not-an-email", "", domain.ErrInvalidEmail, ""},
+		{"two at signs", "a@b@c.com", "", domain.ErrInvalidEmail, ""},
+		{"display name form", "Ana <ana@example.com>", "", domain.ErrInvalidEmail, ""},
+		{"too long", strings.Repeat("a", 250) + "@example.com", "", domain.ErrInvalidEmail, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t)
-			sess, err := e.svc.Login(context.Background(), tt.email, tt.password, "1.2.3.4")
+			status, err := e.svc.Identify(ctx, tt.email, "1.2.3.4")
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
-			if (sess != nil) != tt.wantSession {
-				t.Fatalf("session = %v, want present=%v", sess, tt.wantSession)
+			if status != tt.wantStatus {
+				t.Fatalf("status = %q, want %q", status, tt.wantStatus)
 			}
-			if len(e.mailer.sent) != tt.wantMails {
-				t.Fatalf("mails = %d, want %d", len(e.mailer.sent), tt.wantMails)
+			wantMails := 0
+			if tt.wantMailTo != "" {
+				wantMails = 1
 			}
-			if sess != nil {
-				uid, err := e.svc.Authenticate(sess.AccessToken)
-				if err != nil || uid != "u1" {
-					t.Errorf("access token invalid: %q, %v", uid, err)
-				}
-				if sess.RefreshToken == "" || sess.ExpiresIn != domain.AccessTokenTTL {
-					t.Errorf("bad session: %+v", sess)
-				}
+			if len(e.mailer.sent) != wantMails {
+				t.Fatalf("mails = %d, want %d", len(e.mailer.sent), wantMails)
+			}
+			if wantMails == 1 && e.mailer.sent[0].to != tt.wantMailTo {
+				t.Errorf("mail to %q, want %q", e.mailer.sent[0].to, tt.wantMailTo)
 			}
 		})
 	}
 }
 
-func TestLoginGenericResponseIsIndistinguishable(t *testing.T) {
+func TestIdentifyUnknownAndUnverifiedAreIndistinguishable(t *testing.T) {
 	e := newEnv(t)
-	unknown, errUnknown := e.svc.Login(context.Background(), "ghost@example.com", "x", "ip")
-	unverified, errUnverified := e.svc.Login(context.Background(), unverifiedEmail, "x", "ip")
-	if unknown != nil || unverified != nil || errUnknown != nil || errUnverified != nil {
-		t.Fatalf("unknown=(%v,%v) unverified=(%v,%v): want identical (nil,nil)", unknown, errUnknown, unverified, errUnverified)
+	unknown, errUnknown := e.svc.Identify(ctx, "ghost@example.com", "ip-a")
+	unverified, errUnverified := e.svc.Identify(ctx, unverifiedEmail, "ip-b")
+	if unknown != unverified || errUnknown != nil || errUnverified != nil {
+		t.Fatalf("unknown=(%q,%v) unverified=(%q,%v): want identical", unknown, errUnknown, unverified, errUnverified)
 	}
 }
 
-func TestLoginRateLimited(t *testing.T) {
+func TestIdentifyMailFailureStaysGeneric(t *testing.T) {
 	e := newEnv(t)
-	e.limiter.deny = true
-	sess, err := e.svc.Login(context.Background(), unverifiedEmail, password, "ip")
-	if !errors.Is(err, domain.ErrRateLimited) || sess != nil {
-		t.Fatalf("got %v, %v; want ErrRateLimited", sess, err)
-	}
-	if len(e.mailer.sent) != 0 {
-		t.Fatal("no email may be sent when rate limited")
+	e.mailer.err = errors.New("resend down")
+	status, err := e.svc.Identify(ctx, unverifiedEmail, "ip")
+	if status != app.IdentifyVerificationSent || err != nil {
+		t.Fatalf("got %q, %v; want verification_sent, nil", status, err)
 	}
 }
 
-func TestLoginVerificationEmailContent(t *testing.T) {
+func TestIdentifyVerificationEmailContent(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.svc.Login(context.Background(), unverifiedEmail, "x", "ip"); err != nil {
+	if _, err := e.svc.Identify(ctx, unverifiedEmail, "ip"); err != nil {
 		t.Fatal(err)
 	}
 	if len(e.mailer.sent) != 1 {
@@ -275,12 +278,424 @@ func TestLoginVerificationEmailContent(t *testing.T) {
 	}
 }
 
-func TestLoginMailFailureStaysGeneric(t *testing.T) {
+func TestIdentifyNeverCreatesTokensForVerifiedOrUnknown(t *testing.T) {
 	e := newEnv(t)
-	e.mailer.err = errors.New("resend down")
-	sess, err := e.svc.Login(context.Background(), unverifiedEmail, "x", "ip")
-	if sess != nil || err != nil {
-		t.Fatalf("got %v, %v; want (nil, nil)", sess, err)
+	for _, email := range []string{verifiedEmail, "ghost@example.com"} {
+		if _, err := e.svc.Identify(ctx, email, "ip"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(e.verif.tokens) != 0 || len(e.mailer.sent) != 0 {
+		t.Fatalf("tokens=%d mails=%d, want none", len(e.verif.tokens), len(e.mailer.sent))
+	}
+}
+
+func TestIdentifyIPLimit(t *testing.T) {
+	e := newEnv(t)
+	for i := 1; i <= app.IdentifyIPLimit; i++ {
+		if _, err := e.svc.Identify(ctx, verifiedEmail, "1.1.1.1"); err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	status, err := e.svc.Identify(ctx, verifiedEmail, "1.1.1.1")
+	if !errors.Is(err, domain.ErrRateLimited) || status != "" {
+		t.Fatalf("call %d: got %q, %v; want ErrRateLimited", app.IdentifyIPLimit+1, status, err)
+	}
+	if _, err := e.svc.Identify(ctx, verifiedEmail, "2.2.2.2"); err != nil {
+		t.Fatalf("another IP must be unaffected: %v", err)
+	}
+
+	e.clock.now = t0.Add(app.IdentifyIPWindow - time.Second)
+	if _, err := e.svc.Identify(ctx, verifiedEmail, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("still inside the window: %v", err)
+	}
+	e.clock.now = t0.Add(app.IdentifyIPWindow)
+	if _, err := e.svc.Identify(ctx, verifiedEmail, "1.1.1.1"); err != nil {
+		t.Fatalf("window must reset: %v", err)
+	}
+}
+
+func TestIdentifyIPLimitCountsEveryKindOfCall(t *testing.T) {
+	e := newEnv(t)
+	emails := []string{verifiedEmail, unverifiedEmail, "ghost@example.com", "bad", verifiedEmail}
+	for i := 0; i < app.IdentifyIPLimit; i++ {
+		_, _ = e.svc.Identify(ctx, emails[i%len(emails)], "1.1.1.1")
+	}
+	if _, err := e.svc.Identify(ctx, verifiedEmail, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("err = %v, want ErrRateLimited", err)
+	}
+	if _, err := e.svc.Identify(ctx, "bad", "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("limit must win over validation: %v", err)
+	}
+}
+
+func TestIdentifyRateLimitedSendsNoEmail(t *testing.T) {
+	e := newEnv(t)
+	for range app.IdentifyIPLimit {
+		_, _ = e.svc.Identify(ctx, verifiedEmail, "1.1.1.1")
+	}
+	if _, err := e.svc.Identify(ctx, unverifiedEmail, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatal(err)
+	}
+	if len(e.mailer.sent) != 0 {
+		t.Fatal("no email may be sent when rate limited")
+	}
+}
+
+func TestIdentifyHasNoPerEmailLimit(t *testing.T) {
+	e := newEnv(t)
+	// Many different clients asking about the same account never get blocked:
+	// a per-email limit would let an attacker lock the owner out of step one.
+	for i := range 200 {
+		status, err := e.svc.Identify(ctx, verifiedEmail, ipN(i))
+		if err != nil || status != app.IdentifyPasswordRequired {
+			t.Fatalf("call %d: %q, %v", i, status, err)
+		}
+	}
+}
+
+func TestIdentifyDoesNotConsumeLoginBudget(t *testing.T) {
+	e := newEnv(t)
+	for range app.IdentifyIPLimit {
+		if _, err := e.svc.Identify(ctx, verifiedEmail, "1.1.1.1"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := 1; i <= app.LoginEmailFailLimit; i++ {
+		if _, err := e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1"); !errors.Is(err, domain.ErrInvalidCredentials) {
+			t.Fatalf("failure %d: err = %v, want ErrInvalidCredentials", i, err)
+		}
+	}
+}
+
+func TestVerificationEmailCooldown(t *testing.T) {
+	steps := []struct {
+		name     string
+		at       time.Duration
+		wantMail bool
+	}{
+		{"first request sends", 0, true},
+		{"immediately again is suppressed", 0, false},
+		{"just before the cooldown ends", VerifyCooldownMinusOne, false},
+		{"exactly at the cooldown", app.VerifyMailCooldown, true},
+		{"right after a send is suppressed again", app.VerifyMailCooldown + time.Second, false},
+	}
+	e := newEnv(t)
+	for i, s := range steps {
+		e.clock.now = t0.Add(s.at)
+		before := len(e.mailer.sent)
+		status, err := e.svc.Identify(ctx, unverifiedEmail, ipN(i))
+		if err != nil || status != app.IdentifyVerificationSent {
+			t.Fatalf("%s: %q, %v; response must always be verification_sent", s.name, status, err)
+		}
+		if sent := len(e.mailer.sent) > before; sent != s.wantMail {
+			t.Fatalf("%s: sent = %v, want %v", s.name, sent, s.wantMail)
+		}
+	}
+}
+
+// VerifyCooldownMinusOne is one nanosecond short of the cooldown.
+const VerifyCooldownMinusOne = app.VerifyMailCooldown - time.Nanosecond
+
+func TestVerificationEmailHourlyCap(t *testing.T) {
+	e := newEnv(t)
+	call := func(i int, at time.Duration) bool {
+		e.clock.now = t0.Add(at)
+		before := len(e.mailer.sent)
+		if _, err := e.svc.Identify(ctx, unverifiedEmail, ipN(i)); err != nil {
+			t.Fatal(err)
+		}
+		return len(e.mailer.sent) > before
+	}
+
+	n := 0
+	for k := range app.VerifyMailHourlyLimit {
+		n++
+		if !call(n, time.Duration(k)*app.VerifyMailCooldown) {
+			t.Fatalf("email %d within the cap must be sent", k+1)
+		}
+	}
+	over := time.Duration(app.VerifyMailHourlyLimit) * app.VerifyMailCooldown
+	n++
+	if call(n, over) {
+		t.Fatal("email over the hourly cap must be suppressed")
+	}
+	n++
+	if call(n, app.VerifyMailHourWindow-time.Second) {
+		t.Fatal("still suppressed just before the hourly window ends")
+	}
+	n++
+	if !call(n, app.VerifyMailHourWindow) {
+		t.Fatal("hourly window must reset")
+	}
+	if got := len(e.mailer.sent); got != app.VerifyMailHourlyLimit+1 {
+		t.Fatalf("total mails = %d, want %d", got, app.VerifyMailHourlyLimit+1)
+	}
+}
+
+func TestSuppressedRequestsDoNotBurnTheHourlyCap(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.svc.Identify(ctx, unverifiedEmail, ipN(0)); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 30; i++ { // all inside the cooldown
+		_, _ = e.svc.Identify(ctx, unverifiedEmail, ipN(i))
+	}
+	if len(e.mailer.sent) != 1 {
+		t.Fatalf("mails = %d, want 1", len(e.mailer.sent))
+	}
+	for k := 1; k < app.VerifyMailHourlyLimit; k++ {
+		e.clock.now = t0.Add(time.Duration(k) * app.VerifyMailCooldown)
+		before := len(e.mailer.sent)
+		_, _ = e.svc.Identify(ctx, unverifiedEmail, ipN(100+k))
+		if len(e.mailer.sent) != before+1 {
+			t.Fatalf("send %d must not be blocked by earlier suppressed requests", k+1)
+		}
+	}
+}
+
+func TestVerificationEmailLimitsArePerEmail(t *testing.T) {
+	e := newEnv(t)
+	for i, email := range []string{unverifiedEmail, otherUnverifiedEmail, unverifiedEmail, otherUnverifiedEmail} {
+		if _, err := e.svc.Identify(ctx, email, ipN(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(e.mailer.sent) != 2 {
+		t.Fatalf("mails = %d, want 2 (one per address)", len(e.mailer.sent))
+	}
+	if e.mailer.sent[0].to == e.mailer.sent[1].to {
+		t.Fatal("each address must get its own email")
+	}
+}
+
+func TestVerificationEmailLimitsDoNotConsumeLoginOrIdentifyBudgetsElsewhere(t *testing.T) {
+	e := newEnv(t)
+	for i := range 3 {
+		if _, err := e.svc.Identify(ctx, unverifiedEmail, ipN(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A different IP still has its full budget, and login failures are untouched.
+	for i := 1; i <= app.LoginEmailFailLimit; i++ {
+		if _, err := e.svc.Login(ctx, unverifiedEmail, wrongPassword, ipN(50)); !errors.Is(err, domain.ErrInvalidCredentials) {
+			t.Fatalf("failure %d: %v", i, err)
+		}
+	}
+}
+
+func TestLogin(t *testing.T) {
+	tests := []struct {
+		name        string
+		email       string
+		password    string
+		wantSession bool
+		wantErr     error
+	}{
+		{"verified user with right password", verifiedEmail, password, true, nil},
+		{"email is normalized", "  OK@Example.com ", password, true, nil},
+		{"verified user with wrong password", verifiedEmail, wrongPassword, false, domain.ErrInvalidCredentials},
+		{"empty password", verifiedEmail, "", false, domain.ErrInvalidCredentials},
+		{"unknown email", "ghost@example.com", password, false, domain.ErrInvalidCredentials},
+		{"unverified account even with its stored password", unverifiedEmail, password, false, domain.ErrInvalidCredentials},
+		{"unverified account with a wrong password", unverifiedEmail, wrongPassword, false, domain.ErrInvalidCredentials},
+		{"invalid email", "not-an-email", password, false, domain.ErrInvalidEmail},
+		{"empty email", "", password, false, domain.ErrInvalidEmail},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			sess, err := e.svc.Login(ctx, tt.email, tt.password, "1.2.3.4")
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if (sess != nil) != tt.wantSession {
+				t.Fatalf("session = %v, want present=%v", sess, tt.wantSession)
+			}
+			if len(e.mailer.sent) != 0 || len(e.verif.tokens) != 0 {
+				t.Fatalf("login must never send email: mails=%d tokens=%d", len(e.mailer.sent), len(e.verif.tokens))
+			}
+			if sess != nil {
+				uid, err := e.svc.Authenticate(sess.AccessToken)
+				if err != nil || uid != "u1" {
+					t.Errorf("access token invalid: %q, %v", uid, err)
+				}
+				if sess.RefreshToken == "" || sess.ExpiresIn != domain.AccessTokenTTL {
+					t.Errorf("bad session: %+v", sess)
+				}
+			}
+		})
+	}
+}
+
+func TestLoginUnknownUnverifiedAndWrongPasswordAreIdentical(t *testing.T) {
+	e := newEnv(t)
+	cases := []struct{ email, password string }{
+		{verifiedEmail, wrongPassword},
+		{"ghost@example.com", password},
+		{unverifiedEmail, password},
+	}
+	for i, c := range cases {
+		sess, err := e.svc.Login(ctx, c.email, c.password, ipN(i))
+		if sess != nil || err != domain.ErrInvalidCredentials {
+			t.Fatalf("case %d: got (%v, %v), want (nil, ErrInvalidCredentials)", i, sess, err)
+		}
+	}
+}
+
+func TestLoginOnlyFailuresConsumeTheBudget(t *testing.T) {
+	e := newEnv(t)
+	// Far more successes than either limit allows must never lock anything.
+	for i := range app.LoginIPFailLimit + app.LoginEmailFailLimit + 5 {
+		if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); err != nil {
+			t.Fatalf("success %d: %v", i+1, err)
+		}
+	}
+	// The full failure budget is still intact afterwards.
+	for i := 1; i <= app.LoginEmailFailLimit; i++ {
+		if _, err := e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1"); !errors.Is(err, domain.ErrInvalidCredentials) {
+			t.Fatalf("failure %d: %v", i, err)
+		}
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("after %d failures the email is locked: %v", app.LoginEmailFailLimit, err)
+	}
+}
+
+func TestLoginSuccessDoesNotResetFailures(t *testing.T) {
+	e := newEnv(t)
+	for range app.LoginEmailFailLimit - 1 {
+		_, _ = e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1")
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); err != nil {
+		t.Fatal(err)
+	}
+	_, _ = e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1") // 5th failure
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("err = %v, want ErrRateLimited", err)
+	}
+}
+
+func TestLoginLockoutPerEmail(t *testing.T) {
+	tests := []struct {
+		name  string
+		email string
+	}{
+		{"verified account", verifiedEmail},
+		{"unknown account", "ghost@example.com"},
+		{"unverified account", unverifiedEmail},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			for i := 1; i <= app.LoginEmailFailLimit; i++ {
+				if _, err := e.svc.Login(ctx, tt.email, wrongPassword, ipN(i)); !errors.Is(err, domain.ErrInvalidCredentials) {
+					t.Fatalf("failure %d: %v", i, err)
+				}
+			}
+			// The budget is checked before the password is verified, so even the
+			// right password is refused, from any IP.
+			sess, err := e.svc.Login(ctx, tt.email, password, "9.9.9.9")
+			if !errors.Is(err, domain.ErrRateLimited) || sess != nil {
+				t.Fatalf("got (%v, %v), want ErrRateLimited", sess, err)
+			}
+			if len(e.mailer.sent) != 0 {
+				t.Fatal("no email may be sent")
+			}
+		})
+	}
+}
+
+func TestLoginLockoutIsIsolatedPerEmail(t *testing.T) {
+	e := newEnv(t)
+	for range app.LoginEmailFailLimit {
+		_, _ = e.svc.Login(ctx, "ghost@example.com", wrongPassword, "1.1.1.1")
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); err != nil {
+		t.Fatalf("another email must be unaffected: %v", err)
+	}
+}
+
+func TestLoginIPLimitAcrossEmails(t *testing.T) {
+	e := newEnv(t)
+	for i := 1; i <= app.LoginIPFailLimit; i++ {
+		email := fmt.Sprintf("ghost%d@example.com", i) // each email stays under its own limit
+		if _, err := e.svc.Login(ctx, email, wrongPassword, "6.6.6.6"); !errors.Is(err, domain.ErrInvalidCredentials) {
+			t.Fatalf("failure %d: %v", i, err)
+		}
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "6.6.6.6"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("IP must be locked out, got %v", err)
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "7.7.7.7"); err != nil {
+		t.Fatalf("another IP must be unaffected: %v", err)
+	}
+}
+
+func TestLoginBudgetResetsAfterWindow(t *testing.T) {
+	e := newEnv(t)
+	for range app.LoginEmailFailLimit {
+		_, _ = e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1")
+	}
+
+	e.clock.now = t0.Add(app.LoginFailWindow / 2)
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("mid-window: %v", err)
+	}
+	e.clock.now = t0.Add(app.LoginFailWindow - time.Nanosecond)
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("just before the end: %v (blocked attempts must not extend the window)", err)
+	}
+	e.clock.now = t0.Add(app.LoginFailWindow)
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); err != nil {
+		t.Fatalf("window over: %v", err)
+	}
+}
+
+func TestLoginIPBudgetResetsAfterWindow(t *testing.T) {
+	e := newEnv(t)
+	for i := 1; i <= app.LoginIPFailLimit; i++ {
+		_, _ = e.svc.Login(ctx, fmt.Sprintf("ghost%d@example.com", i), wrongPassword, "6.6.6.6")
+	}
+	e.clock.now = t0.Add(app.LoginFailWindow)
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "6.6.6.6"); err != nil {
+		t.Fatalf("IP budget must reset: %v", err)
+	}
+}
+
+func TestLoginLockoutDoesNotBlockIdentify(t *testing.T) {
+	e := newEnv(t)
+	for range app.LoginEmailFailLimit {
+		_, _ = e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1")
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatal("precondition: locked")
+	}
+	status, err := e.svc.Identify(ctx, verifiedEmail, "1.1.1.1")
+	if err != nil || status != app.IdentifyPasswordRequired {
+		t.Fatalf("identify while locked: %q, %v", status, err)
+	}
+}
+
+func TestLoginInvalidEmailDoesNotConsumeBudget(t *testing.T) {
+	e := newEnv(t)
+	for range 50 {
+		if _, err := e.svc.Login(ctx, "nope", password, "1.1.1.1"); !errors.Is(err, domain.ErrInvalidEmail) {
+			t.Fatal(err)
+		}
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoginNeverSendsEmail(t *testing.T) {
+	e := newEnv(t)
+	for i := range 30 {
+		_, _ = e.svc.Login(ctx, unverifiedEmail, password, ipN(i))
+	}
+	if len(e.mailer.sent) != 0 || len(e.verif.tokens) != 0 {
+		t.Fatalf("mails=%d tokens=%d, want none", len(e.mailer.sent), len(e.verif.tokens))
 	}
 }
 
@@ -388,7 +803,7 @@ func TestLogoutRevokesOnlyPresentedToken(t *testing.T) {
 
 func requestToken(t *testing.T, e *env) string {
 	t.Helper()
-	if _, err := e.svc.Login(context.Background(), unverifiedEmail, "x", "ip"); err != nil {
+	if _, err := e.svc.Identify(context.Background(), unverifiedEmail, "ip"); err != nil {
 		t.Fatal(err)
 	}
 	u, err := url.Parse(e.mailer.sent[len(e.mailer.sent)-1].link)

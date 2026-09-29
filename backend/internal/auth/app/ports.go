@@ -50,9 +50,16 @@ type Clock interface {
 	Now() time.Time
 }
 
-// RateLimiter reports whether one more event under key fits in the window.
+// RateLimiter counts events per key in fixed windows.
 type RateLimiter interface {
+	// Allow records one event and reports whether it fits in limit events per
+	// window. A rejected event is not counted.
 	Allow(key string, limit int, window time.Duration) bool
+	// Peek reports whether one more event would fit, without recording it.
+	Peek(key string, limit int, window time.Duration) bool
+	// Record counts one event unconditionally. Pair it with Peek to count only
+	// some outcomes (e.g. failed logins).
+	Record(key string, window time.Duration)
 }
 
 // SystemClock is the wall clock.
