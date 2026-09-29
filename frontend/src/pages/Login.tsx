@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { CheckCircle2 } from "lucide-react";
 import { ApiError } from "../api/client";
 import { login } from "../api/auth";
 import { useAuth } from "../auth/AuthContext";
-import { AuthCard, buttonClass, inputClass } from "../components/AuthCard";
+import { AuthCard, FieldError, PasswordField, SubmitButton, TextField } from "../components/AuthCard";
 
 function errorMessage(err: unknown): string {
   if (err instanceof ApiError) {
@@ -47,21 +48,36 @@ export function Login() {
   }
 
   return (
-    <AuthCard title="Iniciar sesión">
+    <AuthCard title="Iniciar sesión" subtitle="Accede a tus finanzas con tu correo y contraseña.">
       <form onSubmit={onSubmit} className="space-y-4">
-        <label className="block text-sm font-medium text-slate-700">
-          Correo electrónico
-          <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
-        </label>
-        <label className="block text-sm font-medium text-slate-700">
-          Contraseña
-          <input type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={inputClass} />
-        </label>
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        {notice && <p role="status" className="text-sm text-slate-700">{notice}</p>}
-        <button type="submit" disabled={busy} className={buttonClass}>
-          {busy ? "Entrando…" : "Entrar"}
-        </button>
+        <TextField
+          label="Correo electrónico"
+          type="email"
+          inputMode="email"
+          required
+          autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+        />
+        <div>
+          <PasswordField
+            label="Contraseña"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          {error && <FieldError id="login-error">{error}</FieldError>}
+        </div>
+        {notice && (
+          <p role="status" className="flex items-start gap-1.5 text-sm text-muted">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+            <span>{notice}</span>
+          </p>
+        )}
+        <SubmitButton busy={busy} busyLabel="Entrando…">
+          Entrar
+        </SubmitButton>
       </form>
     </AuthCard>
   );

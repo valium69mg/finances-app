@@ -14,7 +14,7 @@ export function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           {modules.map((m) => (
-            <Route key={m.path} path={m.path} element={<Placeholder title={m.label} />} />
+            <Route key={m.path} path={m.path} element={<Placeholder module={m} />} />
           ))}
         </Route>
       </Route>

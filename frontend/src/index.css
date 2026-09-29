@@ -1,3 +1,98 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/*
+ * Semantic color tokens as space-separated RGB channels so Tailwind opacity
+ * modifiers (bg-primary/10) keep working. Never use raw hex in components.
+ * Contrast (text on its paired surface) is >= 4.5:1 in both themes.
+ */
+@layer base {
+  :root {
+    color-scheme: light;
+    --color-background: 248 250 252; /* #F8FAFC */
+    --color-surface: 255 255 255; /* #FFFFFF */
+    --color-foreground: 15 23 42; /* #0F172A */
+    --color-muted: 71 85 105; /* #475569 */
+    --color-border: 203 213 225; /* #CBD5E1 */
+    --color-primary: 30 64 175; /* #1E40AF */
+    --color-on-primary: 255 255 255; /* #FFFFFF */
+    --color-secondary: 59 130 246; /* #3B82F6 (decorative, not text) */
+    --color-accent: 5 150 105; /* #059669 (decorative, not text) */
+    --color-destructive: 220 38 38; /* #DC2626 */
+    --color-ring: 59 130 246; /* #3B82F6 */
+  }
+
+  /* Follow the OS unless the user forced light via data-theme="light". */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --color-background: 11 17 32; /* #0B1120 */
+      --color-surface: 30 41 59; /* #1E293B */
+      --color-foreground: 241 245 249; /* #F1F5F9 */
+      --color-muted: 148 163 184; /* #94A3B8 */
+      --color-border: 51 65 85; /* #334155 */
+      --color-primary: 96 165 250; /* #60A5FA */
+      --color-on-primary: 11 17 32; /* #0B1120 */
+      --color-secondary: 147 197 253; /* #93C5FD */
+      --color-accent: 52 211 153; /* #34D399 */
+      --color-destructive: 248 113 113; /* #F87171 */
+      --color-ring: 96 165 250; /* #60A5FA */
+    }
+  }
+
+  /* Class-style override: <html data-theme="dark">. */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --color-background: 11 17 32;
+    --color-surface: 30 41 59;
+    --color-foreground: 241 245 249;
+    --color-muted: 148 163 184;
+    --color-border: 51 65 85;
+    --color-primary: 96 165 250;
+    --color-on-primary: 11 17 32;
+    --color-secondary: 147 197 253;
+    --color-accent: 52 211 153;
+    --color-destructive: 248 113 113;
+    --color-ring: 96 165 250;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+}
+
+@layer components {
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
