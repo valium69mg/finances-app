@@ -22,6 +22,7 @@ the owner before the affected work starts. Nothing is defaulted silently.
 | Backend | Go | confirmed |
 | Database | PostgreSQL | confirmed |
 | Frontend | installable web app (PWA) with React + TypeScript, built with Vite | confirmed; routing, data fetching, styling **OPEN** |
+| Email | Resend | confirmed; first used for login email verification (phase 3), later for bill reminders (phase 7) |
 | Infra | AWS + Terraform | confirmed; deferred until the app is ready |
 | Local runtime | Docker Compose for PostgreSQL | confirmed; host port 5442 mapped to container 5432 (5432 is taken by another local instance); PostgreSQL 18 (latest stable major; 19 is still beta). The compose file must define health checks (`pg_isready`) and dependent services wait on them |
 
@@ -74,9 +75,11 @@ category (emergency fund, aguinaldo and vacation, future expenses, investments, 
 
 ## 5. Auth (v1)
 
-- Login page. Single hardcoded user, email `carlostranquilino.cr@gmail.com`.
-- Password storage **DECIDED:** bcrypt hash in a gitignored env file. The plaintext never enters source or git history. The user is seeded into PostgreSQL at startup from that env file. A `.env.example` with placeholders is committed; the real `.env` is not.
-- Must be replaced with real credential handling before any AWS deployment.
+- Login page. Single admin user, email `carlostranquilino.cr@gmail.com`.
+- Seeding **DECIDED:** the admin is seeded into PostgreSQL with only that email and a random password (stored as a bcrypt hash). No password or hash comes from `.env`, and no plaintext credential is ever in source or git history. The seed marks the user **unverified** (flag on the user row). A `.env.example` with placeholders is committed; the real `.env` is not.
+- Email verification **DECIDED:** while the unverified flag is on, logging in leads to a forced flow: the app sends the user an email through Resend to verify the address and change the password. Completing it clears the flag. Resend API key comes from `RESEND_API_KEY` (in `.env`, placeholder in `.env.example`).
+- First credential **DECIDED:** the admin never needs the random password. Submitting the login form for an unverified user sends the verification email (verify the address and set a new password) instead of authenticating. The response is identical whether or not the email exists or is verified, so it cannot be used to probe accounts, and sending is rate limited.
+- Still **OPEN** (email flow): verification link token design (lifetime, single use, stored hashed); Resend sender address and domain; what an unverified session may access.
 - Session mechanism **DECIDED:** JWT access token (15 min) plus an opaque refresh token, both returned in the login response body. No cookies.
 - Refresh flow **DECIDED:** using a refresh token issues a new JWT and a new refresh token, and invalidates the used one (rotation). Refresh tokens are stored hashed in PostgreSQL.
 - Refresh token lifetime **DECIDED:** 7 days.
@@ -95,11 +98,11 @@ Document storage for uploaded CFDIs **DECIDED:** S3-compatible object storage. M
 
 1. **Foundation:** repo layout, Go module, Postgres via local runtime, migrations, config loading, health endpoint.
 2. **Domain port:** pure Go domain for summary, split, portfolio, invoice math, RESICO calculation, with tests.
-3. **Auth + shell:** login, session, app layout with tabs.
+3. **Auth + shell:** login, session, admin seed with random password and unverified flag, email verification and password change flow via Resend, app layout with tabs.
 4. **Modules, in this order (DECIDED):** Settings, Expenses, Income, Savings, Dashboard, Invoices, Tax Filing, Filed Records, Bills & Subscriptions, Month Close.
 5. **PWA:** manifest, service worker, installability.
 6. **Hardening:** tests across modules, backups, error handling.
-7. **Email reminders (later, after the app works locally):** scheduled job for expiring and unregistered bills. Email provider and schedule **OPEN**.
+7. **Email reminders (later, after the app works locally):** scheduled job for expiring and unregistered bills. Email provider **DECIDED:** Resend. Schedule **OPEN**.
 8. **AWS + Terraform (later):** network, database, compute, secrets, HTTPS, backups.
 
 ## 8. Open decisions
@@ -107,7 +110,7 @@ Document storage for uploaded CFDIs **DECIDED:** S3-compatible object storage. M
 1. ~~Money representation~~ **DECIDED:** exact decimal (`shopspring/decimal` + `NUMERIC`).
 2. ~~Frontend framework~~ **DECIDED:** React + TypeScript. Build tool **DECIDED:** Vite. Routing, data fetching and styling still **OPEN**.
 3. ~~How to run locally~~ **DECIDED:** Docker Compose. Host port **DECIDED:** 5442 (container stays 5432). Postgres **DECIDED:** 18 (exact image tag pinned when the compose file is written). Health checks are mandatory in `docker-compose.yml`.
-4. ~~Password storage~~ **DECIDED:** bcrypt hash in gitignored env file. ~~Session mechanism~~ **DECIDED:** JWT 15 min + rotating refresh token in response body. Remaining auth details listed in section 5.
+4. ~~Password storage~~ **DECIDED:** admin seeded with a random password (bcrypt hash in PostgreSQL), unverified flag, forced email verification and password change via Resend; nothing seeded from env vars. ~~Session mechanism~~ **DECIDED:** JWT 15 min + rotating refresh token in response body. Remaining auth details listed in section 5.
 5. ~~Module build order~~ **DECIDED** (see phase 4).
 6. ~~CFDI upload storage~~ **DECIDED:** MinIO in Docker Compose (S3 API). Host ports **DECIDED:** 9100 (API), 9101 (console).
 7. ~~How the non-emergency savings categories are shown~~ **DECIDED:** Portfolio tab dropped; Savings covers all savings categories.
