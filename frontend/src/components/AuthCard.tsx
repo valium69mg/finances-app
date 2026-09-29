@@ -1,4 +1,4 @@
-import { useId, useState, type InputHTMLAttributes, type ReactNode } from "react";
+import { useId, useState, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 import { AlertCircle, Eye, EyeOff, Loader2, Wallet } from "lucide-react";
 
 export function AuthCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
@@ -40,9 +40,11 @@ interface FieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
   label: string;
   error?: string | null;
   hint?: string;
+  /** Lets the parent move focus to the input (e.g. to the first invalid field). */
+  inputRef?: Ref<HTMLInputElement>;
 }
 
-export function TextField({ label, error, hint, ...input }: FieldProps) {
+export function TextField({ label, error, hint, inputRef, ...input }: FieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
@@ -52,7 +54,7 @@ export function TextField({ label, error, hint, ...input }: FieldProps) {
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
         {label}
       </label>
-      <input {...input} id={id} aria-invalid={error ? true : undefined} aria-describedby={describedBy} className={inputClass} />
+      <input {...input} ref={inputRef} id={id} aria-invalid={error ? true : undefined} aria-describedby={describedBy} className={inputClass} />
       {hint && (
         <p id={hintId} className="mt-1.5 text-sm text-muted">
           {hint}
@@ -63,7 +65,7 @@ export function TextField({ label, error, hint, ...input }: FieldProps) {
   );
 }
 
-export function PasswordField({ label, error, hint, ...input }: FieldProps) {
+export function PasswordField({ label, error, hint, inputRef, ...input }: FieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
@@ -77,6 +79,7 @@ export function PasswordField({ label, error, hint, ...input }: FieldProps) {
       <div className="relative">
         <input
           {...input}
+          ref={inputRef}
           id={id}
           type={visible ? "text" : "password"}
           aria-invalid={error ? true : undefined}

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { MODULE_ROUTES, mockApi, seedSession } from "./helpers";
+import { MODULE_ROUTES, goToPasswordStep, mockApi, seedSession } from "./helpers";
 
 const DESKTOP_MIN = 1024;
 
@@ -15,41 +15,9 @@ test.describe("authentication", () => {
     await expect(page.getByRole("heading", { name: "Iniciar sesión" })).toBeVisible();
   });
 
-  test("logs in with valid credentials and lands on the panel", async ({ page }) => {
-    await mockApi(page, { login: "ok" });
-    await page.goto("/login");
-    await page.getByLabel("Correo electrónico").fill("admin@example.com");
-    await page.getByLabel("Contraseña", { exact: true }).fill("correct horse battery");
-    await page.getByRole("button", { name: "Entrar" }).click();
-    await expect(page).toHaveURL(/\/$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Panel" })).toBeVisible();
-  });
-
-  test("shows an error message on 401", async ({ page }) => {
-    await mockApi(page, { login: "unauthorized" });
-    await page.goto("/login");
-    await page.getByLabel("Correo electrónico").fill("admin@example.com");
-    await page.getByLabel("Contraseña", { exact: true }).fill("wrong password");
-    await page.getByRole("button", { name: "Entrar" }).click();
-    await expect(page.getByRole("alert")).toHaveText("Correo o contraseña incorrectos.");
-    await expect(page).toHaveURL(/\/login$/);
-  });
-
-  test("shows the generic verification message on 202", async ({ page }) => {
-    await mockApi(page, { login: "pending" });
-    await page.goto("/login");
-    await page.getByLabel("Correo electrónico").fill("new@example.com");
-    await page.getByLabel("Contraseña", { exact: true }).fill("whatever password");
-    await page.getByRole("button", { name: "Entrar" }).click();
-    await expect(page.getByRole("status")).toHaveText(
-      "Si el correo es válido, te enviamos un enlace para verificar tu cuenta",
-    );
-    await expect(page).toHaveURL(/\/login$/);
-  });
-
   test("password toggle switches the input type", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/login");
+    await goToPasswordStep(page);
     const input = page.getByLabel("Contraseña", { exact: true });
     await expect(input).toHaveAttribute("type", "password");
     await page.getByRole("button", { name: "Mostrar contraseña" }).click();

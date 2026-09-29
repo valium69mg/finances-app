@@ -1,4 +1,4 @@
-import { api } from "./client";
+import { ApiError, api } from "./client";
 import { tokenStore, type TokenPair } from "./tokens";
 
 export interface Me {
@@ -7,20 +7,37 @@ export interface Me {
   verified: boolean;
 }
 
-export type LoginResult = { kind: "session" } | { kind: "verification_pending" };
+/**
+ * Outcome of step one of the login.
+ * - `password_required`: the account exists and is verified.
+ * - `verification_sent`: the account is unverified or unknown (the API answers the
+ *   same for both; a verification email is sent only for real unverified accounts).
+ */
+export type IdentifyStatus = "password_required" | "verification_sent";
 
-// Bypass the wrapper for login: the API answers 200 with tokens or 202 pending,
-// and the wrapper only exposes the parsed body, so we distinguish by shape.
-export async function login(email: string, password: string): Promise<LoginResult> {
-  const body = await api.request<TokenPair | { status: string }>("/auth/login", {
+const IDENTIFY_STATUSES: readonly string[] = ["password_required", "verification_sent"];
+
+export async function identify(email: string): Promise<IdentifyStatus> {
+  const body = await api.request<{ status?: unknown }>("/auth/identify", {
+    body: { email },
+    anonymous: true,
+  });
+  if (typeof body?.status !== "string" || !IDENTIFY_STATUSES.includes(body.status)) {
+    throw new ApiError(200, "unexpected_response");
+  }
+  return body.status as IdentifyStatus;
+}
+
+/** Step two: authenticates and stores the session. Rejects with ApiError on 401/429/400. */
+export async function login(email: string, password: string): Promise<void> {
+  const body = await api.request<Partial<TokenPair>>("/auth/login", {
     body: { email, password },
     anonymous: true,
   });
-  if ("access_token" in body) {
-    tokenStore.set(body);
-    return { kind: "session" };
+  if (!body?.access_token || !body.refresh_token) {
+    throw new ApiError(200, "unexpected_response");
   }
-  return { kind: "verification_pending" };
+  tokenStore.set(body as TokenPair);
 }
 
 export async function logout(): Promise<void> {
