@@ -255,6 +255,14 @@ func TestRegisterFilingGuards(t *testing.T) {
 	if _, err := taxfiling.RegisterFiling(cfg, octoberInvoices(), nil, filings, in); !errors.Is(err, taxfiling.ErrAlreadyFiled) {
 		t.Errorf("duplicate filing error = %v, want ErrAlreadyFiled", err)
 	}
+	for name, bad := range map[string]taxfiling.FilingInput{
+		"negative ISR": {Period: "2026-10", Date: "2026-11-15", ISRPaid: d("-1"), IVAPaid: d("1")},
+		"negative IVA": {Period: "2026-10", Date: "2026-11-15", ISRPaid: d("1"), IVAPaid: d("-1")},
+	} {
+		if _, err := taxfiling.RegisterFiling(cfg, octoberInvoices(), nil, nil, bad); !errors.Is(err, taxfiling.ErrNegativePayment) {
+			t.Errorf("%s error = %v, want ErrNegativePayment", name, err)
+		}
+	}
 	if _, ok := taxfiling.FindFiling(filings, "2026-09"); ok {
 		t.Error("FindFiling(2026-09) should not be found")
 	}

@@ -19,6 +19,9 @@ import (
 // ErrAlreadyFiled is returned when a period already has a registered filing.
 var ErrAlreadyFiled = errors.New("period already filed")
 
+// ErrNegativePayment is returned when a filing reports a negative ISR or IVA payment.
+var ErrNegativePayment = errors.New("payment amount cannot be negative")
+
 const paymentMethodTransfer = "Transferencia"
 
 // DueDate returns the filing deadline of a YYYY-MM period: the 17th of the
@@ -224,13 +227,16 @@ type Registration struct {
 }
 
 // RegisterFiling registers a filed declaration. It fails when the period is
-// already filed. The payment becomes an Impuestos expense; if client B's
+// already filed or when the ISR or IVA payment is negative. The payment becomes an Impuestos expense; if client B's
 // share of it can be covered from the SAT reserve, a negative Reserva SAT
 // savings movement records the withdrawal. Movement IDs are left for the
 // caller to assign.
 func RegisterFiling(cfg settings.Config, all []invoices.Invoice, movements []ledger.Movement, filings []Filing, in FilingInput) (Registration, error) {
 	if _, filed := FindFiling(filings, in.Period); filed {
 		return Registration{}, fmt.Errorf("%w: %s", ErrAlreadyFiled, in.Period)
+	}
+	if in.ISRPaid.IsNegative() || in.IVAPaid.IsNegative() {
+		return Registration{}, ErrNegativePayment
 	}
 	if _, err := ledger.ParseDate(in.Date); err != nil {
 		return Registration{}, err
