@@ -81,7 +81,20 @@ category (emergency fund, aguinaldo and vacation, future expenses, investments, 
 - Login page. Single admin user, email `carlostranquilino.cr@gmail.com`.
 - Seeding **DECIDED:** the admin is seeded into PostgreSQL with only that email and a random password (stored as a bcrypt hash). No password or hash comes from `.env`, and no plaintext credential is ever in source or git history. The seed marks the user **unverified** (flag on the user row). A `.env.example` with placeholders is committed; the real `.env` is not.
 - Email verification **DECIDED:** while the unverified flag is on, logging in leads to a forced flow: the app sends the user an email through Resend to verify the address and change the password. Completing it clears the flag. Resend API key comes from `RESEND_API_KEY` (in `.env`, placeholder in `.env.example`).
-- First credential **DECIDED:** the admin never needs the random password. Submitting the login form for an unverified user sends the verification email (verify the address and set a new password) instead of authenticating. The response is identical whether or not the email exists or is verified, so it cannot be used to probe accounts, and sending is rate limited.
+- First credential **DECIDED:** the admin never needs the random password. Verification is triggered from the identify step (below), not from the login form.
+- Email-first login **DECIDED (supersedes the earlier single-form flow):** two steps.
+  1. `POST /auth/identify {email}` returns `200 {"status":"password_required"}` when the account exists and is verified, and `200 {"status":"verification_sent"}` when it is unverified OR unknown. Unverified accounts get the verification email in the background; unknown emails send nothing but look identical to unverified. Invalid email format: `400 invalid_email`. Rate limited: `429 rate_limited`.
+  2. Verified users enter the password: `POST /auth/login {email,password}` only authenticates. Unknown, unverified and wrong-password all return `401 invalid_credentials`; login never sends email and no longer has a 202 path.
+- Account enumeration **DECIDED (accepted by the owner):** identify discloses that an email is a verified account. Nothing else leaks (unknown and unverified are indistinguishable). This is accepted in exchange for a login page that no longer asks for a password that would be ignored.
+- Rate limits **DECIDED** (app layer, in-memory fixed windows, per process; client IP is `RemoteAddr` only, forwarding headers are never trusted):
+
+  | Limit | Scope | Budget | Counts |
+  | --- | --- | --- | --- |
+  | identify | per IP | 10 per 15 min | every identify call; deliberately NO per-email limit (it would let anyone lock the owner out) |
+  | verification email | per email | 1 per 60 s and 5 per hour | emails actually sent; when exceeded the email is silently not sent, the response stays `verification_sent` and it is logged at Info; suppressed requests do not consume the other budget |
+  | login | per email 5, per IP 20 | per 15 min | FAILED attempts only (wrong password, unknown or unverified email); successes and identify calls never consume it; the budget is checked before the password is verified and `429` is returned when exhausted |
+
+  Accepted trade-off: 5 failed logins lock that email for 15 minutes from every IP, so an attacker can delay the owner's password step (not step one, and not verification emails). Revisit with per-IP-and-email keys or a CAPTCHA if it becomes a problem.
 - Verification token **DECIDED:** 32 random bytes (base64url), stored SHA-256 hashed, 1 hour lifetime, single use.
 - Resend sender **DECIDED:** `onboarding@resend.dev` for now, overridable via `RESEND_FROM`; a custom domain comes later.
 - Unverified users **DECIDED:** never receive a session, so there is nothing an unverified session can access.
