@@ -21,6 +21,7 @@ MINIO_ROOT_USER=<user>
 MINIO_ROOT_PASSWORD=<password, min 8 chars>
 DATABASE_URL=postgres://<user>:<password>@localhost:5442/<db>?sslmode=disable
 HTTP_ADDR=:8080
+RESEND_API_KEY=                # optional for now; used by the email alerts (phase 7)
 ```
 
 Then:
