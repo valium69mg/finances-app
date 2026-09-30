@@ -40,6 +40,15 @@ type Overview struct {
 	Available   decimal.Decimal
 	Emergency   savings.EmergencyStatus
 	Tax         *TaxCard
+	// Cycle is where today sits in the displayed cycle.
+	Cycle CycleProgress
+	// Future is the plan of the expenses known in advance (yearly bills).
+	Future FutureExpenses
+	// Upcoming are the bills due within the next UpcomingDays days, overdue
+	// ones included, earliest first.
+	Upcoming []UpcomingBill
+	// Recent are the latest movements of every kind, newest first.
+	Recent []ledger.Movement
 }
 
 // ExpenseRows returns one row per Gasto budget, in order, with what the
