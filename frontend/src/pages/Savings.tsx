@@ -82,7 +82,7 @@ export function Savings() {
       <div className={panel}>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Ahorros del mes</h2>
-          <div className="w-full sm:w-56">
+          <div className="w-full min-w-0 max-w-full sm:w-56">
             <TextField label="Mes" type="month" hint={rangeHint || undefined} value={month ?? ""} onChange={(e) => e.target.value && setMonth(e.target.value)} />
           </div>
         </div>
@@ -98,7 +98,6 @@ export function Savings() {
             onEdit={(s) => {
               setSaved(false);
               setEditing(s);
-              window.scrollTo({ top: 0, behavior: "smooth" });
             }}
             onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
           />

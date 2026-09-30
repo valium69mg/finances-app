@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
+import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { createSaving, savingsKeys, updateSaving, type Saving, type SavingInput } from "../../api/savings";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
@@ -37,6 +38,7 @@ export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) 
   const [instrument, setInstrument] = useState(editing?.instrument ?? "");
   const [category, setCategory] = useState(editing?.category ?? "");
   const [errors, setErrors] = useState<{ amount?: string; rate?: string; date?: string }>({});
+  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
   const amountRef = useRef<HTMLInputElement>(null);
 
   const save = useMutation({
@@ -82,7 +84,7 @@ export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) 
   const title = editing ? "Editar ahorro" : "Nuevo ahorro";
 
   return (
-    <form noValidate onSubmit={onSubmit} aria-labelledby="saving-form-title" className="space-y-5">
+    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="saving-form-title" className="space-y-5">
       <h2 id="saving-form-title" className="text-lg font-semibold tracking-tight">
         {title}
       </h2>

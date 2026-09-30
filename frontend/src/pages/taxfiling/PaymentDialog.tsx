@@ -50,7 +50,7 @@ export function PaymentDialog({ filing, onClose, onPaid }: Props) {
   }
 
   return (
-    <Modal title={`Registrar pago de ${periodLabel(filing.period)}`} onClose={onClose}>
+    <Modal title={`Registrar pago de ${periodLabel(filing.period)}`} onClose={onClose} highlight>
       <form noValidate onSubmit={onSubmit} className="space-y-5">
         <p className="text-sm text-muted">
           Según la declaración, debías pagar {formatMoney(filing.isr_due)} de ISR y {formatMoney(amountToPay(filing.iva_due))} de IVA. Anota lo que

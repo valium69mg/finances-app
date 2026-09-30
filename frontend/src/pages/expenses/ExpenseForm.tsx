@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
+import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { createExpense, expensesKeys, inferCategory, updateExpense, type Expense, type ExpenseInput, type SaveExpenseResult } from "../../api/expenses";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
@@ -33,6 +34,7 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props)
   // The user's own category choice; null means "follow the suggestion".
   const [chosen, setChosen] = useState<string | null>(editing ? editing.category : null);
   const [errors, setErrors] = useState<{ amount?: string; rate?: string; date?: string }>({});
+  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
   const amountRef = useRef<HTMLInputElement>(null);
 
   const debouncedDescription = useDebounced(description.trim(), DEBOUNCE_MS);
@@ -88,7 +90,7 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props)
   const title = editing ? "Editar gasto" : "Nuevo gasto";
 
   return (
-    <form noValidate onSubmit={onSubmit} aria-labelledby="expense-form-title" className="space-y-5">
+    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="expense-form-title" className="space-y-5">
       <h2 id="expense-form-title" className="text-lg font-semibold tracking-tight">
         {title}
       </h2>

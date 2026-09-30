@@ -1,6 +1,7 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
+import { useFocusOnEdit } from "../hooks/useFocusOnEdit";
 import type { InvoiceState, InvoiceWarning, Periodicity } from "../api/invoices";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
@@ -19,14 +20,13 @@ export function Invoices() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [periodicity, setPeriodicity] = useState<Periodicity>("mensual");
   const [warnings, setWarnings] = useState<InvoiceWarning[]>([]);
-  const detailRef = useRef<HTMLDivElement>(null);
+  // Scrolls to the detail (and flashes it) every time a row is selected.
+  const detailRef = useFocusOnEdit<HTMLDivElement>(selectedId !== null, { focus: false, trigger: selectedId });
 
   function select(id: number, w: InvoiceWarning[] = [], p: Periodicity = "mensual") {
     setSelectedId(id);
     setWarnings(w);
     setPeriodicity(p);
-    // Let the detail mount before scrolling to it.
-    setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   return (
@@ -55,7 +55,7 @@ export function Invoices() {
       </div>
 
       {selectedId !== null && settings.data && (
-        <div ref={detailRef} className="mt-6 scroll-mt-4 rounded-xl border border-border bg-surface p-4 sm:p-6">
+        <div ref={detailRef} className="mt-6 scroll-mt-20 rounded-xl border border-border bg-surface p-4 sm:p-6">
           <InvoiceDetail
             // A new selection resets the detail's own state (periodicity, cancel confirmation).
             key={`${selectedId}-${periodicity}`}

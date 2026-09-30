@@ -429,6 +429,16 @@ test.describe("filed records page", () => {
     await expect(dialog).toBeVisible();
   });
 
+  test("opening a filing detail scrolls to it and flashes the highlight", async ({ page }) => {
+    await openRecords(page, { filings: [filing()] });
+    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
+    const detail = page.getByRole("region", { name: "Detalle de la declaración de octubre de 2026" });
+    await expect(detail).toBeInViewport();
+    const panel = detail.locator("xpath=..");
+    await expect(panel).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
+    await expect(panel).not.toHaveClass(/(^|\s)edit-highlight(\s|$)/, { timeout: 4_000 });
+  });
+
   test("shows the detail of a pending filing and deletes it after confirming", async ({ page }) => {
     const api = await openRecords(page, { invoices: [{ ...OCTOBER[0], declaration_period: PERIOD }, { ...OCTOBER[1], declaration_period: PERIOD }], filings: [filing()] });
     await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();

@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
+import { useFocusOnEdit } from "../hooks/useFocusOnEdit";
 import type { Filing, FilingResult, FilingStatus } from "../api/taxFiling";
 import { TextField } from "../components/AuthCard";
 import { SelectField } from "./expenses/SelectField";
@@ -19,15 +20,14 @@ export function FiledRecords() {
   const [selected, setSelected] = useState<string | null>(null);
   const [paying, setPaying] = useState<Filing | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const detailRef = useRef<HTMLDivElement>(null);
+  // Scrolls to the detail (and flashes it) every time a row is selected.
+  const detailRef = useFocusOnEdit<HTMLDivElement>(selected !== null, { focus: false, trigger: selected });
 
   // The year field only filters once it is a full four-digit year.
   const yearFilter = /^\d{4}$/.test(year) ? year : "";
 
   function select(period: string) {
     setSelected(period);
-    // Let the detail mount before scrolling to it.
-    setTimeout(() => detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   function onPaid(result: FilingResult) {
@@ -62,7 +62,7 @@ export function FiledRecords() {
       <UnfiledInvoices />
 
       {selected !== null && (
-        <div ref={detailRef} className="mt-6 scroll-mt-4 rounded-xl border border-border bg-surface p-4 sm:p-6">
+        <div ref={detailRef} className="mt-6 scroll-mt-20 rounded-xl border border-border bg-surface p-4 sm:p-6">
           <FilingDetail
             // A new selection resets the detail's own state (delete confirmation).
             key={selected}

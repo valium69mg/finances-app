@@ -57,7 +57,7 @@ export function PayDialog({ bill, categories, onClose, onPaid }: Props) {
   const options = withValue(categories, draft.category);
 
   return (
-    <Modal title={`Pagar ${bill.name}`} onClose={onClose}>
+    <Modal title={`Pagar ${bill.name}`} onClose={onClose} highlight>
       <form noValidate onSubmit={onSubmit} className="space-y-5">
         <p className="text-sm text-muted">
           Vencimiento del {dateLabel(due)}.{" "}

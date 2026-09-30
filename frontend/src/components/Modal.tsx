@@ -1,10 +1,13 @@
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { useFocusOnEdit } from "../hooks/useFocusOnEdit";
 
 interface Props {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** Flash the green "edit here" cue on the body (for data-entry dialogs, not confirmations). */
+  highlight?: boolean;
 }
 
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
@@ -14,7 +17,9 @@ const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), selec
  * backdrop, keeps Tab inside, locks the page scroll and gives the focus back to
  * the element that opened it.
  */
-export function Modal({ title, onClose, children }: Props) {
+export function Modal({ title, onClose, children, highlight = false }: Props) {
+  // The dialog is already in view and Modal focuses its first field, so only the cue is applied.
+  const bodyRef = useFocusOnEdit<HTMLDivElement>(highlight, { scroll: false, focus: false, inset: true });
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
@@ -68,7 +73,7 @@ export function Modal({ title, onClose, children }: Props) {
             <X className="h-6 w-6" aria-hidden="true" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );

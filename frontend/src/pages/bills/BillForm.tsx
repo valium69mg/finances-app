@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
+import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { billsKeys, createBill, updateBill, type Bill } from "../../api/bills";
 import { TextField } from "../../components/AuthCard";
 import { withValue } from "../expenses/formHelpers";
@@ -25,6 +26,7 @@ export function BillForm({ categories, editing, onSaved, onCancelEdit }: Props) 
   const qc = useQueryClient();
   const [draft, setDraft] = useState<BillDraft>(() => (editing ? draftOf(editing) : emptyDraft(todayISO(), categories[0] ?? "")));
   const [errors, setErrors] = useState<BillErrors>({});
+  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
   const nameRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
   const leadRef = useRef<HTMLInputElement>(null);
@@ -60,7 +62,7 @@ export function BillForm({ categories, editing, onSaved, onCancelEdit }: Props) 
   const title = editing ? `Editar ${editing.name}` : "Nuevo pago recurrente";
 
   return (
-    <form noValidate onSubmit={onSubmit} aria-labelledby="bill-form-title" className="space-y-5">
+    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="bill-form-title" className="space-y-5">
       <h2 id="bill-form-title" className="text-lg font-semibold tracking-tight">
         {title}
       </h2>

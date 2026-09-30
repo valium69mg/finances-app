@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from "react";
+import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, Save } from "lucide-react";
 import { registerTaxFiling, type FilingResult, type RegisterInput, type TaxPreview } from "../../api/taxFiling";
@@ -23,6 +24,7 @@ interface Props {
  * acuse and, optionally, the payment.
  */
 export function RegisterForm({ preview, onRegistered }: Props) {
+  const formRef = useFocusOnEdit<HTMLFormElement>(true, { focus: false, block: "nearest" });
   const invalidate = useInvalidateAfterFiling();
   // null = the user never touched the date, so it is "today" whenever it is read.
   const [date, setDate] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export function RegisterForm({ preview, onRegistered }: Props) {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} aria-labelledby="register-title" className="space-y-5 rounded-lg border border-border p-4">
+    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="register-title" className="space-y-5 rounded-lg border border-border p-4">
       <div>
         <h2 id="register-title" className="text-lg font-semibold tracking-tight">
           Registrar declaración presentada

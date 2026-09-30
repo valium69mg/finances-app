@@ -28,7 +28,7 @@ export function MonthClose() {
       </p>
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
-        <div className="w-full sm:w-56">
+        <div className="w-full min-w-0 max-w-full sm:w-56">
           <TextField
             label="Mes a cerrar"
             type="month"
@@ -52,10 +52,7 @@ export function MonthClose() {
               period={period}
               currentMonth={currentMonth}
               onClosed={onClosed}
-              onOpenStored={(p) => {
-                setSelected(p);
-                document.getElementById("month-close-history")?.scrollIntoView({ behavior: "smooth" });
-              }}
+              onOpenStored={setSelected}
             />
           )}
         </div>

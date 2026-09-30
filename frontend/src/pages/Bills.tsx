@@ -90,7 +90,6 @@ export function Bills() {
           onEdit={(b) => {
             setNotice(null);
             setEditing(b);
-            window.scrollTo({ top: 0, behavior: "smooth" });
           }}
           onNotice={setNotice}
           onChanged={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}

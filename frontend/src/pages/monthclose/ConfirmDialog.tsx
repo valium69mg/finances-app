@@ -21,7 +21,7 @@ interface Props {
 /** Confirmation dialog for the two irreversible-ish month close actions: storing a snapshot and discarding one. */
 export function ConfirmDialog({ title, children, confirmLabel, cancelLabel, destructive = false, pending, error, onConfirm, onCancel }: Props) {
   return (
-    <Modal title={title} onClose={pending ? () => {} : onCancel}>
+    <Modal title={title} onClose={pending ? () => {} : onCancel} highlight>
       <div className="space-y-4">
         <div className="space-y-2 text-sm">{children}</div>
         {error && <ErrorBanner>{error}</ErrorBanner>}

@@ -59,7 +59,7 @@ export function Income() {
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Ingresos del mes</h2>
-          <div className="w-full sm:w-56">
+          <div className="w-full min-w-0 max-w-full sm:w-56">
             <TextField label="Mes" type="month" hint={rangeHint || undefined} value={month ?? ""} onChange={(e) => e.target.value && setMonth(e.target.value)} />
           </div>
         </div>
@@ -74,7 +74,6 @@ export function Income() {
             onEdit={(i) => {
               setResult(null);
               setEditing(i);
-              window.scrollTo({ top: 0, behavior: "smooth" });
             }}
             onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
           />

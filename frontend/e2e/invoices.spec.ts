@@ -170,6 +170,16 @@ test.describe("invoices page", () => {
     await expect(page.getByRole("alert").filter({ hasText: "amount must be greater than zero" })).toBeVisible();
   });
 
+  test("opening an invoice detail scrolls to it and flashes the highlight", async ({ page }) => {
+    await open(page, { invoices: [seeded()] });
+    await page.getByRole("button", { name: "Ver factura #1" }).click();
+    const d = detail(page);
+    await expect(d).toBeInViewport();
+    const panel = d.locator("xpath=..");
+    await expect(panel).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
+    await expect(panel).not.toHaveClass(/(^|\s)edit-highlight(\s|$)/, { timeout: 4_000 });
+  });
+
   test("marks an invoice as issued from the XML and a PDF", async ({ page }) => {
     const api = await open(page, { invoices: [seeded()] });
     await page.getByRole("button", { name: "Ver factura #1" }).click();
