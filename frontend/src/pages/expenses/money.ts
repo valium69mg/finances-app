@@ -38,3 +38,34 @@ export function formatRatePercent(rate: string): string {
   const decimals = all.slice(pointAt).replace(/0+$/, "");
   return `${whole}${decimals ? `.${decimals}` : ""}%`;
 }
+
+/** Non-zero plain decimal with an optional leading minus, such as "250", "-250.50" (a withdrawal). */
+export const isNonZeroDecimal = (v: string) => /^-?\d+(\.\d+)?$/.test(v.trim()) && /[1-9]/.test(v);
+
+/**
+ * Formats a percentage that is already expressed as such ("12.5" -> "12.50%")
+ * with the same integer rounding as formatMoney. Returns the input untouched
+ * when it is not a plain decimal.
+ */
+export function formatPercent(value: string): string {
+  const money = formatMoney(value);
+  return money === value ? value : `${money.replace("$", "")}%`;
+}
+
+/**
+ * Share of `part` in `total` as a number between 0 and 100 with two decimals,
+ * computed with integer math. Only meant for display (bar widths, labels).
+ */
+export function percentOf(part: string, total: string): number {
+  const cents = (v: string) => {
+    const m = /^(-?)(\d+)(?:\.(\d+))?$/.exec(v.trim());
+    if (!m) return null;
+    const value = BigInt(m[2] + (m[3] ?? "").padEnd(2, "0").slice(0, 2));
+    return m[1] ? -value : value;
+  };
+  const p = cents(part);
+  const t = cents(total);
+  if (p === null || t === null || t <= 0n) return 0;
+  const bp = (p * 10000n) / t;
+  return Math.min(100, Math.max(0, Number(bp) / 100));
+}

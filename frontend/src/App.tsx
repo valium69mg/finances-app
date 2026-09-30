@@ -6,6 +6,7 @@ import { Expenses } from "./pages/Expenses";
 import { Income } from "./pages/Income";
 import { Login } from "./pages/Login";
 import { Placeholder } from "./pages/Placeholder";
+import { Savings } from "./pages/Savings";
 import { Settings } from "./pages/Settings";
 import { VerifyEmail } from "./pages/VerifyEmail";
 
@@ -13,6 +14,7 @@ function pageFor(path: string) {
   if (path === "/configuracion") return <Settings />;
   if (path === "/gastos") return <Expenses />;
   if (path === "/ingresos") return <Income />;
+  if (path === "/ahorros") return <Savings />;
   return null;
 }
 

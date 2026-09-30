@@ -73,6 +73,8 @@ export const SETTINGS_FIXTURE = {
     { name: "Inversiones", kind: "savings", budget: null, includes: "", keywords: [] },
     { name: "Sueldo", kind: "Ingreso", budget: null, includes: "", keywords: ["sueldo"] },
     { name: "Contrato extra", kind: "Ingreso", budget: null, includes: "", keywords: ["contrato"] },
+    { name: "Fondo de emergencia", kind: "Ahorro", budget: null, includes: "", keywords: ["emergencia"] },
+    { name: "Inversión ETF", kind: "Ahorro", budget: null, includes: "", keywords: ["etf"] },
   ],
   clients: [
     {
@@ -96,8 +98,11 @@ export const SETTINGS_FIXTURE = {
     },
   ],
   instruments: {
-    instruments: [{ id: "i1", name: "VOO", type: "ETF", platform: "GBM" }],
-    by_category: { Inversiones: "i1" },
+    instruments: [
+      { id: "i1", name: "VOO", type: "ETF", platform: "GBM" },
+      { id: "i2", name: "CETES", type: "Renta fija", platform: "Cetesdirecto" },
+    ],
+    by_category: { Inversiones: "i1", "Inversión ETF": "i1", "Fondo de emergencia": "i2" },
   },
   brackets: [
     { upper: "25000.00", rate: "0.0100" },
@@ -125,7 +130,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[] } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[] } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -137,6 +142,10 @@ export async function mockApi(
   const incomeFail = opts.incomeFail;
   const income: MockIncome[] = structuredClone(opts.income ?? []);
   let nextIncomeId = income.reduce((max, e) => Math.max(max, e.id), 0) + 1;
+  const savingsFail = opts.savingsFail;
+  const savings: MockSaving[] = structuredClone(opts.savings ?? []);
+  let nextSavingId = savings.reduce((max, e) => Math.max(max, e.id), 0) + 1;
+  const valuations: MockValuation[] = structuredClone(opts.valuations ?? []);
   const requests: RecordedRequest[] = [];
   const writes: RecordedWrite[] = [];
   // In-memory settings so a saved change is served back on the next GET.
@@ -184,6 +193,67 @@ export async function mockApi(
       const row = buildIncome(id, body, settings);
       income[index] = row;
       return json(route, 200, incomeResult(row, income, false));
+    }
+
+    if (pathname === "/savings/portfolio" && request.method() === "GET") {
+      if (opts.portfolioFail) return json(route, 500, { error: "internal_error" });
+      return json(route, 200, buildPortfolio(savings, valuations, settings));
+    }
+    if (pathname === "/savings/valuations") {
+      if (request.method() === "GET") return json(route, 200, valuations);
+      if (request.method() === "POST") {
+        const body = request.postDataJSON();
+        requests.push({ path: pathname, body });
+        if (savingsFail) return json(route, 400, { error: "invalid_valuation", message: savingsFail });
+        const valuation: MockValuation = { date: body.date ?? todayLocal(), instrument: body.instrument, value_mxn: body.value_mxn, note: body.note ?? "" };
+        valuations.push(valuation);
+        return json(route, 201, valuation);
+      }
+    }
+    if (pathname === "/savings/transfers" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      requests.push({ path: pathname, body });
+      if (savingsFail) return json(route, 400, { error: "invalid_saving", message: savingsFail });
+      const description = body.description || `Traspaso ${body.from} -> ${body.to}`;
+      const category = body.category || "Inversiones";
+      const leg = (instrument: string, amount: string) =>
+        buildSaving(nextSavingId++, { instrument, amount, description, category, date: body.date }, settings);
+      const out = leg(body.from, `-${body.amount}`);
+      const inn = leg(body.to, body.amount);
+      savings.push(out, inn);
+      return json(route, 201, { out, in: inn });
+    }
+    if (pathname === "/savings" && request.method() === "GET") {
+      if (opts.savingsListFail) return json(route, 500, { error: "internal_error" });
+      const month = searchParams.get("month") ?? "";
+      const rows = savings
+        .filter((e) => e.date.startsWith(month))
+        .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
+      return json(route, 200, rows);
+    }
+    if (pathname === "/savings" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      requests.push({ path: pathname, body });
+      if (savingsFail) return json(route, 400, { error: "invalid_saving", message: savingsFail });
+      const row = buildSaving(nextSavingId++, body, settings);
+      savings.push(row);
+      return json(route, 201, row);
+    }
+    const savingMatch = /^\/savings\/(\d+)$/.exec(pathname);
+    if (savingMatch && (request.method() === "PUT" || request.method() === "DELETE")) {
+      const id = Number(savingMatch[1]);
+      const body = request.method() === "PUT" ? request.postDataJSON() : undefined;
+      writes.push({ method: request.method(), path: pathname, body });
+      const index = savings.findIndex((e) => e.id === id);
+      if (index < 0) return json(route, 404, { error: "not_found" });
+      if (request.method() === "DELETE") {
+        savings.splice(index, 1);
+        return json(route, 204);
+      }
+      if (savingsFail) return json(route, 400, { error: "invalid_saving", message: savingsFail });
+      const row = buildSaving(id, body, settings);
+      savings[index] = row;
+      return json(route, 200, row);
     }
 
     if (pathname === "/expenses/infer-category") {
@@ -266,7 +336,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes, expenses, income };
+  return { requests, writes, expenses, income, savings, valuations };
 }
 
 export interface MockIncome {
@@ -338,6 +408,88 @@ function incomeResult(row: MockIncome, all: MockIncome[], withSplit: boolean) {
             investment_breakdown: [{ instrument: "voo", amount: "292" }],
           }
         : null,
+  };
+}
+
+export interface MockSaving {
+  id: number;
+  date: string;
+  description: string;
+  category: string;
+  instrument: string;
+  payment_method: string;
+  currency: string;
+  amount: string;
+  exchange_rate: string | null;
+  amount_mxn: string;
+}
+
+export interface MockValuation {
+  date: string;
+  instrument: string;
+  value_mxn: string;
+  note: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildSaving(id: number, body: any, settings: any): MockSaving {
+  const category = body.category || "Inversiones";
+  return {
+    id,
+    date: body.date ?? todayLocal(),
+    description: body.description ?? "",
+    category,
+    instrument: body.instrument || settings.instruments.by_category[category] || "",
+    payment_method: body.payment_method ?? "Transferencia",
+    currency: "MXN",
+    amount: body.amount,
+    exchange_rate: null,
+    amount_mxn: body.amount,
+  };
+}
+
+/** Portfolio computed from the in-memory savings and valuations; a later valuation wins. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildPortfolio(savings: MockSaving[], valuations: MockValuation[], settings: any) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = settings.instruments.instruments.map((inst: any) => {
+    const contributed = savings.filter((s) => s.instrument === inst.id).reduce((sum, s) => sum + Number(s.amount_mxn), 0);
+    const latest = valuations.filter((v) => v.instrument === inst.id).reduce<MockValuation | null>((acc, v) => (!acc || v.date >= acc.date ? v : acc), null);
+    const value = latest ? Number(latest.value_mxn) : 0;
+    const gain = latest ? value - contributed : 0;
+    return { inst, contributed, latest, value, gain };
+  });
+  const totalValue = rows.reduce((sum: number, r: { value: number }) => sum + r.value, 0);
+  const totalContributed = rows.reduce((sum: number, r: { contributed: number }) => sum + r.contributed, 0);
+  const byType = new Map<string, { contributed: number; value: number }>();
+  for (const r of rows) {
+    const t = byType.get(r.inst.type) ?? { contributed: 0, value: 0 };
+    t.contributed += r.contributed;
+    t.value += r.value;
+    byType.set(r.inst.type, t);
+  }
+  const byDestination = new Map<string, number>();
+  for (const s of savings) byDestination.set(s.category, (byDestination.get(s.category) ?? 0) + Number(s.amount_mxn));
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    rows: rows.map((r: any) => ({
+      id: r.inst.id,
+      name: r.inst.name,
+      type: r.inst.type,
+      platform: r.inst.platform,
+      contributed: r.contributed.toFixed(2),
+      value: r.value.toFixed(2),
+      value_date: r.latest ? r.latest.date : null,
+      unvalued: !r.latest,
+      gain: r.gain.toFixed(2),
+      gain_pct: r.latest && r.contributed !== 0 ? ((r.gain * 100) / r.contributed).toFixed(2) : "0",
+      pct_of_total: totalValue !== 0 ? ((r.value * 100) / totalValue).toFixed(2) : "0",
+    })),
+    total_contributed: totalContributed.toFixed(2),
+    total_value: totalValue.toFixed(2),
+    by_type: [...byType].map(([type, t]) => ({ type, contributed: t.contributed.toFixed(2), value: t.value.toFixed(2) })),
+    by_destination: [...byDestination].map(([category, balance]) => ({ category, balance: balance.toFixed(2) })),
+    emergency: { accumulated: (byDestination.get("Fondo de emergencia") ?? 0).toFixed(2), goal: "60000.00" },
   };
 }
 

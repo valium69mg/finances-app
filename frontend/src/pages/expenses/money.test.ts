@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMoney, formatRatePercent, isPositiveDecimal, todayISO } from "./money";
+import { formatMoney, formatPercent, formatRatePercent, isNonZeroDecimal, isPositiveDecimal, percentOf, todayISO } from "./money";
 
 describe("formatMoney", () => {
   it("pads, groups and rounds decimal strings without floats", () => {
@@ -42,5 +42,35 @@ describe("isPositiveDecimal", () => {
 describe("todayISO", () => {
   it("formats local dates with zero padding", () => {
     expect(todayISO(new Date(2026, 0, 5))).toBe("2026-01-05");
+  });
+});
+
+describe("isNonZeroDecimal", () => {
+  it("accepts positive and negative decimals but not zero or junk", () => {
+    expect(isNonZeroDecimal("250")).toBe(true);
+    expect(isNonZeroDecimal("-250.50")).toBe(true);
+    expect(isNonZeroDecimal("0")).toBe(false);
+    expect(isNonZeroDecimal("-0.00")).toBe(false);
+    expect(isNonZeroDecimal("1,5")).toBe(false);
+    expect(isNonZeroDecimal("-")).toBe(false);
+  });
+});
+
+describe("formatPercent", () => {
+  it("formats an existing percentage with two decimals", () => {
+    expect(formatPercent("12.5")).toBe("12.50%");
+    expect(formatPercent("-3.456")).toBe("-3.46%");
+    expect(formatPercent("0")).toBe("0.00%");
+    expect(formatPercent("x")).toBe("x");
+  });
+});
+
+describe("percentOf", () => {
+  it("computes a clamped share with integer math", () => {
+    expect(percentOf("25", "100")).toBe(25);
+    expect(percentOf("1", "3")).toBe(33.33);
+    expect(percentOf("150", "100")).toBe(100);
+    expect(percentOf("-5", "100")).toBe(0);
+    expect(percentOf("5", "0")).toBe(0);
   });
 });
