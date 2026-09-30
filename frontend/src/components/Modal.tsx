@@ -73,7 +73,7 @@ export function Modal({ title, onClose, children, highlight = false }: Props) {
             <X className="h-6 w-6" aria-hidden="true" />
           </button>
         </div>
-        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-y-auto p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))]">{children}</div>
       </div>
     </div>
   );

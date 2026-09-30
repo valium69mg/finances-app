@@ -131,7 +131,7 @@ export function Layout() {
       </aside>
 
       <div className="lg:pl-64">
-        <header className="sticky top-0 z-20 border-b border-border bg-surface">
+        <header className="sticky top-0 z-20 border-b border-border bg-surface pt-[env(safe-area-inset-top)]">
           <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
             <div className="flex items-center gap-2 lg:hidden">
               <button
@@ -168,7 +168,7 @@ export function Layout() {
           </div>
         </header>
 
-        <main id="contenido" ref={mainRef} tabIndex={-1} className="mx-auto max-w-6xl px-4 py-8 outline-none sm:px-6">
+        <main id="contenido" ref={mainRef} tabIndex={-1} className="mx-auto max-w-6xl px-4 pb-[calc(2rem+env(safe-area-inset-bottom))] pt-8 outline-none sm:px-6">
           <Outlet />
         </main>
       </div>
@@ -183,7 +183,7 @@ export function Layout() {
           className="fixed inset-0 z-40 lg:hidden"
         >
           <div className="absolute inset-0 animate-fade-in bg-foreground/50" onClick={closeDrawer} aria-hidden="true" />
-          <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] animate-drawer-in flex-col border-r border-border bg-surface shadow-xl">
+          <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] animate-drawer-in flex-col border-r border-border bg-surface pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-xl">
             <div className="flex h-16 shrink-0 items-center justify-between border-b border-border pl-5 pr-3">
               <Brand />
               <button
