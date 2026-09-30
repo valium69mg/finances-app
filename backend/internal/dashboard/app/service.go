@@ -1,6 +1,7 @@
 // Package app holds the dashboard use case: the read-only monthly summary that
-// replaces the /finanzas command of fin.py. It composes the settings, income
-// and savings modules through small ports and duplicates none of their rules.
+// replaces the /finanzas command of fin.py. It composes the settings, income,
+// savings and tax filing modules through small ports and duplicates none of
+// their rules.
 package app
 
 import (
@@ -14,6 +15,7 @@ import (
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
 	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
+	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
 )
 
 // Settings is the part of the settings module the dashboard consumes.
@@ -30,6 +32,12 @@ type Income interface {
 	MonthSummary(ctx context.Context, month string) (incomeapp.Summary, error)
 }
 
+// Filings is the part of the tax filing module the dashboard consumes: the
+// payment state of the filing of a month and the state of the previous period.
+type Filings interface {
+	MonthStatus(ctx context.Context, month string) (taxfiling.MonthStatus, error)
+}
+
 // Movements is the read side of the shared movement storage.
 type Movements interface {
 	ListByMonth(ctx context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error)
@@ -41,15 +49,16 @@ type Service struct {
 	movements Movements
 	settings  Settings
 	income    Income
+	filings   Filings
 	now       func() time.Time
 }
 
 // NewService builds a Service. A nil now selects time.Now.
-func NewService(movements Movements, settings Settings, income Income, now func() time.Time) *Service {
+func NewService(movements Movements, settings Settings, income Income, filings Filings, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{movements: movements, settings: settings, income: income, now: now}
+	return &Service{movements: movements, settings: settings, income: income, filings: filings, now: now}
 }
 
 // Month builds the dashboard of a YYYY-MM month (the current one when empty).
@@ -112,7 +121,11 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 		Emergency: emergency,
 	}
 	if summary.Resico != nil {
-		out.Tax = &dashboard.TaxCard{Rate: summary.Resico.Rate, EstimatedISR: summary.Resico.EstimatedISR}
+		status, err := s.filings.MonthStatus(ctx, month)
+		if err != nil {
+			return dashboard.Overview{}, err
+		}
+		out.Tax = &dashboard.TaxCard{Rate: summary.Resico.Rate, EstimatedISR: summary.Resico.EstimatedISR, Filing: status}
 	}
 	return out, nil
 }

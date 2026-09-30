@@ -58,10 +58,17 @@ type emergencyDTO struct {
 	Goal        decimal.Decimal `json:"goal"`
 }
 
-// taxDTO is the estimated RESICO ISR of the month. It has no payment status.
+// taxDTO is the estimated RESICO ISR of the month plus its filing status.
+// filing_status is the payment state of the filing of this month (ninguna when
+// not filed yet, pendiente when filed and unpaid, pagada); previous_period is
+// the month before and previous_period_pending tells whether it still needs
+// action (unfiled with issued invoices, or filed and unpaid).
 type taxDTO struct {
-	Rate         decimal.Decimal `json:"rate"`
-	EstimatedISR decimal.Decimal `json:"estimated_isr"`
+	Rate                  decimal.Decimal `json:"rate"`
+	EstimatedISR          decimal.Decimal `json:"estimated_isr"`
+	FilingStatus          string          `json:"filing_status"`
+	PreviousPeriod        string          `json:"previous_period"`
+	PreviousPeriodPending bool            `json:"previous_period_pending"`
 }
 
 // dashboardDTO is the body of GET /dashboard. Tax is null when the tax
@@ -91,7 +98,10 @@ func toDTO(d dashboard.Overview) dashboardDTO {
 		out.Categories[i] = categoryDTO{Category: r.Name, Spent: r.Real, Budget: r.Budget, Remaining: r.Diff, OverBudget: r.OverBudget()}
 	}
 	if d.Tax != nil {
-		out.Tax = &taxDTO{Rate: d.Tax.Rate, EstimatedISR: d.Tax.EstimatedISR}
+		out.Tax = &taxDTO{
+			Rate: d.Tax.Rate, EstimatedISR: d.Tax.EstimatedISR, FilingStatus: string(d.Tax.Filing.Payment),
+			PreviousPeriod: d.Tax.Filing.PreviousPeriod, PreviousPeriodPending: d.Tax.Filing.PreviousPending,
+		}
 	}
 	return out
 }

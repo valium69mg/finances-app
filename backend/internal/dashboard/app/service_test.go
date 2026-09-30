@@ -15,6 +15,7 @@ import (
 	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
 	"github.com/valium69mg/finances-app/backend/internal/settings/domain/settingstest"
+	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
 )
 
 var d = settingstest.D
@@ -48,6 +49,19 @@ func (f *fakeIncome) MonthSummary(_ context.Context, month string) (incomeapp.Su
 	return f.summary, f.err
 }
 
+type fakeFilings struct {
+	status taxfiling.MonthStatus
+	err    error
+	month  string
+	calls  int
+}
+
+func (f *fakeFilings) MonthStatus(_ context.Context, month string) (taxfiling.MonthStatus, error) {
+	f.month = month
+	f.calls++
+	return f.status, f.err
+}
+
 type fakeMovements struct{ rows []ledger.Movement }
 
 func (f *fakeMovements) ListByMonth(_ context.Context, month string, kind ledger.Kind, _ int) ([]ledger.Movement, error) {
@@ -74,6 +88,11 @@ func mv(date string, kind ledger.Kind, category, amount string) ledger.Movement 
 }
 
 func newService() (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements) {
+	svc, st, inc, mvs, _ := newServiceWithFilings()
+	return svc, st, inc, mvs
+}
+
+func newServiceWithFilings() (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements, *fakeFilings) {
 	st := &fakeSettings{
 		cfg: settingstest.RealConfig(),
 		budgets: []settingsapp.CategoryBudget{
@@ -99,7 +118,8 @@ func newService() (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements) {
 		mv("2026-10-03", ledger.KindIncome, "Sueldo", "50000"),              // income comes from the income port
 	}}
 	now := func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }
-	return app.NewService(mvs, st, inc, now), st, inc, mvs
+	filings := &fakeFilings{status: taxfiling.MonthStatus{Payment: taxfiling.PaymentNone, PreviousPeriod: "2026-09"}}
+	return app.NewService(mvs, st, inc, filings, now), st, inc, mvs, filings
 }
 
 func TestMonthComposesTheSummary(t *testing.T) {
@@ -185,11 +205,40 @@ func TestMonthEmptyMonth(t *testing.T) {
 }
 
 func TestMonthWithoutTaxSettingsHasNoTaxCard(t *testing.T) {
-	svc, _, inc, _ := newService()
+	svc, _, inc, _, filings := newServiceWithFilings()
 	inc.summary.Resico = nil
 	got, err := svc.Month(context.Background(), "2026-10")
 	if err != nil || got.Tax != nil {
 		t.Errorf("tax = %+v, err = %v, want nil tax and no error", got.Tax, err)
+	}
+	if filings.calls != 0 {
+		t.Error("the filings are only queried when there is a tax card")
+	}
+}
+
+func TestMonthTaxCardCarriesTheFilingStatus(t *testing.T) {
+	svc, _, _, _, filings := newServiceWithFilings()
+	filings.status = taxfiling.MonthStatus{Payment: taxfiling.PaymentPaid, PreviousPeriod: "2026-09", PreviousPending: true}
+	got, err := svc.Month(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filings.month != "2026-10" {
+		t.Errorf("status queried for %q, want the requested month", filings.month)
+	}
+	// The ISR estimate and its rate are kept next to the status.
+	if got.Tax == nil || !got.Tax.Rate.Equal(d("0.011")) || !got.Tax.EstimatedISR.Equal(d("550")) ||
+		got.Tax.Filing.Payment != taxfiling.PaymentPaid || got.Tax.Filing.PreviousPeriod != "2026-09" || !got.Tax.Filing.PreviousPending {
+		t.Errorf("tax = %+v", got.Tax)
+	}
+}
+
+func TestMonthPropagatesFilingErrors(t *testing.T) {
+	svc, _, _, _, filings := newServiceWithFilings()
+	boom := errors.New("boom")
+	filings.err = boom
+	if _, err := svc.Month(context.Background(), "2026-10"); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want boom", err)
 	}
 }
 

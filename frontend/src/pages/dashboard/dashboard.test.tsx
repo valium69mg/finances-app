@@ -1,6 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Dashboard, DashboardCategory } from "../../api/dashboard";
+import type { Dashboard, DashboardCategory, DashboardTax } from "../../api/dashboard";
 import { BudgetTable } from "./BudgetTable";
 import { TaxCard } from "./TaxCard";
 import { TotalsCards } from "./TotalsCards";
@@ -81,15 +82,53 @@ describe("TotalsCards", () => {
 });
 
 describe("TaxCard", () => {
+  const tax = (over: Partial<DashboardTax> = {}): DashboardTax => ({
+    rate: "0.015",
+    estimated_isr: "900.30405",
+    filing_status: "ninguna",
+    previous_period: "2026-09",
+    previous_period_pending: false,
+    ...over,
+  });
+  const renderCard = (t: DashboardTax | null) =>
+    render(
+      <MemoryRouter>
+        <TaxCard tax={t} />
+      </MemoryRouter>,
+    );
+
   it("shows the estimated ISR and the rate", () => {
-    render(<TaxCard tax={{ rate: "0.015", estimated_isr: "900.30405" }} />);
+    renderCard(tax());
     const card = screen.getByRole("region", { name: "ISR RESICO estimado" });
     expect(card).toHaveTextContent("$900.30");
     expect(card).toHaveTextContent("1.5%");
   });
 
+  it.each([
+    ["ninguna", "Sin declarar"],
+    ["pendiente", "Pago pendiente"],
+    ["pagada", "Pagada"],
+  ] as const)("shows the filing status %s as text", (status, label) => {
+    renderCard(tax({ filing_status: status }));
+    expect(screen.getByText("Declaración del mes").nextSibling).toHaveTextContent(label);
+  });
+
+  it("warns about the previous period only when it is pending, with a link to the filed records", () => {
+    renderCard(tax({ previous_period_pending: true }));
+    const alert = screen.getByText(/La declaración o el pago de septiembre de 2026 sigue pendiente/);
+    expect(alert).toBeInTheDocument();
+    expect(within(alert).getByRole("link", { name: "Ver declaraciones" })).toHaveAttribute("href", "/declaraciones-presentadas");
+  });
+
+  it("shows no previous-period warning when nothing is pending", () => {
+    renderCard(tax());
+    expect(screen.queryByText(/sigue pendiente/)).not.toBeInTheDocument();
+  });
+
   it("explains that the estimate is missing when the settings are incomplete", () => {
-    render(<TaxCard tax={null} />);
-    expect(screen.getByRole("region", { name: "ISR RESICO estimado" })).toHaveTextContent("Sin estimación");
+    renderCard(null);
+    const card = screen.getByRole("region", { name: "ISR RESICO estimado" });
+    expect(card).toHaveTextContent("Sin estimación");
+    expect(card).not.toHaveTextContent("Declaración del mes");
   });
 });

@@ -152,7 +152,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -227,7 +227,9 @@ export async function mockApi(
       dashboardMonths.push(searchParams.get("month") ?? "");
       if (opts.dashboardFail === "server") return json(route, 500, { error: "internal_error" });
       if (opts.dashboardFail === "incomplete") return json(route, 422, { error: "settings_incomplete", message: "missing required config: emergency_months" });
-      return json(route, 200, buildDashboard(searchParams.get("month") ?? "", { expenses, income, savings }, settings, !opts.dashboardNoTax));
+      const dashboardMonth = searchParams.get("month") ?? "";
+      const filing = opts.dashboardFiling ?? { filing_status: "ninguna", previous_period_pending: false };
+      return json(route, 200, buildDashboard(dashboardMonth, { expenses, income, savings }, settings, !opts.dashboardNoTax, filing));
     }
     if (pathname === "/savings/portfolio" && request.method() === "GET") {
       if (opts.portfolioFail) return json(route, 500, { error: "internal_error" });
@@ -389,6 +391,7 @@ function buildDashboard(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   settings: any,
   withTax: boolean,
+  filing: { filing_status: string; previous_period_pending: boolean },
 ) {
   const inMonth = <T extends { date: string }>(rows: T[]) => rows.filter((r) => r.date.startsWith(month));
   const sum = (rows: { amount_mxn: string }[]) => rows.reduce((total, r) => total + Number(r.amount_mxn), 0);
@@ -421,7 +424,15 @@ function buildDashboard(
       accumulated: sum(data.savings.filter((s) => s.category === "Fondo de emergencia")).toFixed(2),
       goal: "60000.00",
     },
-    tax: withTax ? { rate, estimated_isr: (income * Number(rate)).toFixed(5) } : null,
+    tax: withTax
+      ? {
+          rate,
+          estimated_isr: (income * Number(rate)).toFixed(5),
+          filing_status: filing.filing_status,
+          previous_period: previousMonthOf(month),
+          previous_period_pending: filing.previous_period_pending,
+        }
+      : null,
   };
 }
 
@@ -439,6 +450,12 @@ export interface MockIncome {
 
 /** Description keyword -> income category, standing in for the backend's keyword inference. */
 const INCOME_KEYWORDS: Record<string, string> = { sueldo: "Sueldo", salario: "Sueldo", contrato: "Contrato extra" };
+
+/** Month before a YYYY-MM month. */
+function previousMonthOf(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
+}
 
 /** Illustrative RESICO brackets for the mock: up to 25,000 MXN a month pays 1%, above that 1.5%. */
 function resicoRate(monthTotal: number) {

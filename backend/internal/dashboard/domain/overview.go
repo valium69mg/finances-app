@@ -5,6 +5,7 @@ import (
 
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
+	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
 )
 
 // Budget is the budget of one category already resolved for the month (tax
@@ -15,11 +16,14 @@ type Budget struct {
 	Amount *decimal.Decimal
 }
 
-// TaxCard is the estimated RESICO ISR of the month and the rate it uses. It
-// carries no payment status: filing and payments belong to other modules.
+// TaxCard is the estimated RESICO ISR of the month and the rate it uses, plus
+// the filing status of the period: the payment state of the filing of the
+// month itself and whether the previous period still needs action (unfiled, or
+// filed and not paid).
 type TaxCard struct {
 	Rate         decimal.Decimal
 	EstimatedISR decimal.Decimal
+	Filing       taxfiling.MonthStatus
 }
 
 // Overview is the dashboard of one month: the expense categories against their

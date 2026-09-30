@@ -97,9 +97,6 @@ func run() error {
 	savingsSvc := savingsapp.NewService(movements, savingspg.NewRepo(pool), settingsSvc, nil)
 	savingshttp.New(savingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
-	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, nil)
-	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
-
 	store, err := invoicess3.New(invoicess3.Config{
 		Endpoint: cfg.S3.Endpoint, AccessKey: cfg.S3.AccessKey, SecretKey: cfg.S3.SecretKey,
 		Bucket: cfg.S3.Bucket, Region: cfg.S3.Region, UseSSL: cfg.S3.UseSSL,
@@ -118,6 +115,9 @@ func run() error {
 
 	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, nil, slog.Default())
 	taxfilinghttp.New(taxfilingSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, nil)
+	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {

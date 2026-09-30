@@ -104,9 +104,25 @@ test.describe("dashboard page", () => {
     const tax = page.getByRole("region", { name: "ISR RESICO estimado" });
     await expect(tax).toContainText("$900.00");
     await expect(tax).toContainText("1.5%");
-    // No payment status yet: only the estimate and the rate.
-    await expect(tax).not.toContainText("Pagado");
-    await expect(tax).not.toContainText("Pendiente");
+    // Nothing filed yet, nothing pending from the previous period.
+    await expect(tax).toContainText("Sin declarar");
+    await expect(tax).not.toContainText("sigue pendiente");
+  });
+
+  test("the tax card shows the filing status and warns about a pending previous period", async ({ page }) => {
+    await open(page, { income: [salary], dashboardFiling: { filing_status: "pendiente", previous_period_pending: true } });
+    const tax = page.getByRole("region", { name: "ISR RESICO estimado" });
+    await expect(tax).toContainText("Pago pendiente");
+    await expect(tax).toContainText("sigue pendiente");
+    await tax.getByRole("link", { name: "Ver declaraciones" }).click();
+    await expect(page).toHaveURL(/\/declaraciones-presentadas$/);
+  });
+
+  test("the tax card shows a paid filing", async ({ page }) => {
+    await open(page, { income: [salary], dashboardFiling: { filing_status: "pagada", previous_period_pending: false } });
+    const tax = page.getByRole("region", { name: "ISR RESICO estimado" });
+    await expect(tax).toContainText("Pagada");
+    await expect(tax).not.toContainText("sigue pendiente");
   });
 
   test("shows the empty state for a month without movements", async ({ page }) => {

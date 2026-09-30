@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { PeriodFilingStatus } from "./taxFiling";
 
 /**
  * Dashboard API (read-only). Amounts and rates travel as decimal strings and
@@ -21,11 +22,17 @@ export interface EmergencyProgress {
   goal: string;
 }
 
-/** Estimated RESICO ISR of the month. It carries no payment status yet. */
+/** Estimated RESICO ISR of the month plus the filing status of the period. */
 export interface DashboardTax {
   /** Decimal fraction, e.g. "0.015". */
   rate: string;
   estimated_isr: string;
+  /** Payment state of the filing of this month: `ninguna` when it is not filed yet. */
+  filing_status: PeriodFilingStatus;
+  /** YYYY-MM of the month before. */
+  previous_period: string;
+  /** The previous period has issued invoices and no filing, or a filing whose payment is pending. */
+  previous_period_pending: boolean;
 }
 
 export interface Dashboard {

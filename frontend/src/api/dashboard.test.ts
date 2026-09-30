@@ -30,7 +30,7 @@ describe("dashboard api", () => {
       savings: "5000",
       available: "43499.50",
       emergency: { accumulated: "10000", goal: "120000" },
-      tax: { rate: "0.011", estimated_isr: "550" },
+      tax: { rate: "0.011", estimated_isr: "550", filing_status: "pendiente", previous_period: "2026-09", previous_period_pending: true },
     };
     const { dashboard, call } = setup(() => json(200, payload));
     await expect(dashboard.get("2026-10")).resolves.toEqual(payload);

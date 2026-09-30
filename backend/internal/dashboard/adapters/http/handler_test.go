@@ -18,6 +18,7 @@ import (
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
+	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
 )
 
 func d(s string) decimal.Decimal { return decimal.RequireFromString(s) }
@@ -67,7 +68,10 @@ func sample() dashboard.Overview {
 		Totals:    dashboard.Totals{Income: d("50000"), Expenses: d("1700"), Savings: d("5000")},
 		Available: d("43300"),
 		Emergency: savings.EmergencyStatus{Accumulated: d("10000"), Goal: d("120000")},
-		Tax:       &dashboard.TaxCard{Rate: d("0.011"), EstimatedISR: d("550")},
+		Tax: &dashboard.TaxCard{
+			Rate: d("0.011"), EstimatedISR: d("550"),
+			Filing: taxfiling.MonthStatus{Payment: taxfiling.PaymentPending, PreviousPeriod: "2026-09", PreviousPending: true},
+		},
 	}
 }
 
@@ -98,7 +102,7 @@ func TestGet(t *testing.T) {
 		`{"category":"Ocio","spent":"200","budget":null,"remaining":null,"over_budget":false}],` +
 		`"income":"50000","expenses":"1700","savings":"5000","available":"43300",` +
 		`"emergency":{"accumulated":"10000","goal":"120000"},` +
-		`"tax":{"rate":"0.011","estimated_isr":"550"}}`
+		`"tax":{"rate":"0.011","estimated_isr":"550","filing_status":"pendiente","previous_period":"2026-09","previous_period_pending":true}}`
 	if got := strings.TrimSpace(rec.Body.String()); got != want {
 		t.Errorf("body\n got %s\nwant %s", got, want)
 	}
