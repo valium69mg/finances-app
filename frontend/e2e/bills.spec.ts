@@ -39,17 +39,41 @@ async function expectNoHorizontalOverflow(page: Page, where: string) {
   expect(size.scrollWidth, `page overflows on ${where}`).toBeLessThanOrEqual(size.clientWidth);
 }
 
-async function openBills(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
+/** Opens the page; the create form is collapsed, so it is expanded unless `expanded` is false. */
+async function openBills(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expanded = true } = {}) {
   const api = await mockApi(page, opts);
   await seedSession(page);
   await page.goto("/pagos-recurrentes");
   await expect(page.getByRole("heading", { level: 1, name: "Pagos recurrentes" })).toBeVisible();
+  if (expanded) await page.getByRole("button", { name: "+ Nuevo pago recurrente" }).click();
   return api;
 }
 
 const rowOf = (page: Page, name: string) => page.getByRole("list", { name: "Pagos recurrentes" }).getByRole("listitem").filter({ hasText: name }).first();
 
 test.describe("bills page", () => {
+  test("the bill form is collapsed by default, expands inline and opens by itself on edit", async ({ page }) => {
+    await openBills(page, { bills: BILLS }, { expanded: false });
+    const toggle = page.getByRole("button", { name: "+ Nuevo pago recurrente" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toHaveAttribute("aria-controls", "bill-form-panel");
+    await expect(page.getByRole("form")).toHaveCount(0);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("form", { name: "Nuevo pago recurrente" })).toBeVisible();
+    await expect(page.getByLabel("Nombre")).toBeFocused();
+    await toggle.click();
+    await expect(page.getByRole("form")).toHaveCount(0);
+
+    await rowOf(page, "Megacable").getByRole("button", { name: "Editar Megacable" }).click();
+    const form = page.getByRole("form", { name: "Editar Megacable" });
+    await expect(form).toBeVisible();
+    await expect(form).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
+    await page.getByRole("button", { name: "Cancelar edición" }).click();
+    await expect(page.getByRole("form")).toHaveCount(0);
+  });
+
   test("shows the empty state", async ({ page }) => {
     await openBills(page);
     await expect(page.getByText("Aún no tienes pagos recurrentes")).toBeVisible();
@@ -105,7 +129,9 @@ test.describe("bills page", () => {
       notes: "",
     });
     await expect(rowOf(page, "Megacable")).toContainText("$550.00 MXN");
-    // The form is ready for another bill.
+    // The form collapses after the save and opens empty again.
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await page.getByRole("button", { name: "+ Nuevo pago recurrente" }).click();
     await expect(page.getByLabel("Nombre")).toHaveValue("");
   });
 
@@ -162,7 +188,7 @@ test.describe("bills page", () => {
     expect(write?.body).toMatchObject({ amount: "600", recurrence: "yearly", next_due_date: day(-5), active: true });
     await expect(rowOf(page, "Megacable")).toContainText("$600.00 MXN");
     await expect(rowOf(page, "Megacable")).toContainText("Anual");
-    await expect(page.getByRole("form", { name: "Nuevo pago recurrente" })).toBeVisible();
+    await expect(page.getByRole("form")).toHaveCount(0);
   });
 
   test("pays a fixed bill with the defaults, registers the expense and generates the next occurrence", async ({ page }) => {

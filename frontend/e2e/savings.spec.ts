@@ -34,12 +34,18 @@ async function expectNoHorizontalOverflow(page: Page, where: string) {
   expect(size.scrollWidth, `page overflows on ${where}`).toBeLessThanOrEqual(size.clientWidth);
 }
 
-async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
+/** Opens the page; the create form is collapsed, so it is expanded unless `expanded` is false. */
+async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expanded = true } = {}) {
   const api = await mockApi(page, opts);
   await seedSession(page);
   await page.goto("/ahorros");
   await expect(page.getByRole("heading", { level: 1, name: "Ahorros" })).toBeVisible();
-  await expect(page.getByRole("form", { name: "Nuevo ahorro" })).toBeVisible();
+  if (expanded) {
+    await page.getByRole("button", { name: "+ Nuevo ahorro" }).click();
+    await expect(page.getByRole("form", { name: "Nuevo ahorro" })).toBeVisible();
+  } else {
+    await expect(page.getByRole("button", { name: "+ Nuevo ahorro" })).toBeVisible();
+  }
   return api;
 }
 
@@ -48,6 +54,28 @@ const transferForm = (page: Page) => page.getByRole("form", { name: "Traspasar e
 const valuationForm = (page: Page) => page.getByRole("form", { name: "Registrar valuación" });
 
 test.describe("savings page", () => {
+  test("the saving form is collapsed by default, expands inline and opens by itself on edit", async ({ page }) => {
+    await open(page, { savings: [seeded()] }, { expanded: false });
+    const toggle = page.getByRole("button", { name: "+ Nuevo ahorro" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toHaveAttribute("aria-controls", "saving-form-panel");
+    await expect(page.getByRole("form", { name: /ahorro$/ })).toHaveCount(0);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // Focus lands on the first field of the form, the instrument.
+    await expect(savingForm(page).getByLabel("Instrumento")).toBeFocused();
+    await toggle.click();
+    await expect(page.getByRole("form", { name: /ahorro$/ })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Editar Aportación VOO" }).click();
+    const form = page.getByRole("form", { name: "Editar ahorro" });
+    await expect(form).toBeVisible();
+    await expect(form).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
+    await page.getByRole("button", { name: "Cancelar edición" }).click();
+    await expect(page.getByRole("form", { name: /ahorro$/ })).toHaveCount(0);
+  });
+
   test("shows the portfolio with totals, subtotals and the emergency fund progress", async ({ page }) => {
     await open(page, { savings: [seeded(), emergency()], valuations: [vooValuation] });
 
@@ -107,6 +135,9 @@ test.describe("savings page", () => {
     expect(typeof body.amount).toBe("string");
     expect(body.category).toBe("Inversión ETF");
     expect(body.instrument).toBe("i1");
+    // The form collapses after the save and opens empty again.
+    await expect(page.getByRole("form", { name: /ahorro$/ })).toHaveCount(0);
+    await page.getByRole("button", { name: "+ Nuevo ahorro" }).click();
     await expect(savingForm(page).getByLabel("Descripción")).toHaveValue("");
     await expect(savingForm(page).getByLabel("Monto")).toHaveValue("");
   });
@@ -147,7 +178,7 @@ test.describe("savings page", () => {
     await savingForm(page).getByRole("button", { name: "Guardar cambios" }).click();
 
     await expect(page.getByText("Ahorro guardado.")).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Nuevo ahorro" })).toBeVisible();
+    await expect(page.getByRole("form", { name: /ahorro$/ })).toHaveCount(0);
     await expect(page.getByRole("listitem").filter({ hasText: "Aportación VOO" })).toContainText("$11,000.75 MXN");
     const put = api.writes.find((w) => w.method === "PUT" && w.path === "/savings/1");
     expect((put?.body as { amount: string }).amount).toBe("11000.75");

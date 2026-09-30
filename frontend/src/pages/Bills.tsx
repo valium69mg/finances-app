@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import type { Bill, PayResult } from "../api/bills";
 import { getSettings, settingsKeys } from "../api/settings";
+import { InlineFormPanel } from "../components/InlineFormPanel";
 import { BillForm } from "./bills/BillForm";
 import { BillList } from "./bills/BillList";
 import { describeBillsError } from "./bills/errors";
@@ -15,6 +16,8 @@ import { Checkbox, ErrorBanner, secondaryButton } from "./settings/ui";
 /** Pagos recurrentes: bills and subscriptions with their next due date, paid as expenses or skipped. */
 export function Bills() {
   const [editing, setEditing] = useState<Bill | null>(null);
+  // The create form stays collapsed until asked for; editing a row opens it by itself.
+  const [formOpen, setFormOpen] = useState(false);
   const [paying, setPaying] = useState<Bill | null>(null);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -55,16 +58,22 @@ export function Bills() {
           </div>
         )}
         {settings.data && (
-          <BillForm
-            key={editing?.id ?? "new"}
-            categories={categories}
-            editing={editing}
-            onSaved={(bill, wasEdit) => {
-              setEditing(null);
-              setNotice(wasEdit ? `Cambios de ${bill.name} guardados.` : `${bill.name} agregado. Próximo vencimiento: ${dateLabel(bill.next_due_date)}.`);
-            }}
-            onCancelEdit={() => setEditing(null)}
-          />
+          <InlineFormPanel id="bill-form-panel" label="+ Nuevo pago recurrente" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+            <BillForm
+              key={editing?.id ?? "new"}
+              categories={categories}
+              editing={editing}
+              onSaved={(bill, wasEdit) => {
+                setEditing(null);
+                setFormOpen(false);
+                setNotice(wasEdit ? `Cambios de ${bill.name} guardados.` : `${bill.name} agregado. Próximo vencimiento: ${dateLabel(bill.next_due_date)}.`);
+              }}
+              onCancelEdit={() => {
+                setEditing(null);
+                setFormOpen(false);
+              }}
+            />
+          </InlineFormPanel>
         )}
       </div>
 

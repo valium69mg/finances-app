@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import type { Saving } from "../api/savings";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
+import { InlineFormPanel } from "../components/InlineFormPanel";
 import { PortfolioPanel } from "./savings/PortfolioPanel";
 import { SavingForm } from "./savings/SavingForm";
 import { SavingsList } from "./savings/SavingsList";
@@ -19,6 +20,8 @@ export function Savings() {
   const { month, setMonth, rangeHint } = useCyclePeriod();
   const [editing, setEditing] = useState<Saving | null>(null);
   const [saved, setSaved] = useState(false);
+  // The create form stays collapsed until asked for; editing a row opens it by itself.
+  const [formOpen, setFormOpen] = useState(false);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
 
   return (
@@ -54,16 +57,22 @@ export function Savings() {
       {settings.data && (
         <>
           <div className={panel}>
-            <SavingForm
-              key={editing?.id ?? "new"}
-              settings={settings.data}
-              editing={editing}
-              onSaved={() => {
-                setSaved(true);
-                setEditing(null);
-              }}
-              onCancelEdit={() => setEditing(null)}
-            />
+            <InlineFormPanel id="saving-form-panel" label="+ Nuevo ahorro" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+              <SavingForm
+                key={editing?.id ?? "new"}
+                settings={settings.data}
+                editing={editing}
+                onSaved={() => {
+                  setSaved(true);
+                  setEditing(null);
+                  setFormOpen(false);
+                }}
+                onCancelEdit={() => {
+                  setEditing(null);
+                  setFormOpen(false);
+                }}
+              />
+            </InlineFormPanel>
             {saved && (
               <p role="status" className="mt-4 text-sm">
                 Ahorro guardado.
