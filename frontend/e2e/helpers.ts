@@ -1,10 +1,12 @@
 import type { Page, Route } from "@playwright/test";
 import { createBillsMock, type BillsFail, type MockBill } from "./billsMock";
 import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
+import { createMonthCloseMock, type MockClose, type MonthCloseFail } from "./monthCloseMock";
 import { createTaxFilingMock, previousMonthOf, type MockFiling, type TaxFilingFail } from "./taxFilingMock";
 
 export type { BillsFail, MockBill, MockOccurrence } from "./billsMock";
 export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
+export type { MockClose, MonthCloseFail } from "./monthCloseMock";
 export type { MockFiling, TaxFilingFail } from "./taxFilingMock";
 
 export const API_ORIGIN = "http://localhost:8080";
@@ -158,7 +160,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -204,6 +206,17 @@ export async function mockApi(
     settings: () => settings,
     json,
   });
+  const monthCloseMock = createMonthCloseMock(opts.closes ?? [], opts.monthCloseFail, {
+    // A close is computed from the same in-memory movements as the dashboard.
+    figures: (month) => {
+      const d = buildDashboard(month, { expenses, income, savings }, settings, false, { filing_status: "ninguna", previous_period_pending: false });
+      return { categories: d.categories, income: d.income, expenses: d.expenses, savings: d.savings, available: d.available, emergency: d.emergency };
+    },
+    filingStatus: (month) => taxMock.monthStatus(month).filing_status as "ninguna" | "pendiente" | "pagada",
+    today: todayLocal,
+    settings: () => settings,
+    json,
+  });
   await page.route(`${API_ORIGIN}/**`, async (route) => {
     const request = route.request();
     if (request.method() === "OPTIONS") {
@@ -214,6 +227,7 @@ export async function mockApi(
     if (await invoiceMock.handle(route, request, pathname, searchParams, settings)) return;
     if (await taxMock.handle(route, request, pathname, searchParams)) return;
     if (await billsMock.handle(route, request, pathname, searchParams)) return;
+    if (await monthCloseMock.handle(route, request, pathname, searchParams)) return;
 
     if (pathname === "/income/infer-category") {
       const d = (searchParams.get("description") ?? "").toLowerCase();
@@ -410,7 +424,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes };
+  return { requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes };
 }
 
 /** Dashboard computed from the in-memory movements; Gasto categories are the mock's fixed/variable ones. */

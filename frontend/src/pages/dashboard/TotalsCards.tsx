@@ -13,7 +13,7 @@ function Card({ label, hint, negative, children }: { label: string; hint?: strin
 }
 
 /** Month totals: income, expenses, savings contributed and the money left. */
-export function TotalsCards({ dashboard }: { dashboard: Dashboard }) {
+export function TotalsCards({ dashboard }: { dashboard: Pick<Dashboard, "income" | "expenses" | "savings" | "available"> }) {
   return (
     <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <Card label="Ingresos">{formatMoney(dashboard.income)}</Card>

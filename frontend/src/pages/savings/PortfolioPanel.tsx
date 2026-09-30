@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getPortfolio, savingsKeys, type EmergencyProgress, type Portfolio } from "../../api/savings";
@@ -124,9 +125,11 @@ function Subtotals({ portfolio }: { portfolio: Portfolio }) {
 export function EmergencyCard({ emergency }: { emergency: EmergencyProgress }) {
   const pct = percentOf(emergency.accumulated, emergency.goal);
   const hasGoal = /[1-9]/.test(emergency.goal);
+  // Unique per instance: a close preview and a stored close can be on screen together.
+  const titleId = useId();
   return (
-    <section aria-labelledby="emergency-title" className="rounded-lg border border-border p-4">
-      <h3 id="emergency-title" className="font-semibold">
+    <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
+      <h3 id={titleId} className="font-semibold">
         Fondo de emergencia
       </h3>
       {hasGoal ? (

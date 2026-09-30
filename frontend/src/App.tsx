@@ -9,6 +9,7 @@ import { FiledRecords } from "./pages/FiledRecords";
 import { Income } from "./pages/Income";
 import { Invoices } from "./pages/Invoices";
 import { Login } from "./pages/Login";
+import { MonthClose } from "./pages/MonthClose";
 import { Placeholder } from "./pages/Placeholder";
 import { Savings } from "./pages/Savings";
 import { Settings } from "./pages/Settings";
@@ -25,6 +26,7 @@ function pageFor(path: string) {
   if (path === "/declaracion") return <TaxFiling />;
   if (path === "/pagos-recurrentes") return <Bills />;
   if (path === "/declaraciones-presentadas") return <FiledRecords />;
+  if (path === "/cierre-de-mes") return <MonthClose />;
   return null;
 }
 
