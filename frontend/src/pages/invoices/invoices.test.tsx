@@ -46,6 +46,7 @@ describe("describeInvoiceError", () => {
       [err(422, "uuid_mismatch"), "no coincide"],
       [err(409, "duplicate_uuid"), "ya está registrado en otra factura"],
       [err(409, "invoice_cancelled"), "está cancelada"],
+      [err(409, "invoice_declared"), "no se puede cancelar"],
       [err(409, "invoice_already_issued"), "ya fue marcada como emitida"],
       [err(409, "invoice_not_issued"), "Primero marca la factura como emitida"],
       [err(409, "invoice_state_changed"), "cambió de estado"],
@@ -100,6 +101,12 @@ describe("describeWarning", () => {
   it("lists the duplicated invoices and keeps unknown codes readable", () => {
     expect(describeWarning({ code: "possible_duplicate", message: "x", invoice_ids: [3, 5] })).toContain("(#3, #5)");
     expect(describeWarning({ code: "future_code", message: "backend text" })).toBe("backend text");
+  });
+
+  it("explains that an invoice issued in an already filed period is not declared", () => {
+    const text = describeWarning({ code: "period_already_filed", message: "backend text" });
+    expect(text).toContain("ya fue declarado");
+    expect(text).toContain("ingreso aún no está declarado");
   });
 });
 

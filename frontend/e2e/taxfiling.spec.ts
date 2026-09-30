@@ -308,6 +308,28 @@ test.describe("filed records page", () => {
     await expect(page.getByLabel("Periodo", { exact: true })).toHaveValue("2025-01");
   });
 
+  test("alerts about invoices issued after their period was filed", async ({ page }) => {
+    await openRecords(page, {
+      invoices: [
+        invoice({ id: 1, declaration_period: PERIOD }),
+        // Issued after the filing was registered: never linked, its income is undeclared.
+        invoice({ id: 2, client_id: "b", currency: "MXN", exchange_rate: null, subtotal: "10000.00", subtotal_mxn: "10000.00", uuid: UUID_B }),
+      ],
+      filings: [filing({ invoice_ids: [1] })],
+    });
+    const alert = page.getByRole("alert").filter({ hasText: "Facturas emitidas en un periodo ya declarado" });
+    await expect(alert).toBeVisible();
+    await expect(alert.getByRole("listitem")).toHaveCount(1);
+    await expect(alert.getByRole("listitem")).toContainText("Factura #2");
+    await expect(alert.getByRole("listitem")).toContainText("octubre de 2026");
+  });
+
+  test("shows no unfiled-invoices alert when every invoice is linked to its filing", async ({ page }) => {
+    await openRecords(page, { invoices: [invoice({ id: 1, declaration_period: PERIOD })], filings: [filing({ invoice_ids: [1] })] });
+    await expect(page.getByRole("heading", { name: "Historial de declaraciones" })).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "Facturas emitidas en un periodo ya declarado" })).toHaveCount(0);
+  });
+
   test("a future period is pending without being overdue", async ({ page }) => {
     await openRecords(page, { invoices: [invoice({ period: "2099-01", collection_date: "2099-01-10" })] });
     const item = page.getByRole("list", { name: "Periodos pendientes de declarar" }).getByRole("listitem").first();

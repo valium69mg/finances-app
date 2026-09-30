@@ -1,12 +1,13 @@
 import { useRef, useState, type FormEvent } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { Loader2, Send } from "lucide-react";
-import { invoiceKeys, issueInvoice, type InvoiceDetail } from "../../api/invoices";
+import { issueInvoice, type InvoiceDetail } from "../../api/invoices";
 import { TextField } from "../../components/AuthCard";
 import { ErrorBanner, primaryButton } from "../settings/ui";
 import { describeInvoiceError } from "./errors";
 import { FileField } from "./FileField";
 import { isValidUuid, validateFile } from "./files";
+import { useInvalidateAfterInvoiceChange } from "./useInvalidate";
 
 interface Props {
   invoiceId: number;
@@ -21,7 +22,7 @@ type Errors = { xml?: string; pdf?: string; uuid?: string; form?: string };
  * optional PDF, or types the UUID by hand when there is no XML.
  */
 export function IssuePanel({ invoiceId, onIssued }: Props) {
-  const qc = useQueryClient();
+  const invalidate = useInvalidateAfterInvoiceChange();
   const [xml, setXml] = useState<File | null>(null);
   const [pdf, setPdf] = useState<File | null>(null);
   const [uuid, setUuid] = useState("");
@@ -33,7 +34,7 @@ export function IssuePanel({ invoiceId, onIssued }: Props) {
   const issue = useMutation({
     mutationFn: () => issueInvoice(invoiceId, { xml, pdf, uuid: xml ? undefined : uuid.trim() }),
     onSuccess: (detail) => {
-      void qc.invalidateQueries({ queryKey: invoiceKeys.all });
+      void invalidate();
       onIssued(detail);
     },
   });

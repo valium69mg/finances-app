@@ -258,7 +258,9 @@ export function createInvoicesMock(
     if (action === "cancel" && method === "POST") {
       uploads.push({ method, path: pathname, fields: {}, files: {} });
       if (inv.state === "cancelada") await json(route, 409, { error: "invoice_cancelled", message: "invoice is cancelled" });
-      else {
+      else if (inv.declaration_period) {
+        await json(route, 409, { error: "invoice_declared", message: `invoice is included in a filed tax declaration: #${inv.id} is part of the filing of ${inv.declaration_period}` });
+      } else {
         inv.state = "cancelada";
         await json(route, 200, toDTO(inv));
       }

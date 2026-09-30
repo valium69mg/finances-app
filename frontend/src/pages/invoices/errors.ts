@@ -29,6 +29,8 @@ export function describeInvoiceError(err: unknown): string {
         return "Ese UUID ya está registrado en otra factura.";
       case "invoice_cancelled":
         return "La factura está cancelada y ya no admite cambios.";
+      case "invoice_declared":
+        return "La factura está incluida en una declaración registrada y no se puede cancelar. Elimina primero el registro de esa declaración (solo si su pago sigue pendiente) y vuelve a intentar.";
       case "invoice_already_issued":
         return "La factura ya fue marcada como emitida. Para cambiar sus archivos usa la sección de documentos.";
       case "invoice_not_issued":

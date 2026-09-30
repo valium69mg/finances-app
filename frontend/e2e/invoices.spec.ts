@@ -195,6 +195,15 @@ test.describe("invoices page", () => {
     expect(upload?.fields).not.toHaveProperty("uuid");
   });
 
+  test("cannot cancel an invoice that a tax filing includes and explains why", async ({ page }) => {
+    const api = await open(page, { invoices: [issued({ declaration_period: "2026-10", period: "2026-10" })] });
+    await page.getByRole("button", { name: "Ver factura #1" }).click();
+    const cancel = detail(page).getByRole("button", { name: "Cancelar factura" });
+    await expect(cancel).toBeDisabled();
+    await expect(detail(page).getByText("No se puede cancelar: esta factura está incluida en la declaración de octubre de 2026")).toBeVisible();
+    expect(api.invoiceCalls.find((c) => c.path === "/invoices/1/cancel")).toBeUndefined();
+  });
+
   test("warns, without failing, when the XML total differs from the prepared invoice", async ({ page }) => {
     await open(page, { invoices: [seeded()] });
     await page.getByRole("button", { name: "Ver factura #1" }).click();

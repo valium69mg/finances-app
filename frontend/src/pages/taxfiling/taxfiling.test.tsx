@@ -12,6 +12,7 @@ import { InvoiceRefs, TaxWarnings } from "./InvoiceRefs";
 import { PaymentDialog } from "./PaymentDialog";
 import { PendingPeriods } from "./PendingPeriods";
 import { RegisterForm } from "./RegisterForm";
+import { UnfiledInvoices } from "./UnfiledInvoices";
 import { FilingStatusBadge } from "./StatusBadge";
 import { describeTaxFilingError } from "./errors";
 import { dateLabel, describeTaxWarning, periodLabel, previousPeriod } from "./labels";
@@ -22,6 +23,7 @@ const api = vi.hoisted(() => ({
   payTaxFiling: vi.fn(),
   listTaxFilings: vi.fn(),
   listPendingPeriods: vi.fn(),
+  listUnfiledInvoices: vi.fn(),
 }));
 vi.mock("../../api/taxFiling", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api/taxFiling")>()), ...api }));
 
@@ -301,6 +303,34 @@ describe("PaymentDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("pago de esta declaración ya está registrado");
     expect(onPaid).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("UnfiledInvoices", () => {
+  it("alerts about issued invoices left out of an already filed period", async () => {
+    api.listUnfiledInvoices.mockResolvedValue([
+      { id: 9, client_id: "b", collection_date: "2026-10-31", currency: "MXN", subtotal_mxn: "30172.41", state: "emitida", uuid: null, period: "2026-10" },
+    ]);
+    wrap(<UnfiledInvoices />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Facturas emitidas en un periodo ya declarado");
+    expect(alert).toHaveTextContent("Factura #9");
+    expect(alert).toHaveTextContent("$30,172.41 MXN");
+    expect(alert).toHaveTextContent("octubre de 2026");
+    expect(within(alert).getByRole("link", { name: "Factura #9" })).toHaveAttribute("href", "/facturas");
+  });
+
+  it("renders nothing when there are none and does not break the page on an error", async () => {
+    api.listUnfiledInvoices.mockResolvedValueOnce([]);
+    const { container } = wrap(<UnfiledInvoices />);
+    await waitFor(() => expect(api.listUnfiledInvoices).toHaveBeenCalled());
+    expect(container).toBeEmptyDOMElement();
+    cleanup();
+
+    api.listUnfiledInvoices.mockRejectedValueOnce(new ApiError(500, "internal_error"));
+    const failed = wrap(<UnfiledInvoices />);
+    await waitFor(() => expect(api.listUnfiledInvoices).toHaveBeenCalledTimes(2));
+    expect(failed.container).toBeEmptyDOMElement();
   });
 });
 

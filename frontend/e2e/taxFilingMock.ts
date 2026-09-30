@@ -150,6 +150,16 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
       return true;
     }
 
+    if (pathname === "/tax-filing/unfiled-invoices" && method === "GET") {
+      const filed = new Set(filings.map((f) => f.period));
+      const late = deps
+        .invoices()
+        .filter((i) => i.state === "emitida" && !i.declaration_period && filed.has(i.period))
+        .sort((a, b) => (a.period === b.period ? a.id - b.id : a.period < b.period ? -1 : 1));
+      await json(route, 200, late.map((i) => ({ ...invoiceRef(i), period: i.period })));
+      return true;
+    }
+
     if (pathname === "/tax-filing" && method === "GET") {
       if (fail === "list") return json(route, 500, { error: "internal_error" }).then(() => true);
       const year = params.get("year") ?? "";

@@ -102,6 +102,16 @@ export interface PendingPeriod {
   overdue: boolean;
 }
 
+/**
+ * Issued invoice that no filing includes although its period is already filed
+ * (for example issued after the declaration was registered): its income is not
+ * part of any saved declaration.
+ */
+export interface UnfiledInvoice extends TaxInvoiceRef {
+  /** YYYY-MM, the filed period the invoice belongs to. */
+  period: string;
+}
+
 /** Payment of a filing. Without `date` the backend uses the filing date (register) or today (later). */
 export interface PaymentInput {
   date?: string;
@@ -137,6 +147,7 @@ export const taxFilingKeys = {
   preview: (period: string, ivaAcreditable: string) => ["tax-filing", "preview", period, ivaAcreditable] as const,
   list: (filter: FilingFilter) => ["tax-filing", "list", filter.year ?? "", filter.status ?? ""] as const,
   pending: ["tax-filing", "pending"] as const,
+  unfiled: ["tax-filing", "unfiled-invoices"] as const,
   detail: (period: string) => ["tax-filing", "detail", period] as const,
 };
 
@@ -161,6 +172,8 @@ export function createTaxFilingApi(client: Client = api) {
     pay: (period: string, input: PaymentInput) =>
       client.request<FilingResult>(`/tax-filing/${encodeURIComponent(period)}/payment`, { method: "POST", body: input }),
     pending: () => client.request<PendingPeriod[]>("/tax-filing/pending-periods"),
+    /** Issued invoices left out of an already filed period. */
+    unfiledInvoices: () => client.request<UnfiledInvoice[]>("/tax-filing/unfiled-invoices"),
     /** Deletes a filing whose payment is still pending (a paid one is refused). */
     remove: (period: string) => client.request<void>(`/tax-filing/${encodeURIComponent(period)}`, { method: "DELETE" }),
   };
@@ -174,4 +187,5 @@ export const listTaxFilings = defaultApi.list;
 export const getTaxFiling = defaultApi.get;
 export const payTaxFiling = defaultApi.pay;
 export const listPendingPeriods = defaultApi.pending;
+export const listUnfiledInvoices = defaultApi.unfiledInvoices;
 export const deleteTaxFiling = defaultApi.remove;

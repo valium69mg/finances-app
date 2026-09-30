@@ -45,6 +45,8 @@ export function describeWarning(w: InvoiceWarning, currency = ""): string {
       return `El subtotal del XML (${amount(w.actual)}) no coincide con el de la factura preparada (${amount(w.expected)}).`;
     case "currency_mismatch":
       return `La moneda del XML (${w.actual ?? "?"}) no coincide con la de la factura preparada (${w.expected ?? "?"}).`;
+    case "period_already_filed":
+      return "El periodo de esta factura ya fue declarado. La factura no quedó incluida en esa declaración y su ingreso aún no está declarado: decláralo con el SAT fuera de esta app. Aparece en \"Declaraciones presentadas\" como factura sin declarar.";
     default:
       return w.message;
   }

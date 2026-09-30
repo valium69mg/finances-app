@@ -47,7 +47,7 @@ export interface InvoiceDocument {
 
 /** Non-blocking finding returned next to a successful result. */
 export interface InvoiceWarning {
-  code: "possible_duplicate" | "total_mismatch" | "subtotal_mismatch" | "currency_mismatch" | (string & {});
+  code: "possible_duplicate" | "total_mismatch" | "subtotal_mismatch" | "currency_mismatch" | "period_already_filed" | (string & {});
   message: string;
   /** possible_duplicate: the existing invoices. */
   invoice_ids?: number[];

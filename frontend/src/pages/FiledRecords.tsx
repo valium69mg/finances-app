@@ -10,6 +10,7 @@ import { FilingHistory } from "./taxfiling/FilingHistory";
 import { FILING_STATUS_LABEL, periodLabel } from "./taxfiling/labels";
 import { PaymentDialog } from "./taxfiling/PaymentDialog";
 import { PendingPeriods } from "./taxfiling/PendingPeriods";
+import { UnfiledInvoices } from "./taxfiling/UnfiledInvoices";
 
 /** History of filed declarations with their payment status, the periods still to file and the payment dialog. */
 export function FiledRecords() {
@@ -57,6 +58,8 @@ export function FiledRecords() {
         <h2 className="mb-4 text-lg font-semibold tracking-tight">Periodos pendientes de declarar</h2>
         <PendingPeriods />
       </div>
+
+      <UnfiledInvoices />
 
       {selected !== null && (
         <div ref={detailRef} className="mt-6 scroll-mt-4 rounded-xl border border-border bg-surface p-4 sm:p-6">

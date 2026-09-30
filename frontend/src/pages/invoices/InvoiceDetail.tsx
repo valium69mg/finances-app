@@ -1,9 +1,10 @@
 import { useState, type ReactNode } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Ban, Loader2, X } from "lucide-react";
 import { cancelInvoice, getInvoice, invoiceKeys, type Invoice, type InvoiceDetail as Detail, type InvoiceWarning, type Periodicity } from "../../api/invoices";
 import type { Client } from "../../api/settings";
 import { SelectField } from "../expenses/SelectField";
+import { periodLabel } from "../taxfiling/labels";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import { ChecklistView } from "./ChecklistView";
 import { DocumentsPanel } from "./DocumentsPanel";
@@ -11,6 +12,7 @@ import { describeInvoiceError } from "./errors";
 import { IssuePanel } from "./IssuePanel";
 import { PERIODICITY_LABEL, clientName, isUsaClient, money } from "./labels";
 import { StateBadge } from "./StateBadge";
+import { useInvalidateAfterInvoiceChange } from "./useInvalidate";
 import { WarningsList } from "./WarningsList";
 
 interface Props {
@@ -51,7 +53,7 @@ function Summary({ inv, clients }: { inv: Invoice; clients: Client[] }) {
 }
 
 export function InvoiceDetail({ invoiceId, clients, initialPeriodicity, warnings, onWarnings, onClose }: Props) {
-  const qc = useQueryClient();
+  const invalidate = useInvalidateAfterInvoiceChange();
   const [periodicity, setPeriodicity] = useState<Periodicity>(initialPeriodicity);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
 
@@ -65,8 +67,10 @@ export function InvoiceDetail({ invoiceId, clients, initialPeriodicity, warnings
     onSuccess: () => {
       setConfirmingCancel(false);
       onWarnings([]);
-      return qc.invalidateQueries({ queryKey: invoiceKeys.all });
+      return invalidate();
     },
+    // A declared invoice is refused (409 invoice_declared): refresh so the detail shows its declaration.
+    onError: () => void invalidate(),
   });
 
   const title = `Factura #${invoiceId}`;
@@ -145,6 +149,8 @@ interface BodyProps {
 function DetailBody({ data, clients, periodicity, onPeriodicity, warnings, onWarnings, cancel }: BodyProps) {
   const inv = data.invoice;
   const cancellable = inv.state !== "cancelada";
+  // An invoice a saved tax filing includes cannot be cancelled: the declaration would go out of sync.
+  const declared = inv.state !== "cancelada" && inv.declaration_period !== null;
   return (
     <div className="space-y-5">
       <Summary inv={inv} clients={clients} />
@@ -201,6 +207,17 @@ function DetailBody({ data, clients, periodicity, onPeriodicity, warnings, onWar
                   No, conservarla
                 </button>
               </div>
+            </div>
+          ) : declared ? (
+            <div className="space-y-2">
+              <button type="button" disabled aria-describedby={`declared-note-${inv.id}`} className={dangerButton}>
+                <Ban className="h-4 w-4" aria-hidden="true" />
+                Cancelar factura
+              </button>
+              <p id={`declared-note-${inv.id}`} className="text-sm text-muted">
+                No se puede cancelar: esta factura está incluida en la declaración de {periodLabel(inv.declaration_period ?? "")}. Para
+                cancelarla, elimina primero ese registro en “Declaraciones presentadas” (solo posible mientras su pago siga pendiente).
+              </p>
             </div>
           ) : (
             <button type="button" onClick={cancel.ask} className={dangerButton}>

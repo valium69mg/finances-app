@@ -82,6 +82,12 @@ describe("tax filing api", () => {
     expect(JSON.parse(String(init.body))).toEqual({ date: "2026-11-12", isr_paid: "10", iva_paid: "0" });
   });
 
+  it("lists the invoices left out of a filed period", async () => {
+    const { taxFiling, call } = setup(() => json(200, [{ id: 9, period: "2026-10" }]));
+    await expect(taxFiling.unfiledInvoices()).resolves.toHaveLength(1);
+    expect(call().url).toBe("http://x/tax-filing/unfiled-invoices");
+  });
+
   it("lists the pending periods", async () => {
     const { taxFiling, call } = setup(() => json(200, [{ period: "2026-10", due_date: "2026-11-17", overdue: false }]));
     await expect(taxFiling.pending()).resolves.toHaveLength(1);
