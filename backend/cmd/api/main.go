@@ -25,6 +25,9 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
 	"github.com/valium69mg/finances-app/backend/internal/platform/postgres"
+	savingshttp "github.com/valium69mg/finances-app/backend/internal/savings/adapters/http"
+	savingspg "github.com/valium69mg/finances-app/backend/internal/savings/adapters/postgres"
+	savingsapp "github.com/valium69mg/finances-app/backend/internal/savings/app"
 	settingshttp "github.com/valium69mg/finances-app/backend/internal/settings/adapters/http"
 	settingspg "github.com/valium69mg/finances-app/backend/internal/settings/adapters/postgres"
 	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
@@ -78,6 +81,9 @@ func run() error {
 
 	incomeSvc := incomeapp.NewService(movements, settingsSvc, nil)
 	incomehttp.New(incomeSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	savingsSvc := savingsapp.NewService(movements, savingspg.NewRepo(pool), settingsSvc, nil)
+	savingshttp.New(savingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {
