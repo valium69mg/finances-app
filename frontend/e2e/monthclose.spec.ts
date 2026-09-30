@@ -98,7 +98,9 @@ test.describe("month close preview", () => {
     await expect(over).toContainText("Comida");
     await expect(over).toContainText("$8,000.00 contra presupuesto de $6,000.00");
 
-    await expect(page.getByRole("table")).toContainText("Servicios");
+    // The budget rows are a table from md up and compact cards on a phone.
+    const phone = (page.viewportSize()?.width ?? 1024) < 768;
+    await expect(phone ? page.getByTestId("budget-card").filter({ hasText: "Servicios" }) : page.getByRole("table")).toContainText("Servicios");
     await expect(page.getByText("$5,000.00 de $60,000.00 (8.33%)")).toBeVisible();
 
     const suggestion = page.getByRole("list", { name: "Sugerencia del dinero disponible" });
