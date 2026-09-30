@@ -111,6 +111,18 @@ func TestNewMovementOtherKindDefaults(t *testing.T) {
 	}
 }
 
+func TestNewMovementIncome(t *testing.T) {
+	m, err := NewMovement(MovementInput{Kind: KindIncome, Category: "sueldo", Amount: dec("3383.33"), Currency: "USD"},
+		testCatalog(), "2026-10-05")
+	if err != nil {
+		t.Fatalf("income: %v", err)
+	}
+	// 3383.33 * 17.74 = 60020.2742, rounded to cents.
+	if m.PaymentMethod != "Transferencia" || !m.AmountMXN.Equal(dec("60020.27")) {
+		t.Errorf("unexpected income %+v", m)
+	}
+}
+
 func TestNewMovementInvalid(t *testing.T) {
 	ok := MovementInput{Kind: KindExpense, Category: "Mandado", Amount: dec("10"), Date: "2026-10-05"}
 	tests := []struct {
@@ -128,6 +140,9 @@ func TestNewMovementInvalid(t *testing.T) {
 		{"impossible date", func(i *MovementInput) { i.Date = "2026-02-30" }},
 		{"zero amount", func(i *MovementInput) { i.Amount = decimal.Zero }},
 		{"negative expense", func(i *MovementInput) { i.Amount = dec("-1") }},
+		{"zero income", func(i *MovementInput) { i.Kind, i.Category, i.Amount = KindIncome, "Sueldo", decimal.Zero }},
+		{"negative income", func(i *MovementInput) { i.Kind, i.Category, i.Amount = KindIncome, "Sueldo", dec("-1") }},
+		{"zero savings", func(i *MovementInput) { i.Kind, i.Category, i.Amount = KindSavings, "Inversiones", decimal.Zero }},
 		{"USD with zero rate", func(i *MovementInput) { i.Currency = "USD"; z := decimal.Zero; i.ExchangeRate = &z }},
 	}
 	for _, tc := range tests {

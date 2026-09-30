@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
@@ -19,7 +20,7 @@ import (
 func dec(s string) decimal.Decimal { return decimal.RequireFromString(s) }
 
 // newRepo returns a Repo on a throwaway schema holding a fresh copy of the
-// movements migration, so the tests never touch real data. It skips the test
+// movements migrations, so the tests never touch real data. It skips the test
 // when TEST_DATABASE_URL is not set.
 func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	t.Helper()
@@ -56,12 +57,14 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", "000006_movements.up.sql"))
-	if err != nil {
-		t.Fatalf("read migration: %v", err)
-	}
-	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatalf("apply migration: %v", err)
+	for _, name := range []string{"000006_movements.up.sql", "000007_income_amount_positive.up.sql"} {
+		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
+		if err != nil {
+			t.Fatalf("read migration: %v", err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("apply %s: %v", name, err)
+		}
 	}
 	return postgres.NewRepo(pool), pool
 }
@@ -71,6 +74,22 @@ func expense(date, category, amount string) domain.Movement {
 	return domain.Movement{
 		Date: date, Description: "d", Category: category, Kind: domain.KindExpense,
 		PaymentMethod: "Débito", Currency: "MXN", Amount: a, AmountMXN: a,
+	}
+}
+
+func income(date, amount string) domain.Movement {
+	a := dec(amount)
+	return domain.Movement{
+		Date: date, Description: "d", Category: "Sueldo", Kind: domain.KindIncome,
+		PaymentMethod: "Transferencia", Currency: "MXN", Amount: a, AmountMXN: a,
+	}
+}
+
+func saving(date, category, amount string) domain.Movement {
+	a := dec(amount)
+	return domain.Movement{
+		Date: date, Category: category, Kind: domain.KindSavings, PaymentMethod: "Transferencia",
+		Currency: "MXN", Amount: a, AmountMXN: a,
 	}
 }
 
@@ -229,13 +248,102 @@ func TestConstraints(t *testing.T) {
 	badKind.Kind = "Otro"
 	badCurrency := expense("2026-10-01", "Mandado", "1")
 	badCurrency.Currency = "EUR"
+	zeroIncome := income("2026-10-01", "0")
+	negIncome := income("2026-10-01", "-1")
 
 	for name, m := range map[string]domain.Movement{
 		"zero expense": zeroExpense, "negative expense": negExpense, "USD without rate": usdNoRate,
 		"MXN with rate": mxnWithRate, "bad kind": badKind, "bad currency": badCurrency,
+		"zero income": zeroIncome, "negative income": negIncome,
 	} {
 		if _, err := repo.Create(ctx, m); err == nil {
 			t.Errorf("%s: expected a constraint violation", name)
 		}
+	}
+}
+
+func TestListAllByKind(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	for _, m := range []domain.Movement{
+		saving("2026-10-05", "Fondo de emergencia", "300"),
+		saving("2025-01-01", "Fondo de emergencia", "100"),
+		saving("2026-10-05", "Fondo de emergencia", "-50"), // same date, later id
+		expense("2026-10-01", "Mandado", "9"),
+		income("2026-10-01", "9"),
+	} {
+		if _, err := repo.Create(ctx, m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := repo.ListAllByKind(ctx, domain.KindSavings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	for _, m := range got {
+		order = append(order, m.Amount.String())
+	}
+	if want := []string{"100", "300", "-50"}; len(order) != 3 || order[0] != want[0] || order[1] != want[1] || order[2] != want[2] {
+		t.Errorf("savings order = %v, want %v (all months, date asc, id asc)", order, want)
+	}
+	got, err = repo.ListAllByKind(ctx, domain.KindIncome)
+	if err != nil || len(got) != 1 {
+		t.Errorf("income: %v, %v", got, err)
+	}
+	got, err = repo.ListAllByKind(ctx, domain.KindExpense)
+	if err != nil || len(got) != 1 {
+		t.Errorf("expense: %v, %v", got, err)
+	}
+}
+
+func TestImportMovements(t *testing.T) {
+	repo, pool := newRepo(t)
+	ctx := context.Background()
+	rate := dec("17.74")
+	created := time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	row := postgres.ImportedMovement{
+		Movement: domain.Movement{
+			Date: "2026-10-01", Description: "Sueldo octubre", Category: "Sueldo", Kind: domain.KindIncome,
+			PaymentMethod: "Transferencia", Currency: "USD", Amount: dec("3383.33"), ExchangeRate: &rate, AmountMXN: dec("60020.27"),
+		},
+		CreatedAt: created,
+	}
+
+	n, err := repo.ImportMovements(ctx, []postgres.ImportedMovement{row}, false)
+	if err != nil || n != 1 {
+		t.Fatalf("import: %d, %v", n, err)
+	}
+	var got time.Time
+	var instrumentNull bool
+	if err := pool.QueryRow(ctx, `SELECT created_at, instrument IS NULL FROM movements`).Scan(&got, &instrumentNull); err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(created) || !instrumentNull {
+		t.Errorf("created_at = %s, instrument null = %v", got, instrumentNull)
+	}
+
+	// A second run refuses and changes nothing, unless forced (which appends).
+	if _, err := repo.ImportMovements(ctx, []postgres.ImportedMovement{row}, false); !errors.Is(err, postgres.ErrNotEmpty) {
+		t.Errorf("second import: err = %v, want ErrNotEmpty", err)
+	}
+	if n, err := repo.ImportMovements(ctx, []postgres.ImportedMovement{row}, true); err != nil || n != 1 {
+		t.Errorf("forced import: %d, %v", n, err)
+	}
+	var count int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM movements`).Scan(&count)
+	if count != 2 {
+		t.Errorf("rows = %d, want 2", count)
+	}
+
+	// One bad row rolls the whole import back.
+	bad := row
+	bad.Movement.Amount = dec("-1")
+	if _, err := repo.ImportMovements(ctx, []postgres.ImportedMovement{row, bad}, true); err == nil {
+		t.Error("expected a constraint violation")
+	}
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM movements`).Scan(&count)
+	if count != 2 {
+		t.Errorf("rows after failed import = %d, want 2 (rolled back)", count)
 	}
 }

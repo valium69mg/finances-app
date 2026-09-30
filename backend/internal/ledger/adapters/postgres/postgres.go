@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -75,16 +76,67 @@ func scan(row pgx.Row) (domain.Movement, error) {
 	return m, nil
 }
 
-// Create inserts the movement and returns it with its generated ID.
-func (r *Repo) Create(ctx context.Context, m domain.Movement) (domain.Movement, error) {
-	row := r.pool.QueryRow(ctx, `
+// rowQuerier is the QueryRow half of a pool or a transaction.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// insert stores m; a nil createdAt keeps the column default (now()).
+func insert(ctx context.Context, q rowQuerier, m domain.Movement, createdAt *time.Time) (domain.Movement, error) {
+	row := q.QueryRow(ctx, `
 		INSERT INTO movements (date, description, category, instrument, kind, payment_method, currency,
-		                       amount, exchange_rate, amount_mxn)
-		VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8::text::numeric, $9::text::numeric, $10::text::numeric)
+		                       amount, exchange_rate, amount_mxn, created_at)
+		VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8::text::numeric, $9::text::numeric, $10::text::numeric,
+		        COALESCE($11::timestamptz, now()))
 		RETURNING `+columns,
 		m.Date, m.Description, m.Category, nullString(m.Instrument), string(m.Kind), m.PaymentMethod, m.Currency,
-		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String())
+		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt)
 	return scan(row)
+}
+
+// Create inserts the movement and returns it with its generated ID.
+func (r *Repo) Create(ctx context.Context, m domain.Movement) (domain.Movement, error) {
+	return insert(ctx, r.pool, m, nil)
+}
+
+// ErrNotEmpty is returned by ImportMovements when the table already has rows.
+var ErrNotEmpty = errors.New("movements table is not empty")
+
+// ImportedMovement is a movement to load with its original creation time.
+type ImportedMovement struct {
+	Movement  domain.Movement
+	CreatedAt time.Time
+}
+
+// ImportMovements inserts the rows in one transaction, keeping their creation
+// times. Unless force is set it refuses (ErrNotEmpty) when the table already
+// has rows; force appends without deleting anything. IDs are newly generated.
+func (r *Repo) ImportMovements(ctx context.Context, rows []ImportedMovement, force bool) (int, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if !force {
+		var exists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM movements)`).Scan(&exists); err != nil {
+			return 0, err
+		}
+		if exists {
+			return 0, ErrNotEmpty
+		}
+	}
+	for i, row := range rows {
+		createdAt := row.CreatedAt
+		if _, err := insert(ctx, tx, row.Movement, &createdAt); err != nil {
+			return 0, fmt.Errorf("row %d: %w", i+1, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, err
+	}
+	return len(rows), nil
 }
 
 // Update replaces every field of the movement with m.ID.
@@ -143,6 +195,28 @@ func (r *Repo) ListByMonth(ctx context.Context, month string, kind domain.Kind, 
 		ORDER BY date DESC, id DESC
 		LIMIT $3::bigint`,
 		month, string(kind), limitArg)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Movement{}
+	for rows.Next() {
+		m, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ListAllByKind returns every movement of a kind, oldest first.
+func (r *Repo) ListAllByKind(ctx context.Context, kind domain.Kind) ([]domain.Movement, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+columns+`
+		FROM movements
+		WHERE kind = $1::text
+		ORDER BY date ASC, id ASC`, string(kind))
 	if err != nil {
 		return nil, err
 	}

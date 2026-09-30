@@ -51,6 +51,10 @@ func TestComputeExtraSplit(t *testing.T) {
 		{"rounding remainder goes to the fund", "11", "0", "166922.64", "2", "5", "3", "1", false},
 		// 1,000.50: shares 165, 418, 292, 125 sum to 1,000; the 0.50 diff goes to the fund.
 		{"fractional amount", "1000.50", "0", "166922.64", "165", "418.5", "292", "125", false},
+		// 100: SAT 16.5 -> 16 (half-even, like Python's round); remainder 84 -> 42, 29.4 (29), 12.6 (13).
+		{"half-even SAT share", "100", "0", "166922.64", "16", "42", "29", "13", false},
+		// 10: SAT 1.65 -> 2; remainder 8 -> 4, 2.8 (3), 1.2 (1).
+		{"small deposit", "10", "0", "166922.64", "2", "4", "3", "1", false},
 		// Goal reached: the fund share is redirected to investments.
 		{"goal reached", "35000", "166922.64", "166922.64", "5775", "0", "24841", "4384", true},
 		// A zero goal never counts as reached.

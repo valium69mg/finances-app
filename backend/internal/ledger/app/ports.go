@@ -23,4 +23,7 @@ type MovementRepo interface {
 	// (date desc, id desc). Kind filters when non-empty and limit caps the
 	// result when positive.
 	ListByMonth(ctx context.Context, month string, kind domain.Kind, limit int) ([]domain.Movement, error)
+	// ListAllByKind returns every movement of a kind across all months, oldest
+	// first (date asc, id asc). Balances such as the emergency fund need it.
+	ListAllByKind(ctx context.Context, kind domain.Kind) ([]domain.Movement, error)
 }

@@ -135,8 +135,13 @@ func NewMovement(in MovementInput, cat Catalog, today string) (Movement, error) 
 	if in.Amount.IsZero() {
 		return Movement{}, invalid("amount must not be zero")
 	}
-	if in.Kind == KindExpense && !in.Amount.IsPositive() {
+	// Only savings may be negative (withdrawals); the movements table enforces
+	// the same rule with a CHECK.
+	switch {
+	case in.Kind == KindExpense && !in.Amount.IsPositive():
 		return Movement{}, invalid("amount of an expense must be greater than zero")
+	case in.Kind == KindIncome && !in.Amount.IsPositive():
+		return Movement{}, invalid("amount of an income must be greater than zero")
 	}
 
 	var rate *decimal.Decimal
