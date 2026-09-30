@@ -85,6 +85,10 @@ type General struct {
 	BudgetIncludesExtraIncome bool
 	ExtraIncomeSplit          map[string]decimal.Decimal
 	InvestmentAllocation      []Weight
+	// CycleStartDay selects the personal budget cycle (see ledger.Cycle): 0 is
+	// the calendar month, 1..31 the day the cycle starts in the previous month
+	// (31 is its last day).
+	CycleStartDay int
 }
 
 // General returns the general section of the configuration. Absent required
@@ -105,7 +109,13 @@ func (c Config) General() General {
 		BudgetIncludesExtraIncome: c.BudgetIncludesExtraIncome,
 		ExtraIncomeSplit:          c.ExtraIncomeSplit,
 		InvestmentAllocation:      c.InvestmentAllocation,
+		CycleStartDay:             c.CycleStartDay,
 	}
+}
+
+// Cycle returns the personal budget cycle configured for the owner.
+func (c Config) Cycle() ledger.Cycle {
+	return ledger.Cycle{StartDay: c.CycleStartDay}
 }
 
 // Catalog returns the part of the configuration that movement validation
@@ -140,6 +150,10 @@ type Config struct {
 
 	ExtraIncomeEstimateMXN    decimal.Decimal
 	BudgetIncludesExtraIncome bool
+
+	// CycleStartDay is the start day of the personal budget cycle, 0 to 31
+	// (0 is the calendar month).
+	CycleStartDay int
 
 	// ExtraIncomeSplit holds optional rates keyed as in the configuration
 	// (sat_reserve_rate, fondo_emergencia, inversiones, aguinaldo_vacaciones).

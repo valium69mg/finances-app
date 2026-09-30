@@ -142,19 +142,26 @@ func (s *Service) Delete(ctx context.Context, id int) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// List returns the expenses of a YYYY-MM month (the current one when empty),
-// newest first, at most limit of them (DefaultListLimit when not positive).
+// List returns the expenses of a YYYY-MM budget cycle (the current one when
+// empty), newest first, at most limit of them (DefaultListLimit when not
+// positive).
 func (s *Service) List(ctx context.Context, month string, limit int) ([]ledger.Movement, error) {
-	if month == "" {
-		month = ledger.CurrentMonth(s.now())
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if _, err := time.Parse("2006-01", month); err != nil {
+	cycle := cfg.Cycle()
+	if month == "" {
+		month = cycle.Current(s.now())
+	}
+	from, to, err := cycle.Range(month)
+	if err != nil {
 		return nil, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
 	}
 	if limit <= 0 {
 		limit = DefaultListLimit
 	}
-	return s.repo.ListByMonth(ctx, month, ledger.KindExpense, limit)
+	return s.repo.ListByRange(ctx, from, to, ledger.KindExpense, limit)
 }
 
 // InferCategory suggests the expense category for a description.
@@ -195,12 +202,21 @@ func (s *Service) result(ctx context.Context, m ledger.Movement) (Result, error)
 }
 
 func (s *Service) feedback(ctx context.Context, m ledger.Movement) (BudgetFeedback, error) {
-	month := ledger.MonthOf(m.Date)
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return BudgetFeedback{}, err
+	}
+	cycle := cfg.Cycle()
+	month := cycle.Of(m.Date)
+	from, to, err := cycle.Range(month)
+	if err != nil {
+		return BudgetFeedback{}, err
+	}
 	budgets, err := s.settings.MonthBudgets(ctx, month)
 	if err != nil {
 		return BudgetFeedback{}, err
 	}
-	movements, err := s.repo.ListByMonth(ctx, month, ledger.KindExpense, 0)
+	movements, err := s.repo.ListByRange(ctx, from, to, ledger.KindExpense, 0)
 	if err != nil {
 		return BudgetFeedback{}, err
 	}

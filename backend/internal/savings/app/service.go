@@ -215,19 +215,26 @@ func newTransferID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
-// ListSavings returns the savings of a YYYY-MM month (the current one when
-// empty), newest first, at most limit of them (DefaultListLimit when not positive).
+// ListSavings returns the savings of a YYYY-MM budget cycle (the current one
+// when empty), newest first, at most limit of them (DefaultListLimit when not
+// positive).
 func (s *Service) ListSavings(ctx context.Context, month string, limit int) ([]ledger.Movement, error) {
-	if month == "" {
-		month = ledger.CurrentMonth(s.now())
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if _, err := time.Parse("2006-01", month); err != nil {
+	cycle := cfg.Cycle()
+	if month == "" {
+		month = cycle.Current(s.now())
+	}
+	from, to, err := cycle.Range(month)
+	if err != nil {
 		return nil, invalid("month %q must be YYYY-MM", month)
 	}
 	if limit <= 0 {
 		limit = DefaultListLimit
 	}
-	return s.movements.ListByMonth(ctx, month, ledger.KindSavings, limit)
+	return s.movements.ListByRange(ctx, from, to, ledger.KindSavings, limit)
 }
 
 func (s *Service) saving(ctx context.Context, id int) (ledger.Movement, error) {

@@ -20,10 +20,10 @@ type MovementRepo interface {
 	Delete(ctx context.Context, id int) error
 	// GetByID returns domain.ErrNotFound when the movement does not exist.
 	GetByID(ctx context.Context, id int) (domain.Movement, error)
-	// ListByMonth returns the movements of a YYYY-MM month, newest first
-	// (date desc, id desc). Kind filters when non-empty and limit caps the
-	// result when positive.
-	ListByMonth(ctx context.Context, month string, kind domain.Kind, limit int) ([]domain.Movement, error)
+	// ListByRange returns the movements dated from..to (YYYY-MM-DD, both
+	// inclusive), newest first (date desc, id desc). Kind filters when
+	// non-empty and limit caps the result when positive.
+	ListByRange(ctx context.Context, from, to string, kind domain.Kind, limit int) ([]domain.Movement, error)
 	// ListAllByKind returns every movement of a kind across all months, oldest
 	// first (date asc, id asc). Balances such as the emergency fund need it.
 	ListAllByKind(ctx context.Context, kind domain.Kind) ([]domain.Movement, error)

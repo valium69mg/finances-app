@@ -21,7 +21,7 @@ type Settings interface {
 
 // Movements is the read side of the shared movement storage.
 type Movements interface {
-	ListByMonth(ctx context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error)
+	ListByRange(ctx context.Context, from, to string, kind ledger.Kind, limit int) ([]ledger.Movement, error)
 	ListAllByKind(ctx context.Context, kind ledger.Kind) ([]ledger.Movement, error)
 }
 

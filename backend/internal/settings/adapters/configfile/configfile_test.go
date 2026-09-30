@@ -14,6 +14,7 @@ const sample = `{
   "emergency_months": 6,
   "extra_income_estimate_mxn": 35000,
   "budget_includes_extra_income": false,
+  "cycle_start_day": 31,
   "extra_income_split": {"sat_reserve_rate": 0.165, "inversiones": 0.35},
   "instrumentos": [{"id": "voo", "nombre": "VOO", "tipo": "renta_variable", "plataforma": "GBM"}],
   "instrumento_por_categoria": {"Inversiones": "voo"},
@@ -45,6 +46,9 @@ func TestParse(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("parsed config should validate: %v", err)
+	}
+	if cfg.CycleStartDay != 31 {
+		t.Fatalf("cycle_start_day = %d, want 31", cfg.CycleStartDay)
 	}
 	if len(cfg.Categories) != 3 || cfg.Categories[0].Budget != nil || cfg.Categories[1].Budget.String() != "3600" {
 		t.Fatalf("categories = %+v", cfg.Categories)

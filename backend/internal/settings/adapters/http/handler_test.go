@@ -129,7 +129,8 @@ func TestGetAllUsesDecimalStrings(t *testing.T) {
 	}
 	var got struct {
 		General struct {
-			FX string `json:"fx_rate_applied"`
+			FX            string `json:"fx_rate_applied"`
+			CycleStartDay *int   `json:"cycle_start_day"`
 		} `json:"general"`
 		Categories []struct {
 			Name   string  `json:"name"`
@@ -145,6 +146,9 @@ func TestGetAllUsesDecimalStrings(t *testing.T) {
 	}
 	if got.General.FX != "17.74" {
 		t.Errorf("fx_rate_applied = %q", got.General.FX)
+	}
+	if got.General.CycleStartDay == nil || *got.General.CycleStartDay != 0 {
+		t.Errorf("cycle_start_day = %v, want the number 0", got.General.CycleStartDay)
 	}
 	if got.Categories[0].Budget != nil || got.Categories[3].Budget == nil || *got.Categories[3].Budget != "3600" {
 		t.Errorf("category budgets wrong: %+v", got.Categories[:4])
@@ -181,12 +185,12 @@ func TestPutCategoriesParsesDecimals(t *testing.T) {
 func TestPutGeneral(t *testing.T) {
 	svc := &fakeService{}
 	body := `{"salary_usd":"3500","fx_rate_applied":"17.74","morse_fee_rate":"0.001","emergency_months":"6",
-	          "extra_income_estimate_mxn":"35000","budget_includes_extra_income":false,
+	          "extra_income_estimate_mxn":"35000","budget_includes_extra_income":false,"cycle_start_day":31,
 	          "extra_income_split":{"inversiones":"0.35"},"investment_allocation":[{"key":"voo","value":"1"}]}`
 	if rec := do(newServer(svc), http.MethodPut, "/settings/general", body, true); rec.Code != http.StatusNoContent {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
 	}
-	if svc.gotGeneral.FXRateApplied.String() != "17.74" || len(svc.gotGeneral.InvestmentAllocation) != 1 {
+	if svc.gotGeneral.FXRateApplied.String() != "17.74" || len(svc.gotGeneral.InvestmentAllocation) != 1 || svc.gotGeneral.CycleStartDay != 31 {
 		t.Fatalf("general = %+v", svc.gotGeneral)
 	}
 }

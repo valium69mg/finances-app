@@ -95,12 +95,13 @@ func (r *Repo) Load(ctx context.Context) (domain.Config, error) {
 
 func loadGeneral(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
 	var salary, fx, fee, months, extra string
+	var cycleStartDay int16
 	var split, alloc []byte
 	err := tx.QueryRow(ctx,
 		`SELECT salary_usd::text, fx_rate_applied::text, morse_fee_rate::text, emergency_months::text,
-		        extra_income_estimate_mxn::text, budget_includes_extra_income, extra_income_split, investment_allocation
+		        extra_income_estimate_mxn::text, budget_includes_extra_income, cycle_start_day, extra_income_split, investment_allocation
 		 FROM settings WHERE id = 1`).
-		Scan(&salary, &fx, &fee, &months, &extra, &cfg.BudgetIncludesExtraIncome, &split, &alloc)
+		Scan(&salary, &fx, &fee, &months, &extra, &cfg.BudgetIncludesExtraIncome, &cycleStartDay, &split, &alloc)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -120,6 +121,7 @@ func loadGeneral(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
 	if cfg.ExtraIncomeEstimateMXN, err = dec(extra); err != nil {
 		return err
 	}
+	cfg.CycleStartDay = int(cycleStartDay)
 
 	var splitRaw map[string]string
 	if err := json.Unmarshal(split, &splitRaw); err != nil {
@@ -341,17 +343,19 @@ func saveGeneral(ctx context.Context, tx pgx.Tx, g domain.General) error {
 	}
 	_, err = tx.Exec(ctx,
 		`INSERT INTO settings (id, salary_usd, fx_rate_applied, morse_fee_rate, emergency_months,
-		                       extra_income_estimate_mxn, budget_includes_extra_income, extra_income_split, investment_allocation)
-		 VALUES (1, $1::text::numeric, $2::text::numeric, $3::text::numeric, $4::text::numeric, $5::text::numeric, $6, $7, $8)
+		                       extra_income_estimate_mxn, budget_includes_extra_income, cycle_start_day,
+		                       extra_income_split, investment_allocation)
+		 VALUES (1, $1::text::numeric, $2::text::numeric, $3::text::numeric, $4::text::numeric, $5::text::numeric, $6, $7::smallint, $8, $9)
 		 ON CONFLICT (id) DO UPDATE SET
 		   salary_usd = EXCLUDED.salary_usd, fx_rate_applied = EXCLUDED.fx_rate_applied,
 		   morse_fee_rate = EXCLUDED.morse_fee_rate, emergency_months = EXCLUDED.emergency_months,
 		   extra_income_estimate_mxn = EXCLUDED.extra_income_estimate_mxn,
 		   budget_includes_extra_income = EXCLUDED.budget_includes_extra_income,
+		   cycle_start_day = EXCLUDED.cycle_start_day,
 		   extra_income_split = EXCLUDED.extra_income_split,
 		   investment_allocation = EXCLUDED.investment_allocation, updated_at = now()`,
 		g.SalaryUSD.String(), g.FXRateApplied.String(), g.MorseFeeRate.String(), g.EmergencyMonths.String(),
-		g.ExtraIncomeEstimateMXN.String(), g.BudgetIncludesExtraIncome, splitJSON, allocJSON)
+		g.ExtraIncomeEstimateMXN.String(), g.BudgetIncludesExtraIncome, int16(g.CycleStartDay), splitJSON, allocJSON)
 	return err
 }
 

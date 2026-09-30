@@ -223,8 +223,9 @@ func (r *Repo) GetByID(ctx context.Context, id int) (domain.Movement, error) {
 	return m, err
 }
 
-// ListByMonth returns the movements of a YYYY-MM month, newest first.
-func (r *Repo) ListByMonth(ctx context.Context, month string, kind domain.Kind, limit int) ([]domain.Movement, error) {
+// ListByRange returns the movements dated from..to (YYYY-MM-DD, inclusive),
+// newest first.
+func (r *Repo) ListByRange(ctx context.Context, from, to string, kind domain.Kind, limit int) ([]domain.Movement, error) {
 	var limitArg *int64
 	if limit > 0 {
 		l := int64(limit)
@@ -233,12 +234,12 @@ func (r *Repo) ListByMonth(ctx context.Context, month string, kind domain.Kind, 
 	rows, err := r.pool.Query(ctx, `
 		SELECT `+columns+`
 		FROM movements
-		WHERE date >= ($1::text || '-01')::date
-		  AND date < (($1::text || '-01')::date + interval '1 month')
-		  AND ($2::text = '' OR kind = $2::text)
+		WHERE date >= $1::text::date
+		  AND date <= $2::text::date
+		  AND ($3::text = '' OR kind = $3::text)
 		ORDER BY date DESC, id DESC
-		LIMIT $3::bigint`,
-		month, string(kind), limitArg)
+		LIMIT $4::bigint`,
+		from, to, string(kind), limitArg)
 	if err != nil {
 		return nil, err
 	}

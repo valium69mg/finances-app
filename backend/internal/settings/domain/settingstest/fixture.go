@@ -45,6 +45,7 @@ func RealConfig() settings.Config {
 		EmergencyMonths:           ptr("6"),
 		ExtraIncomeEstimateMXN:    D("35000"),
 		BudgetIncludesExtraIncome: false,
+		CycleStartDay:             0, // calendar month, the legacy behavior the suites assume
 		ExtraIncomeSplit: map[string]decimal.Decimal{
 			"sat_reserve_rate":     D("0.165"),
 			"fondo_emergencia":     D("0.5"),

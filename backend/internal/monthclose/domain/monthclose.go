@@ -40,19 +40,20 @@ func ValidatePeriod(period string) error {
 	return nil
 }
 
-// ValidateClosable additionally refuses a period after the current month: the
-// current month may be closed (a mid-month snapshot), a future one may not.
-func ValidateClosable(period string, now time.Time) error {
+// ValidateClosable additionally refuses a period after the current budget
+// cycle: the current cycle may be closed (a mid-cycle snapshot), a future one
+// may not. Cycle labels are YYYY-MM, so they compare as text.
+func ValidateClosable(period string, now time.Time, cycle ledger.Cycle) error {
 	if err := ValidatePeriod(period); err != nil {
 		return err
 	}
-	if period > ledger.CurrentMonth(now) {
+	if period > cycle.Current(now) {
 		return fmt.Errorf("%w: period %s is in the future", ErrInvalidInput, period)
 	}
 	return nil
 }
 
-// Category is one Gasto category of the month against its month budget.
+// Category is one Gasto category of the period against its budget.
 // Budget and Remaining are nil when the category has no budget.
 type Category struct {
 	Name       string
@@ -117,13 +118,13 @@ type Input struct {
 	FilingStatus      taxfiling.PaymentStatus
 }
 
-// MovementsUpTo keeps the movements dated on or before the last day of the
-// YYYY-MM period, so the emergency fund can be measured as of that month.
-// Dates are YYYY-MM-DD, which compares correctly as text.
-func MovementsUpTo(movements []ledger.Movement, period string) []ledger.Movement {
+// MovementsUpTo keeps the movements dated on or before end (a YYYY-MM-DD date,
+// the last day of the period's cycle), so the emergency fund can be measured as
+// of that period. Dates compare correctly as text.
+func MovementsUpTo(movements []ledger.Movement, end string) []ledger.Movement {
 	out := make([]ledger.Movement, 0, len(movements))
 	for _, m := range movements {
-		if m.Date <= period+"-31" {
+		if m.Date <= end {
 			out = append(out, m)
 		}
 	}

@@ -237,7 +237,7 @@ func TestMovementsUpTo(t *testing.T) {
 		mov("2026-10-31", ledger.KindSavings, "Fondo de emergencia", "2"),
 		mov("2026-11-01", ledger.KindSavings, "Fondo de emergencia", "4"),
 	}
-	got := monthclose.MovementsUpTo(all, "2026-10")
+	got := monthclose.MovementsUpTo(all, "2026-10-31")
 	if len(got) != 2 || !ledger.SumBy(got, ledger.Filter{Kind: ledger.KindSavings}).Equal(d("3")) {
 		t.Errorf("up to 2026-10 = %+v", got)
 	}
@@ -259,13 +259,38 @@ func TestValidatePeriod(t *testing.T) {
 func TestValidateClosable(t *testing.T) {
 	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
 	for _, p := range []string{"2026-09", "2026-10", "2020-01"} {
-		if err := monthclose.ValidateClosable(p, now); err != nil {
+		if err := monthclose.ValidateClosable(p, now, ledger.Cycle{}); err != nil {
 			t.Errorf("%q: %v", p, err)
 		}
 	}
 	for _, p := range []string{"2026-11", "2027-01"} {
-		if err := monthclose.ValidateClosable(p, now); !errors.Is(err, monthclose.ErrInvalidInput) {
+		if err := monthclose.ValidateClosable(p, now, ledger.Cycle{}); !errors.Is(err, monthclose.ErrInvalidInput) {
 			t.Errorf("%q: err = %v, want ErrInvalidInput", p, err)
 		}
+	}
+}
+
+func TestValidateClosableUsesTheCycle(t *testing.T) {
+	c := ledger.Cycle{StartDay: 31}
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC) // cycle 2026-11
+	if err := monthclose.ValidateClosable("2026-11", now, c); err != nil {
+		t.Errorf("2026-11: %v", err)
+	}
+	if err := monthclose.ValidateClosable("2026-12", now, c); !errors.Is(err, monthclose.ErrInvalidInput) {
+		t.Errorf("2026-12: err = %v, want ErrInvalidInput", err)
+	}
+	if err := monthclose.ValidateClosable("2026-11", now, ledger.Cycle{}); !errors.Is(err, monthclose.ErrInvalidInput) {
+		t.Errorf("calendar month at 2026-10-31 must still refuse 2026-11, got %v", err)
+	}
+}
+
+func TestMovementsUpToCycleEnd(t *testing.T) {
+	all := []ledger.Movement{
+		mov("2026-10-30", ledger.KindSavings, "Fondo de emergencia", "1"),
+		mov("2026-10-31", ledger.KindSavings, "Fondo de emergencia", "2"),
+	}
+	_, to, _ := ledger.Cycle{StartDay: 31}.Range("2026-10")
+	if got := monthclose.MovementsUpTo(all, to); len(got) != 1 || !got[0].AmountMXN.Equal(d("1")) {
+		t.Errorf("up to %s = %+v, want only 2026-10-30", to, got)
 	}
 }

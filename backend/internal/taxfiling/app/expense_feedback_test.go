@@ -38,7 +38,7 @@ func (s *movementStore) GetByID(_ context.Context, id int) (ledger.Movement, err
 	}
 	return m, nil
 }
-func (s *movementStore) ListByMonth(context.Context, string, ledger.Kind, int) ([]ledger.Movement, error) {
+func (s *movementStore) ListByRange(context.Context, string, string, ledger.Kind, int) ([]ledger.Movement, error) {
 	return nil, nil
 }
 func (s *movementStore) ListAllByKind(context.Context, ledger.Kind) ([]ledger.Movement, error) {

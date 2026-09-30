@@ -26,16 +26,20 @@ type TaxCard struct {
 	Filing       taxfiling.MonthStatus
 }
 
-// Overview is the dashboard of one month: the expense categories against their
+// Overview is the dashboard of one budget cycle: the expense categories against their
 // month budgets, the month totals, the all-time emergency fund and the tax
 // card, which is nil when the tax settings are incomplete.
 type Overview struct {
-	Month     string
-	Rows      []Row // Gasto categories, in the order of the budgets
-	Totals    Totals
-	Available decimal.Decimal
-	Emergency savings.EmergencyStatus
-	Tax       *TaxCard
+	Month string
+	// PeriodStart and PeriodEnd are the first and last day (YYYY-MM-DD,
+	// inclusive) of the budget cycle the figures cover.
+	PeriodStart string
+	PeriodEnd   string
+	Rows        []Row // Gasto categories, in the order of the budgets
+	Totals      Totals
+	Available   decimal.Decimal
+	Emergency   savings.EmergencyStatus
+	Tax         *TaxCard
 }
 
 // ExpenseRows returns one row per Gasto budget, in order, with what the

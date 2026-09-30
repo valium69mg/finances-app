@@ -53,10 +53,10 @@ func (f *fakeFilings) MonthStatus(_ context.Context, month string) (taxfiling.Mo
 
 type fakeMovements struct{ rows []ledger.Movement }
 
-func (f *fakeMovements) ListByMonth(_ context.Context, month string, kind ledger.Kind, _ int) ([]ledger.Movement, error) {
+func (f *fakeMovements) ListByRange(_ context.Context, from, to string, kind ledger.Kind, _ int) ([]ledger.Movement, error) {
 	var out []ledger.Movement
 	for _, m := range f.rows {
-		if ledger.MonthOf(m.Date) == month && m.Kind == kind {
+		if m.Date >= from && m.Date <= to && m.Kind == kind {
 			out = append(out, m)
 		}
 	}
@@ -385,5 +385,56 @@ func TestGetAndList(t *testing.T) {
 	list, err := fx.svc.List(ctx)
 	if err != nil || len(list) != 1 {
 		t.Errorf("list = %v, %v", list, err)
+	}
+}
+
+func TestCycleSelectsTheMovementsAndTheFundHorizon(t *testing.T) {
+	fx := newFixture()
+	fx.settings.cfg.CycleStartDay = 31
+	fx.mvs.rows = append(fx.mvs.rows,
+		mv("2026-09-30", ledger.KindExpense, "Mandado", "100"),             // first day of cycle 2026-10
+		mv("2026-09-30", ledger.KindSavings, "Fondo de emergencia", "500"), // same day, counts from cycle 2026-10
+	)
+
+	// Default period: the cycle before the current one (2026-10), so 2026-09,
+	// which ends on 2026-09-29 and leaves the 2026-09-30 movements out.
+	res, err := fx.svc.Preview(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Close.Period != "2026-09" || !res.Close.Expenses.Equal(d("5300")) {
+		t.Errorf("period %s expenses %s, want 2026-09 and 5300", res.Close.Period, res.Close.Expenses)
+	}
+	if !res.Close.Emergency.Accumulated.Equal(d("10000")) {
+		t.Errorf("fund = %s, want 10000 as of 2026-09-29", res.Close.Emergency.Accumulated)
+	}
+
+	res, err = fx.svc.Preview(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2026-09-30..2026-10-30: the 2026-09-30 expense plus the 9,999 of 10-04.
+	if !res.Close.Expenses.Equal(d("10099")) {
+		t.Errorf("2026-10 expenses = %s, want 10099", res.Close.Expenses)
+	}
+	if !res.Close.Emergency.Accumulated.Equal(d("19500")) {
+		t.Errorf("2026-10 fund = %s, want 19500 as of 2026-10-30", res.Close.Emergency.Accumulated)
+	}
+	// Filing is fiscal: the cycle label is passed as the calendar month.
+	if fx.filings.month != "2026-10" {
+		t.Errorf("filing month = %s, want 2026-10", fx.filings.month)
+	}
+}
+
+func TestCreateClosableFollowsTheCycle(t *testing.T) {
+	fx := newFixture()
+	fx.settings.cfg.CycleStartDay = 31
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC) // already cycle 2026-11
+	svc := app.NewService(fx.repo, fx.mvs, fx.settings, fx.filings, func() time.Time { return now }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if _, err := svc.Create(context.Background(), "2026-11"); err != nil {
+		t.Errorf("closing the current cycle 2026-11: %v", err)
+	}
+	if _, err := svc.Create(context.Background(), "2026-12"); !errors.Is(err, monthclose.ErrInvalidInput) {
+		t.Errorf("closing the future cycle 2026-12: err = %v, want ErrInvalidInput", err)
 	}
 }

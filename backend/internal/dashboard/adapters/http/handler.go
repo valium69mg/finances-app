@@ -74,25 +74,29 @@ type taxDTO struct {
 // dashboardDTO is the body of GET /dashboard. Tax is null when the tax
 // settings are incomplete.
 type dashboardDTO struct {
-	Month      string          `json:"month"`
-	Categories []categoryDTO   `json:"categories"`
-	Income     decimal.Decimal `json:"income"`
-	Expenses   decimal.Decimal `json:"expenses"`
-	Savings    decimal.Decimal `json:"savings"`
-	Available  decimal.Decimal `json:"available"`
-	Emergency  emergencyDTO    `json:"emergency"`
-	Tax        *taxDTO         `json:"tax"`
+	Month       string          `json:"month"`
+	PeriodStart string          `json:"period_start"`
+	PeriodEnd   string          `json:"period_end"`
+	Categories  []categoryDTO   `json:"categories"`
+	Income      decimal.Decimal `json:"income"`
+	Expenses    decimal.Decimal `json:"expenses"`
+	Savings     decimal.Decimal `json:"savings"`
+	Available   decimal.Decimal `json:"available"`
+	Emergency   emergencyDTO    `json:"emergency"`
+	Tax         *taxDTO         `json:"tax"`
 }
 
 func toDTO(d dashboard.Overview) dashboardDTO {
 	out := dashboardDTO{
-		Month:      d.Month,
-		Categories: make([]categoryDTO, len(d.Rows)),
-		Income:     d.Totals.Income,
-		Expenses:   d.Totals.Expenses,
-		Savings:    d.Totals.Savings,
-		Available:  d.Available,
-		Emergency:  emergencyDTO{Accumulated: d.Emergency.Accumulated, Goal: d.Emergency.Goal},
+		Month:       d.Month,
+		PeriodStart: d.PeriodStart,
+		PeriodEnd:   d.PeriodEnd,
+		Categories:  make([]categoryDTO, len(d.Rows)),
+		Income:      d.Totals.Income,
+		Expenses:    d.Totals.Expenses,
+		Savings:     d.Totals.Savings,
+		Available:   d.Available,
+		Emergency:   emergencyDTO{Accumulated: d.Emergency.Accumulated, Goal: d.Emergency.Goal},
 	}
 	for i, r := range d.Rows {
 		out.Categories[i] = categoryDTO{Category: r.Name, Spent: r.Real, Budget: r.Budget, Remaining: r.Diff, OverBudget: r.OverBudget()}

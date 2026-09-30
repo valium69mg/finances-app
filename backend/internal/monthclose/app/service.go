@@ -8,6 +8,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	monthclose "github.com/valium69mg/finances-app/backend/internal/monthclose/domain"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
+	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
 )
 
 // Service implements the month close use cases.
@@ -46,10 +48,14 @@ type Preview struct {
 	Existing *monthclose.Close
 }
 
-// compute builds the close of a YYYY-MM period from the current data. It wraps
-// settings.ErrMissingConfig when the budgets or the emergency fund goal cannot
-// be computed.
-func (s *Service) compute(ctx context.Context, period string) (monthclose.Close, error) {
+// compute builds the close of a YYYY-MM budget cycle from the current data. It
+// wraps settings.ErrMissingConfig when the budgets or the emergency fund goal
+// cannot be computed.
+func (s *Service) compute(ctx context.Context, cfg settings.Config, period string) (monthclose.Close, error) {
+	from, to, err := cfg.Cycle().Range(period)
+	if err != nil {
+		return monthclose.Close{}, fmt.Errorf("%w: period %q must be YYYY-MM", monthclose.ErrInvalidInput, period)
+	}
 	resolved, err := s.settings.MonthBudgets(ctx, period)
 	if err != nil {
 		return monthclose.Close{}, err
@@ -58,14 +64,10 @@ func (s *Service) compute(ctx context.Context, period string) (monthclose.Close,
 	for i, b := range resolved {
 		budgets[i] = dashboard.Budget{Name: b.Name, Kind: ledger.Kind(b.Kind), Amount: b.Budget}
 	}
-	cfg, err := s.settings.Get(ctx)
-	if err != nil {
-		return monthclose.Close{}, err
-	}
 
 	var monthly []ledger.Movement
 	for _, kind := range []ledger.Kind{ledger.KindIncome, ledger.KindExpense, ledger.KindSavings} {
-		rows, err := s.movements.ListByMonth(ctx, period, kind, 0)
+		rows, err := s.movements.ListByRange(ctx, from, to, kind, 0)
 		if err != nil {
 			return monthclose.Close{}, err
 		}
@@ -78,11 +80,12 @@ func (s *Service) compute(ctx context.Context, period string) (monthclose.Close,
 	if err != nil {
 		return monthclose.Close{}, err
 	}
-	emergency, err := savings.EmergencyFund(cfg, monthclose.MovementsUpTo(allSavings, period))
+	emergency, err := savings.EmergencyFund(cfg, monthclose.MovementsUpTo(allSavings, to))
 	if err != nil {
 		return monthclose.Close{}, err
 	}
 
+	// Filing is fiscal: the cycle label is used as the calendar month.
 	status, err := s.filings.MonthStatus(ctx, period)
 	if err != nil {
 		return monthclose.Close{}, err
@@ -97,13 +100,17 @@ func (s *Service) compute(ctx context.Context, period string) (monthclose.Close,
 	}), nil
 }
 
-// Preview computes the close of a period (the previous month when empty)
+// Preview computes the close of a period (the previous cycle when empty)
 // without storing anything, and returns the stored close of that period if any.
 func (s *Service) Preview(ctx context.Context, period string) (Preview, error) {
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return Preview{}, err
+	}
 	if period == "" {
-		// The month of the service clock, in the clock's own zone, like the tax
-		// filing preview and the closable check.
-		prev, err := ledger.PreviousMonth(ledger.CurrentMonth(s.now()))
+		// The cycle of the service clock, in the clock's own zone, like the
+		// closable check.
+		prev, err := cfg.Cycle().Previous(cfg.Cycle().Current(s.now()))
 		if err != nil {
 			return Preview{}, err
 		}
@@ -112,7 +119,7 @@ func (s *Service) Preview(ctx context.Context, period string) (Preview, error) {
 	if err := monthclose.ValidatePeriod(period); err != nil {
 		return Preview{}, err
 	}
-	c, err := s.compute(ctx, period)
+	c, err := s.compute(ctx, cfg, period)
 	if err != nil {
 		return Preview{}, err
 	}
@@ -128,14 +135,18 @@ func (s *Service) Preview(ctx context.Context, period string) (Preview, error) {
 }
 
 // Create computes the close of a period and stores it as a snapshot. The
-// current month may be closed, a future one may not
+// current cycle may be closed, a future one may not
 // (monthclose.ErrInvalidInput), and a period with a stored close fails with
 // monthclose.ErrAlreadyClosed: delete it first to generate it again.
 func (s *Service) Create(ctx context.Context, period string) (monthclose.Close, error) {
-	if err := monthclose.ValidateClosable(period, s.now()); err != nil {
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
 		return monthclose.Close{}, err
 	}
-	c, err := s.compute(ctx, period)
+	if err := monthclose.ValidateClosable(period, s.now(), cfg.Cycle()); err != nil {
+		return monthclose.Close{}, err
+	}
+	c, err := s.compute(ctx, cfg, period)
 	if err != nil {
 		return monthclose.Close{}, err
 	}

@@ -64,10 +64,10 @@ func (f *fakeFilings) MonthStatus(_ context.Context, month string) (taxfiling.Mo
 
 type fakeMovements struct{ rows []ledger.Movement }
 
-func (f *fakeMovements) ListByMonth(_ context.Context, month string, kind ledger.Kind, _ int) ([]ledger.Movement, error) {
+func (f *fakeMovements) ListByRange(_ context.Context, from, to string, kind ledger.Kind, _ int) ([]ledger.Movement, error) {
 	var out []ledger.Movement
 	for _, m := range f.rows {
-		if ledger.MonthOf(m.Date) == month && m.Kind == kind {
+		if m.Date >= from && m.Date <= to && m.Kind == kind {
 			out = append(out, m)
 		}
 	}
@@ -265,5 +265,46 @@ func TestMonthPropagatesIncomeErrors(t *testing.T) {
 	inc.err = boom
 	if _, err := svc.Month(context.Background(), "2026-10"); !errors.Is(err, boom) {
 		t.Errorf("err = %v, want boom", err)
+	}
+}
+
+func TestMonthFollowsTheConfiguredCycle(t *testing.T) {
+	svc, st, _, mvs := newService()
+	st.cfg.CycleStartDay = 31
+	mvs.rows = append(mvs.rows,
+		mv("2026-09-30", ledger.KindExpense, "Mandado", "300"), // first day of cycle 2026-10
+		mv("2026-10-31", ledger.KindExpense, "Mandado", "700"), // belongs to cycle 2026-11
+	)
+	got, err := svc.Month(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PeriodStart != "2026-09-30" || got.PeriodEnd != "2026-10-30" {
+		t.Errorf("period = %s..%s, want 2026-09-30..2026-10-30", got.PeriodStart, got.PeriodEnd)
+	}
+	// 3600 + 1500 + 200 of October plus the 9999 and 300 of 2026-09-30; the
+	// 700 of 2026-10-31 is out.
+	if !got.Totals.Expenses.Equal(d("15599")) {
+		t.Errorf("expenses = %s, want 15599", got.Totals.Expenses)
+	}
+	// The tax card stays fiscal: the cycle label is used as the calendar month.
+	if st.gotMonth != "2026-10" {
+		t.Errorf("budgets resolved for %q", st.gotMonth)
+	}
+
+	// At 2026-10-15 the current cycle of a day-31 calendar is still 2026-10.
+	if got, err := svc.Month(context.Background(), ""); err != nil || got.Month != "2026-10" {
+		t.Errorf("Month(\"\") = %q, %v, want 2026-10", got.Month, err)
+	}
+}
+
+func TestMonthDefaultPeriodIsTheCalendarMonth(t *testing.T) {
+	svc, _, _, _ := newService()
+	got, err := svc.Month(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PeriodStart != "2026-10-01" || got.PeriodEnd != "2026-10-31" {
+		t.Errorf("period = %s..%s, want the calendar month", got.PeriodStart, got.PeriodEnd)
 	}
 }

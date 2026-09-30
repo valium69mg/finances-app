@@ -40,7 +40,7 @@ type Filings interface {
 
 // Movements is the read side of the shared movement storage.
 type Movements interface {
-	ListByMonth(ctx context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error)
+	ListByRange(ctx context.Context, from, to string, kind ledger.Kind, limit int) ([]ledger.Movement, error)
 	ListAllByKind(ctx context.Context, kind ledger.Kind) ([]ledger.Movement, error)
 }
 
@@ -61,15 +61,22 @@ func NewService(movements Movements, settings Settings, income Income, filings F
 	return &Service{movements: movements, settings: settings, income: income, filings: filings, now: now}
 }
 
-// Month builds the dashboard of a YYYY-MM month (the current one when empty).
-// It fails with settings.ErrMissingConfig when the budgets or the emergency
+// Month builds the dashboard of a YYYY-MM budget cycle (the current one when
+// empty); the movements are those dated inside the cycle range. The tax card
+// stays fiscal: the cycle label is passed as the calendar month. It fails with settings.ErrMissingConfig when the budgets or the emergency
 // fund goal cannot be computed; an incomplete RESICO configuration only leaves
 // the tax card nil.
 func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, error) {
-	if month == "" {
-		month = ledger.CurrentMonth(s.now())
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return dashboard.Overview{}, err
 	}
-	if _, err := time.Parse("2006-01", month); err != nil {
+	cycle := cfg.Cycle()
+	if month == "" {
+		month = cycle.Current(s.now())
+	}
+	from, to, err := cycle.Range(month)
+	if err != nil {
 		return dashboard.Overview{}, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
 	}
 
@@ -82,11 +89,11 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 		budgets[i] = dashboard.Budget{Name: b.Name, Kind: ledger.Kind(b.Kind), Amount: b.Budget}
 	}
 
-	expenses, err := s.movements.ListByMonth(ctx, month, ledger.KindExpense, 0)
+	expenses, err := s.movements.ListByRange(ctx, from, to, ledger.KindExpense, 0)
 	if err != nil {
 		return dashboard.Overview{}, err
 	}
-	saved, err := s.movements.ListByMonth(ctx, month, ledger.KindSavings, 0)
+	saved, err := s.movements.ListByRange(ctx, from, to, ledger.KindSavings, 0)
 	if err != nil {
 		return dashboard.Overview{}, err
 	}
@@ -95,10 +102,6 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 		return dashboard.Overview{}, err
 	}
 
-	cfg, err := s.settings.Get(ctx)
-	if err != nil {
-		return dashboard.Overview{}, err
-	}
 	allSavings, err := s.movements.ListAllByKind(ctx, ledger.KindSavings)
 	if err != nil {
 		return dashboard.Overview{}, err
@@ -114,11 +117,13 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 		Savings:  ledger.SumBy(saved, ledger.Filter{Kind: ledger.KindSavings}),
 	}
 	out := dashboard.Overview{
-		Month:     month,
-		Rows:      dashboard.ExpenseRows(budgets, expenses),
-		Totals:    totals,
-		Available: totals.Available(),
-		Emergency: emergency,
+		Month:       month,
+		PeriodStart: from,
+		PeriodEnd:   to,
+		Rows:        dashboard.ExpenseRows(budgets, expenses),
+		Totals:      totals,
+		Available:   totals.Available(),
+		Emergency:   emergency,
 	}
 	if summary.Resico != nil {
 		status, err := s.filings.MonthStatus(ctx, month)

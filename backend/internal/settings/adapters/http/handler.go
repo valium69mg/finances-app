@@ -87,6 +87,7 @@ type generalDTO struct {
 	EmergencyMonths           decimal.Decimal            `json:"emergency_months"`
 	ExtraIncomeEstimateMXN    decimal.Decimal            `json:"extra_income_estimate_mxn"`
 	BudgetIncludesExtraIncome bool                       `json:"budget_includes_extra_income"`
+	CycleStartDay             int                        `json:"cycle_start_day"`
 	ExtraIncomeSplit          map[string]decimal.Decimal `json:"extra_income_split"`
 	InvestmentAllocation      []weightDTO                `json:"investment_allocation"`
 }
@@ -184,7 +185,8 @@ func toGeneralDTO(c domain.Config) generalDTO {
 	return generalDTO{
 		SalaryUSD: g.SalaryUSD, FXRateApplied: g.FXRateApplied, MorseFeeRate: g.MorseFeeRate,
 		EmergencyMonths: g.EmergencyMonths, ExtraIncomeEstimateMXN: g.ExtraIncomeEstimateMXN,
-		BudgetIncludesExtraIncome: g.BudgetIncludesExtraIncome, ExtraIncomeSplit: split, InvestmentAllocation: alloc,
+		BudgetIncludesExtraIncome: g.BudgetIncludesExtraIncome, CycleStartDay: g.CycleStartDay,
+		ExtraIncomeSplit: split, InvestmentAllocation: alloc,
 	}
 }
 
@@ -263,8 +265,8 @@ func (d generalDTO) toDomain() domain.General {
 	return domain.General{
 		SalaryUSD: d.SalaryUSD, FXRateApplied: d.FXRateApplied, MorseFeeRate: d.MorseFeeRate,
 		EmergencyMonths: d.EmergencyMonths, ExtraIncomeEstimateMXN: d.ExtraIncomeEstimateMXN,
-		BudgetIncludesExtraIncome: d.BudgetIncludesExtraIncome, ExtraIncomeSplit: d.ExtraIncomeSplit,
-		InvestmentAllocation: alloc,
+		BudgetIncludesExtraIncome: d.BudgetIncludesExtraIncome, CycleStartDay: d.CycleStartDay,
+		ExtraIncomeSplit: d.ExtraIncomeSplit, InvestmentAllocation: alloc,
 	}
 }
 

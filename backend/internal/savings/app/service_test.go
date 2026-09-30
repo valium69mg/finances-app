@@ -22,7 +22,8 @@ type fakeRepo struct {
 	nextID    int
 	listLimit int
 	listKind  ledger.Kind
-	listMonth string
+	listFrom  string
+	listTo    string
 	batches   int
 	failBatch error
 
@@ -88,11 +89,11 @@ func (f *fakeRepo) GetByID(_ context.Context, id int) (ledger.Movement, error) {
 	}
 	return m, nil
 }
-func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
-	f.listMonth, f.listKind, f.listLimit = month, kind, limit
+func (f *fakeRepo) ListByRange(_ context.Context, from, to string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
+	f.listFrom, f.listTo, f.listKind, f.listLimit = from, to, kind, limit
 	var out []ledger.Movement
 	for _, m := range f.rows {
-		if ledger.MonthOf(m.Date) == month && (kind == "" || m.Kind == kind) {
+		if m.Date >= from && m.Date <= to && (kind == "" || m.Kind == kind) {
 			out = append(out, m)
 		}
 	}
@@ -300,11 +301,11 @@ func TestListSavings(t *testing.T) {
 	if _, err := svc.ListSavings(ctx, "", 0); err != nil {
 		t.Fatal(err)
 	}
-	if repo.listMonth != "2026-10" || repo.listLimit != app.DefaultListLimit || repo.listKind != ledger.KindSavings {
-		t.Errorf("defaults: month=%q limit=%d kind=%q", repo.listMonth, repo.listLimit, repo.listKind)
+	if repo.listFrom != "2026-10-01" || repo.listTo != "2026-10-31" || repo.listLimit != app.DefaultListLimit || repo.listKind != ledger.KindSavings {
+		t.Errorf("defaults: range=%q..%q limit=%d kind=%q", repo.listFrom, repo.listTo, repo.listLimit, repo.listKind)
 	}
-	if _, err := svc.ListSavings(ctx, "2026-09", 5); err != nil || repo.listMonth != "2026-09" || repo.listLimit != 5 {
-		t.Errorf("explicit: month=%q limit=%d err=%v", repo.listMonth, repo.listLimit, err)
+	if _, err := svc.ListSavings(ctx, "2026-09", 5); err != nil || repo.listFrom != "2026-09-01" || repo.listTo != "2026-09-30" || repo.listLimit != 5 {
+		t.Errorf("explicit: range=%q..%q limit=%d err=%v", repo.listFrom, repo.listTo, repo.listLimit, err)
 	}
 	if _, err := svc.ListSavings(ctx, "2026-9", 5); !errors.Is(err, ledger.ErrInvalid) {
 		t.Errorf("bad month: err = %v, want ErrInvalid", err)
@@ -539,5 +540,20 @@ func TestPortfolioNeedsEmergencyMonths(t *testing.T) {
 	st.cfg.EmergencyMonths = nil
 	if _, err := svc.Portfolio(context.Background()); !errors.Is(err, settings.ErrMissingConfig) {
 		t.Errorf("err = %v, want ErrMissingConfig", err)
+	}
+}
+
+func TestListSavingsFollowsTheCycle(t *testing.T) {
+	svc, repo, _, st := newService(t)
+	st.cfg.CycleStartDay = 31
+	ctx := context.Background()
+	if _, err := svc.ListSavings(ctx, "2026-10", 0); err != nil {
+		t.Fatal(err)
+	}
+	if repo.listFrom != "2026-09-30" || repo.listTo != "2026-10-30" {
+		t.Errorf("range = %s..%s, want 2026-09-30..2026-10-30", repo.listFrom, repo.listTo)
+	}
+	if _, err := svc.ListSavings(ctx, "", 0); err != nil || repo.listFrom != "2026-09-30" || repo.listTo != "2026-10-30" {
+		t.Errorf("default cycle of 2026-10-15: range = %s..%s, err = %v", repo.listFrom, repo.listTo, err)
 	}
 }

@@ -23,6 +23,7 @@ type file struct {
 	EmergencyMonths           *json.Number           `json:"emergency_months"`
 	ExtraIncomeEstimateMXN    json.Number            `json:"extra_income_estimate_mxn"`
 	BudgetIncludesExtraIncome bool                   `json:"budget_includes_extra_income"`
+	CycleStartDay             int                    `json:"cycle_start_day"`
 	ExtraIncomeSplit          map[string]json.Number `json:"extra_income_split"`
 	Instruments               []struct {
 		ID       string `json:"id"`
@@ -115,6 +116,7 @@ func Parse(data []byte) (domain.Config, error) {
 		EmergencyMonths:           numPtr("emergency_months", f.EmergencyMonths),
 		ExtraIncomeEstimateMXN:    num("extra_income_estimate_mxn", f.ExtraIncomeEstimateMXN),
 		BudgetIncludesExtraIncome: f.BudgetIncludesExtraIncome,
+		CycleStartDay:             f.CycleStartDay,
 		InstrumentByCategory:      f.InstrumentByCategory,
 		PaymentMethods:            f.PaymentMethods,
 		Issuer: domain.Issuer{

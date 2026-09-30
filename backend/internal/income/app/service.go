@@ -162,42 +162,80 @@ func (s *Service) Delete(ctx context.Context, id int) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// List returns the income of a YYYY-MM month (the current one when empty),
-// newest first, at most limit of them (DefaultListLimit when not positive).
+// List returns the income of a YYYY-MM budget cycle (the current one when
+// empty), newest first, at most limit of them (DefaultListLimit when not
+// positive).
 func (s *Service) List(ctx context.Context, month string, limit int) ([]ledger.Movement, error) {
-	if month == "" {
-		month = ledger.CurrentMonth(s.now())
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return nil, err
 	}
-	if _, err := time.Parse("2006-01", month); err != nil {
+	cycle := cfg.Cycle()
+	if month == "" {
+		month = cycle.Current(s.now())
+	}
+	from, to, err := cycle.Range(month)
+	if err != nil {
 		return nil, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
 	}
 	if limit <= 0 {
 		limit = DefaultListLimit
 	}
-	return s.repo.ListByMonth(ctx, month, ledger.KindIncome, limit)
+	return s.repo.ListByRange(ctx, from, to, ledger.KindIncome, limit)
 }
 
-// MonthSummary returns the income total of a YYYY-MM month (the current one
-// when empty) and its RESICO ISR estimate, which is nil when the tax settings
-// are incomplete. A month without income is estimated at the first bracket
+// MonthSummary returns the income total of a YYYY-MM budget cycle (the current
+// one when empty) and its RESICO ISR estimate, which is nil when the tax
+// settings are incomplete. The estimate is fiscal, so it is computed over the
+// calendar month with the same label (real ISR comes from invoices by
+// collection date). A month without income is estimated at the first bracket
 // rate, as fin.py does.
 func (s *Service) MonthSummary(ctx context.Context, month string) (Summary, error) {
-	if month == "" {
-		month = ledger.CurrentMonth(s.now())
-	}
-	if _, err := time.Parse("2006-01", month); err != nil {
-		return Summary{}, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
-	}
 	cfg, err := s.settings.Get(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
-	movements, err := s.repo.ListByMonth(ctx, month, ledger.KindIncome, 0)
+	cycle := cfg.Cycle()
+	if month == "" {
+		month = cycle.Current(s.now())
+	}
+	from, to, err := cycle.Range(month)
+	if err != nil {
+		return Summary{}, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
+	}
+	movements, err := s.repo.ListByRange(ctx, from, to, ledger.KindIncome, 0)
 	if err != nil {
 		return Summary{}, err
 	}
 	total := ledger.SumBy(movements, ledger.Filter{Kind: ledger.KindIncome})
-	return Summary{Month: month, MonthTotalMXN: total, Resico: resicoEstimate(cfg, total, total)}, nil
+	taxable, err := s.calendarIncomeTotal(ctx, cycle, month, movements)
+	if err != nil {
+		return Summary{}, err
+	}
+	return Summary{Month: month, MonthTotalMXN: total, Resico: resicoEstimate(cfg, taxable, taxable)}, nil
+}
+
+// calendarIncomeTotal returns the income total of a calendar month. When the
+// cycle is the calendar month, the already loaded cycle movements are that
+// month and no query is made.
+func (s *Service) calendarIncomeTotal(ctx context.Context, cycle ledger.Cycle, month string, cycleMovements []ledger.Movement) (decimal.Decimal, error) {
+	if cycle.StartDay == 0 {
+		return ledger.SumBy(cycleMovements, ledger.Filter{Kind: ledger.KindIncome}), nil
+	}
+	movements, err := s.calendarIncome(ctx, month)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return ledger.SumBy(movements, ledger.Filter{Kind: ledger.KindIncome}), nil
+}
+
+// calendarIncome lists the income dated in a calendar YYYY-MM month.
+func (s *Service) calendarIncome(ctx context.Context, month string) ([]ledger.Movement, error) {
+	from, to, err := ledger.Cycle{}.Range(month)
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.ListByRange(ctx, from, to, ledger.KindIncome, 0)
 }
 
 // InferCategory suggests the income category for a description.
@@ -227,23 +265,37 @@ func (s *Service) income(ctx context.Context, id int) (ledger.Movement, error) {
 func (s *Service) result(ctx context.Context, cfg settings.Config, m ledger.Movement) (Result, error) {
 	res := Result{Movement: m}
 
-	month := ledger.MonthOf(m.Date)
-	monthIncome, err := s.repo.ListByMonth(ctx, month, ledger.KindIncome, 0)
+	cycle := cfg.Cycle()
+	month := cycle.Of(m.Date)
+	from, to, err := cycle.Range(month)
+	var monthIncome []ledger.Movement
+	if err == nil {
+		monthIncome, err = s.repo.ListByRange(ctx, from, to, ledger.KindIncome, 0)
+	}
 	if err != nil {
 		s.logger.Warn("income saved but its month summary could not be computed", "movement", m.ID, "error", err)
 		res.SummaryUnavailable = true
 		return res, nil
 	}
-	// The month total before this movement, whether or not the listing already
-	// contains it (an update may also have moved it out of another month).
-	before := decimal.Zero
-	for _, other := range monthIncome {
-		if other.ID != m.ID {
-			before = before.Add(other.AmountMXN)
-		}
-	}
+	// The cycle total before this movement, whether or not the listing already
+	// contains it (an update may also have moved it out of another cycle).
+	before := totalExcluding(monthIncome, m.ID)
 	total := before.Add(m.AmountMXN)
-	res.Summary = Summary{Month: month, MonthTotalMXN: total, Resico: resicoEstimate(cfg, before, total)}
+
+	// The RESICO estimate is fiscal: it follows the calendar month of the
+	// movement date, never the budget cycle.
+	taxBefore, taxTotal := before, total
+	if cycle.StartDay != 0 {
+		calendar, err := s.calendarIncome(ctx, ledger.MonthOf(m.Date))
+		if err != nil {
+			s.logger.Warn("income saved but its month summary could not be computed", "movement", m.ID, "error", err)
+			res.SummaryUnavailable = true
+			return res, nil
+		}
+		taxBefore = totalExcluding(calendar, m.ID)
+		taxTotal = taxBefore.Add(m.AmountMXN)
+	}
+	res.Summary = Summary{Month: month, MonthTotalMXN: total, Resico: resicoEstimate(cfg, taxBefore, taxTotal)}
 
 	if m.Category == ledger.CategoryExtraContract {
 		split, err := s.split(ctx, cfg, m)
@@ -254,6 +306,17 @@ func (s *Service) result(ctx context.Context, cfg settings.Config, m ledger.Move
 		res.Split = split
 	}
 	return res, nil
+}
+
+// totalExcluding sums the movements other than the one with the given ID.
+func totalExcluding(movements []ledger.Movement, id int) decimal.Decimal {
+	total := decimal.Zero
+	for _, m := range movements {
+		if m.ID != id {
+			total = total.Add(m.AmountMXN)
+		}
+	}
+	return total
 }
 
 // resicoEstimate mirrors fin.py: the previous rate is the one of the month

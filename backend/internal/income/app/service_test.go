@@ -21,7 +21,8 @@ type fakeRepo struct {
 	nextID    int
 	listLimit int
 	listKind  ledger.Kind
-	listMonth string
+	listFrom  string
+	listTo    string
 	// listErr and listAllErr fail the month listing and the all-time listing.
 	listErr    error
 	listAllErr error
@@ -56,14 +57,14 @@ func (f *fakeRepo) GetByID(_ context.Context, id int) (ledger.Movement, error) {
 	}
 	return m, nil
 }
-func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
-	f.listMonth, f.listKind, f.listLimit = month, kind, limit
+func (f *fakeRepo) ListByRange(_ context.Context, from, to string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
+	f.listFrom, f.listTo, f.listKind, f.listLimit = from, to, kind, limit
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
 	var out []ledger.Movement
 	for _, m := range f.rows {
-		if ledger.MonthOf(m.Date) == month && (kind == "" || m.Kind == kind) {
+		if m.Date >= from && m.Date <= to && (kind == "" || m.Kind == kind) {
 			out = append(out, m)
 		}
 	}
@@ -380,11 +381,11 @@ func TestList(t *testing.T) {
 	if _, err := svc.List(ctx, "", 0); err != nil {
 		t.Fatal(err)
 	}
-	if repo.listMonth != "2026-10" || repo.listLimit != app.DefaultListLimit || repo.listKind != ledger.KindIncome {
-		t.Errorf("defaults: month=%q limit=%d kind=%q", repo.listMonth, repo.listLimit, repo.listKind)
+	if repo.listFrom != "2026-10-01" || repo.listTo != "2026-10-31" || repo.listLimit != app.DefaultListLimit || repo.listKind != ledger.KindIncome {
+		t.Errorf("defaults: range=%q..%q limit=%d kind=%q", repo.listFrom, repo.listTo, repo.listLimit, repo.listKind)
 	}
-	if _, err := svc.List(ctx, "2026-09", 5); err != nil || repo.listMonth != "2026-09" || repo.listLimit != 5 {
-		t.Errorf("explicit: month=%q limit=%d err=%v", repo.listMonth, repo.listLimit, err)
+	if _, err := svc.List(ctx, "2026-09", 5); err != nil || repo.listFrom != "2026-09-01" || repo.listTo != "2026-09-30" || repo.listLimit != 5 {
+		t.Errorf("explicit: range=%q..%q limit=%d err=%v", repo.listFrom, repo.listTo, repo.listLimit, err)
 	}
 	if _, err := svc.List(ctx, "2026-9", 5); !errors.Is(err, ledger.ErrInvalid) {
 		t.Errorf("bad month: err = %v, want ErrInvalid", err)
@@ -427,4 +428,45 @@ func TestSummaryFailureNeverFailsASavedIncome(t *testing.T) {
 			t.Errorf("res=%+v err=%v rows=%d", res, err, len(repo.rows))
 		}
 	})
+}
+
+func TestCycleTotalsButCalendarResico(t *testing.T) {
+	svc, repo, st := newService(t)
+	st.cfg.CycleStartDay = 31
+	ctx := context.Background()
+	repo.Create(ctx, ledger.Movement{Date: "2026-09-30", Kind: ledger.KindIncome, Category: "Sueldo", AmountMXN: d("60000"), Amount: d("60000")})
+	repo.Create(ctx, ledger.Movement{Date: "2026-10-09", Kind: ledger.KindIncome, Category: "Otros ingresos", AmountMXN: d("2000"), Amount: d("2000")})
+	repo.Create(ctx, ledger.Movement{Date: "2026-10-31", Kind: ledger.KindIncome, Category: "Sueldo", AmountMXN: d("7000"), Amount: d("7000")}) // cycle 2026-11
+
+	// Cycle 2026-10 is 2026-09-30..2026-10-30: the salary counts, 10-31 does not.
+	sum, err := svc.MonthSummary(ctx, "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sum.MonthTotalMXN.Equal(d("62000")) {
+		t.Errorf("cycle total = %s, want 62000", sum.MonthTotalMXN)
+	}
+	// ISR is fiscal: the estimate covers the calendar month of October (2,000
+	// plus the 7,000 of 10-31), not the cycle, so the September salary is out.
+	r := sum.Resico
+	if r == nil || !r.Rate.Equal(d("0.01")) || !r.EstimatedISR.Equal(d("90")) {
+		t.Errorf("resico = %+v, want rate 0.01 and ISR 90 over calendar October", r)
+	}
+
+	got, err := svc.List(ctx, "2026-10", 0)
+	if err != nil || len(got) != 2 {
+		t.Errorf("List(2026-10) = %+v, %v, want the two incomes of the cycle", got, err)
+	}
+
+	// A new movement: the summary is the cycle's, the estimate the calendar month's.
+	res, err := svc.Create(ctx, app.Input{Date: "2026-10-12", Category: "Otros ingresos", Amount: d("1000")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Summary.Month != "2026-10" || !res.Summary.MonthTotalMXN.Equal(d("63000")) {
+		t.Errorf("summary = %+v, want cycle 2026-10 with 63000", res.Summary)
+	}
+	if r := res.Summary.Resico; r == nil || !r.EstimatedISR.Equal(d("100")) {
+		t.Errorf("resico = %+v, want ISR 100 over calendar October (10,000)", r)
+	}
 }

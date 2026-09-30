@@ -212,7 +212,7 @@ func TestUpdateIsGuardedByKind(t *testing.T) {
 	}
 }
 
-func TestListByMonth(t *testing.T) {
+func TestListByRange(t *testing.T) {
 	repo, _ := newRepo(t)
 	ctx := context.Background()
 	ids := map[string]int{}
@@ -231,7 +231,7 @@ func TestListByMonth(t *testing.T) {
 		ids[m.Amount.String()] = c.ID
 	}
 
-	got, err := repo.ListByMonth(ctx, "2026-10", domain.KindExpense, 0)
+	got, err := repo.ListByRange(ctx, "2026-10-01", "2026-10-31", domain.KindExpense, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,15 +243,23 @@ func TestListByMonth(t *testing.T) {
 		t.Errorf("expense order = %v, want %v (date desc, id desc)", order, want)
 	}
 
-	got, _ = repo.ListByMonth(ctx, "2026-10", domain.KindExpense, 2)
+	got, _ = repo.ListByRange(ctx, "2026-10-01", "2026-10-31", domain.KindExpense, 2)
 	if len(got) != 2 || got[0].ID != ids["4"] {
 		t.Errorf("limit 2: %+v", got)
 	}
-	got, _ = repo.ListByMonth(ctx, "2026-10", "", 0)
+	got, _ = repo.ListByRange(ctx, "2026-10-01", "2026-10-31", "", 0)
 	if len(got) != 4 {
 		t.Errorf("all kinds: got %d, want 4", len(got))
 	}
-	got, err = repo.ListByMonth(ctx, "2027-01", domain.KindExpense, 0)
+	// A cycle range crossing the month boundary: both ends are inclusive.
+	got, err = repo.ListByRange(ctx, "2026-09-30", "2026-10-30", domain.KindExpense, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != ids["2"] || got[1].ID != ids["1"] {
+		t.Errorf("cycle range 2026-09-30..2026-10-30: got %+v, want ids %d, %d", got, ids["2"], ids["1"])
+	}
+	got, err = repo.ListByRange(ctx, "2027-01-01", "2027-01-31", domain.KindExpense, 0)
 	if err != nil || got == nil || len(got) != 0 {
 		t.Errorf("empty month: %v, %v (want empty non-nil slice)", got, err)
 	}

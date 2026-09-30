@@ -54,12 +54,14 @@ func newRepo(t *testing.T) *postgres.Repo {
 	}
 	t.Cleanup(pool.Close)
 
-	sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", "000005_settings.up.sql"))
-	if err != nil {
-		t.Fatalf("read migration: %v", err)
-	}
-	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatalf("apply migration: %v", err)
+	for _, name := range []string{"000005_settings.up.sql", "000014_cycle_start_day.up.sql"} {
+		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
+		if err != nil {
+			t.Fatalf("read migration: %v", err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("apply migration %s: %v", name, err)
+		}
 	}
 	return postgres.NewRepo(pool)
 }
@@ -70,6 +72,7 @@ func fullConfig() domain.Config {
 	pause.Note = "paused to fund Gastos futuros"
 	cfg.Pause = &pause
 	cfg.PaymentMethods = []string{"Efectivo", "Débito", "Crédito", "Transferencia"}
+	cfg.CycleStartDay = 31
 	cfg.Issuer = domain.Issuer{RFC: "AAAA010101AAA", Name: "TEST ISSUER", Regimen: "626", PostalCode: "76246", Note: "n"}
 	cfg.Clients[0].RFC = "XEXX010101000"
 	cfg.Clients[0].Concepto = "Servicios de desarrollo de software"
@@ -118,6 +121,9 @@ func TestImportRoundTrip(t *testing.T) {
 	// Decimals compare by value, so normalize both sides through the domain views.
 	if !got.General().SalaryUSD.Equal(want.General().SalaryUSD) || !got.MorseFeeRate.Equal(*want.MorseFeeRate) {
 		t.Fatalf("general mismatch: %+v", got.General())
+	}
+	if got.CycleStartDay != 31 {
+		t.Fatalf("cycle_start_day = %d, want 31", got.CycleStartDay)
 	}
 	for i, c := range got.Categories {
 		w := want.Categories[i]
@@ -219,6 +225,7 @@ func TestSaveGeneralUpserts(t *testing.T) {
 	}
 	g.SalaryUSD = settingstest.D("4000.25")
 	g.BudgetIncludesExtraIncome = true
+	g.CycleStartDay = 31
 	if err := repo.SaveGeneral(ctx, g); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +233,7 @@ func TestSaveGeneralUpserts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.SalaryUSD.String() != "4000.25" || !got.BudgetIncludesExtraIncome {
+	if got.SalaryUSD.String() != "4000.25" || !got.BudgetIncludesExtraIncome || got.CycleStartDay != 31 {
 		t.Fatalf("general = %+v", got.General())
 	}
 }

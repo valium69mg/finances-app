@@ -44,6 +44,8 @@ func TestInvalidSections(t *testing.T) {
 		"issuer without rfc":   domain.Issuer{Name: "x"}.Validate(),
 		"general fx zero":      domain.General{MorseFeeRate: d("0.001")}.Validate(),
 		"general fee over one": domain.General{FXRateApplied: d("17"), MorseFeeRate: d("2")}.Validate(),
+		"cycle day negative":   domain.General{FXRateApplied: d("17"), MorseFeeRate: d("0.001"), CycleStartDay: -1}.Validate(),
+		"cycle day above 31":   domain.General{FXRateApplied: d("17"), MorseFeeRate: d("0.001"), CycleStartDay: 32}.Validate(),
 		// Huge exponents are rejected before any comparison rescales them.
 		"general huge salary":  domain.General{SalaryUSD: d("1e2000000000"), FXRateApplied: d("17"), MorseFeeRate: d("0.001")}.Validate(),
 		"general huge fx":      domain.General{FXRateApplied: d("1e999999999"), MorseFeeRate: d("0.001")}.Validate(),
@@ -56,6 +58,16 @@ func TestInvalidSections(t *testing.T) {
 	for name, err := range tests {
 		if !errors.Is(err, domain.ErrInvalid) {
 			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+func TestCycleStartDayBounds(t *testing.T) {
+	for _, day := range []int{0, 1, 30, 31} {
+		g := settingstest.RealConfig().General()
+		g.CycleStartDay = day
+		if err := g.Validate(); err != nil {
+			t.Errorf("cycle_start_day %d: %v", day, err)
 		}
 	}
 }

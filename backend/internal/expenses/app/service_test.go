@@ -22,7 +22,8 @@ type fakeRepo struct {
 	nextID    int
 	listLimit int
 	listKind  ledger.Kind
-	listMonth string
+	listFrom  string
+	listTo    string
 	listErr   error
 }
 
@@ -64,14 +65,14 @@ func (f *fakeRepo) ListAllByKind(_ context.Context, kind ledger.Kind) ([]ledger.
 	}
 	return out, nil
 }
-func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
-	f.listMonth, f.listKind, f.listLimit = month, kind, limit
+func (f *fakeRepo) ListByRange(_ context.Context, from, to string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
+	f.listFrom, f.listTo, f.listKind, f.listLimit = from, to, kind, limit
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
 	var out []ledger.Movement
 	for _, m := range f.rows {
-		if ledger.MonthOf(m.Date) == month && (kind == "" || m.Kind == kind) {
+		if m.Date >= from && m.Date <= to && (kind == "" || m.Kind == kind) {
 			out = append(out, m)
 		}
 	}
@@ -124,8 +125,8 @@ func TestCreateAppliesDefaultsAndFeedback(t *testing.T) {
 		!fb.Remaining.Equal(d("9833")) || fb.OverBudget {
 		t.Errorf("unexpected feedback %+v", fb)
 	}
-	if repo.listKind != ledger.KindExpense || repo.listMonth != "2026-10" {
-		t.Errorf("feedback listed %q %q", repo.listKind, repo.listMonth)
+	if repo.listKind != ledger.KindExpense || repo.listFrom != "2026-10-01" || repo.listTo != "2026-10-31" {
+		t.Errorf("feedback listed %q %q..%q", repo.listKind, repo.listFrom, repo.listTo)
 	}
 }
 
@@ -321,11 +322,11 @@ func TestList(t *testing.T) {
 	if _, err := svc.List(ctx, "", 0); err != nil {
 		t.Fatal(err)
 	}
-	if repo.listMonth != "2026-10" || repo.listLimit != app.DefaultListLimit || repo.listKind != ledger.KindExpense {
-		t.Errorf("defaults: month=%q limit=%d kind=%q", repo.listMonth, repo.listLimit, repo.listKind)
+	if repo.listFrom != "2026-10-01" || repo.listTo != "2026-10-31" || repo.listLimit != app.DefaultListLimit || repo.listKind != ledger.KindExpense {
+		t.Errorf("defaults: range=%q..%q limit=%d kind=%q", repo.listFrom, repo.listTo, repo.listLimit, repo.listKind)
 	}
-	if _, err := svc.List(ctx, "2026-09", 5); err != nil || repo.listMonth != "2026-09" || repo.listLimit != 5 {
-		t.Errorf("explicit: month=%q limit=%d err=%v", repo.listMonth, repo.listLimit, err)
+	if _, err := svc.List(ctx, "2026-09", 5); err != nil || repo.listFrom != "2026-09-01" || repo.listTo != "2026-09-30" || repo.listLimit != 5 {
+		t.Errorf("explicit: range=%q..%q limit=%d err=%v", repo.listFrom, repo.listTo, repo.listLimit, err)
 	}
 	if _, err := svc.List(ctx, "2026-9", 5); !errors.Is(err, ledger.ErrInvalid) {
 		t.Errorf("bad month: err = %v, want ErrInvalid", err)
@@ -344,5 +345,37 @@ func TestInferCategory(t *testing.T) {
 	// Savings keywords must not leak into expense inference.
 	if name, ok, _ := svc.InferCategory(context.Background(), "cetes"); ok {
 		t.Errorf("savings keyword inferred expense %q", name)
+	}
+}
+
+func TestCycleGroupsTheFeedbackAndTheListing(t *testing.T) {
+	svc, repo, st := newService(t)
+	st.cfg.CycleStartDay = 31
+	ctx := context.Background()
+
+	if _, err := svc.Create(ctx, app.Input{Category: "Transporte", Amount: d("100"), Date: "2026-09-30"}); err != nil {
+		t.Fatal(err)
+	}
+	// 2026-10-31 already belongs to the 2026-11 cycle.
+	if _, err := svc.Create(ctx, app.Input{Category: "Transporte", Amount: d("50"), Date: "2026-10-31"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Create(ctx, app.Input{Category: "Transporte", Amount: d("10"), Date: "2026-10-20"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fb := res.Feedback; fb == nil || fb.Month != "2026-10" || !fb.Spent.Equal(d("110")) {
+		t.Errorf("feedback = %+v, want cycle 2026-10 with 110 spent (2026-09-30 and 2026-10-20)", fb)
+	}
+	if repo.listFrom != "2026-09-30" || repo.listTo != "2026-10-30" {
+		t.Errorf("feedback range = %s..%s", repo.listFrom, repo.listTo)
+	}
+
+	got, err := svc.List(ctx, "2026-11", 0)
+	if err != nil || len(got) != 1 || !got[0].Amount.Equal(d("50")) {
+		t.Errorf("List(2026-11) = %+v, %v, want the 2026-10-31 expense", got, err)
+	}
+	if _, err := svc.List(ctx, "", 0); err != nil || repo.listFrom != "2026-09-30" || repo.listTo != "2026-10-30" {
+		t.Errorf("default cycle range = %s..%s, %v", repo.listFrom, repo.listTo, err)
 	}
 }
