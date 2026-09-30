@@ -17,6 +17,19 @@ func TestProbeOnTempDir(t *testing.T) {
 	}
 }
 
+func TestProbeUsage(t *testing.T) {
+	total, used, err := disk.NewProbe(t.TempDir()).Usage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total == 0 || used > total {
+		t.Fatalf("usage = %d of %d, want 0 < used <= total", used, total)
+	}
+	if _, _, err := disk.NewProbe(filepath.Join(t.TempDir(), "missing")).Usage(); err == nil {
+		t.Fatal("expected an error for a missing directory")
+	}
+}
+
 func TestProbeMissingPath(t *testing.T) {
 	if _, err := disk.NewProbe(filepath.Join(t.TempDir(), "missing")).UsedPercent(); err == nil {
 		t.Fatal("expected an error for a missing directory")
