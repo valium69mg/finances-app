@@ -8,6 +8,7 @@ import { isPositiveDecimal } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
 import { ErrorBanner, fieldGrid, primaryButton } from "../settings/ui";
 import { describeSavingsError } from "./errors";
+import { InstrumentSelect } from "./InstrumentSelect";
 import { SAVINGS_KIND } from "./SavingForm";
 
 /** Moves money from one instrument to another as a pair of movements. */
@@ -61,22 +62,8 @@ export function TransferForm({ settings }: { settings: AllSettings }) {
         <p className="mt-1 text-sm text-muted">Mueve dinero de un instrumento a otro sin cambiar el total ahorrado.</p>
       </div>
       <div className={`${fieldGrid} lg:grid-cols-3`}>
-        <SelectField label="Desde" value={from} onChange={(e) => setFrom(e.target.value)}>
-          <option value="">Elige un instrumento</option>
-          {instruments.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.name}
-            </option>
-          ))}
-        </SelectField>
-        <SelectField label="Hacia" value={to} onChange={(e) => setTo(e.target.value)}>
-          <option value="">Elige un instrumento</option>
-          {instruments.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.name}
-            </option>
-          ))}
-        </SelectField>
+        <InstrumentSelect label="Desde" value={from} onChange={setFrom} instruments={instruments} emptyLabel="Elige un instrumento" />
+        <InstrumentSelect label="Hacia" value={to} onChange={setTo} instruments={instruments} emptyLabel="Elige un instrumento" />
         <TextField
           label="Monto a traspasar"
           inputMode="decimal"

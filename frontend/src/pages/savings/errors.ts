@@ -1,11 +1,11 @@
-import { ApiError } from "../../api/client";
-import { describeSaveError } from "../settings/ui";
+import { describeMovementError } from "../movementErrors";
 
-/** Maps a savings API failure to Spanish copy; the backend `message` is shown for invalid_saving and invalid_valuation. */
+/** Maps a savings or transfer API failure to Spanish copy; the backend `message` is shown for invalid_saving. */
 export function describeSavingsError(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.code === "invalid_saving" || err.code === "invalid_valuation") return `Los datos no son válidos: ${err.message}`;
-    if (err.status === 404) return "El ahorro ya no existe. Actualiza la lista e intenta de nuevo.";
-  }
-  return describeSaveError(err);
+  return describeMovementError(err, { invalidCode: "invalid_saving", noun: "el ahorro" });
+}
+
+/** Maps a valuation API failure to Spanish copy; the backend `message` is shown for invalid_valuation. */
+export function describeValuationError(err: unknown): string {
+  return describeMovementError(err, { invalidCode: "invalid_valuation", noun: "la valuación" });
 }

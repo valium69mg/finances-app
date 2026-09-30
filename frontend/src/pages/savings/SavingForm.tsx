@@ -9,6 +9,7 @@ import { isNonZeroDecimal, todayISO } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeSavingsError } from "./errors";
+import { InstrumentSelect } from "./InstrumentSelect";
 
 interface Props {
   settings: AllSettings;
@@ -73,17 +74,13 @@ export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) 
         {title}
       </h2>
       <div className={`${fieldGrid} lg:grid-cols-3`}>
-        <SelectField label="Instrumento" value={instrument} onChange={(e) => setInstrument(e.target.value)}>
-          <option value="">Automático (según la categoría)</option>
-          {withValue(
-            instruments.map((i) => i.id),
-            instrument,
-          ).map((id) => (
-            <option key={id} value={id}>
-              {instruments.find((i) => i.id === id)?.name ?? id}
-            </option>
-          ))}
-        </SelectField>
+        <InstrumentSelect
+          label="Instrumento"
+          value={instrument}
+          onChange={setInstrument}
+          instruments={instruments}
+          emptyLabel="Automático (según la categoría)"
+        />
         <SelectField label="Categoría" value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">Automática (según la descripción)</option>
           {categoryOptions.map((c) => (

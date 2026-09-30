@@ -5,9 +5,9 @@ import { addValuation, savingsKeys, type ValuationInput } from "../../api/saving
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
 import { isPositiveDecimal, todayISO } from "../expenses/money";
-import { SelectField } from "../expenses/SelectField";
 import { ErrorBanner, fieldGrid, primaryButton } from "../settings/ui";
-import { describeSavingsError } from "./errors";
+import { describeValuationError } from "./errors";
+import { InstrumentSelect } from "./InstrumentSelect";
 
 /** Appends a manual valuation. Valuations are append-only: a correction is a newer valuation. */
 export function ValuationForm({ settings }: { settings: AllSettings }) {
@@ -57,14 +57,13 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
         </p>
       </div>
       <div className={`${fieldGrid} lg:grid-cols-3`}>
-        <SelectField label="Instrumento a valuar" value={instrument} onChange={(e) => setInstrument(e.target.value)}>
-          <option value="">Elige un instrumento</option>
-          {instruments.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.name}
-            </option>
-          ))}
-        </SelectField>
+        <InstrumentSelect
+          label="Instrumento a valuar"
+          value={instrument}
+          onChange={setInstrument}
+          instruments={instruments}
+          emptyLabel="Elige un instrumento"
+        />
         <TextField
           label="Valor actual (MXN)"
           inputMode="decimal"
@@ -79,7 +78,7 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
       </div>
 
       {errors.instrument && <ErrorBanner>{errors.instrument}</ErrorBanner>}
-      {add.isError && <ErrorBanner>{describeSavingsError(add.error)}</ErrorBanner>}
+      {add.isError && <ErrorBanner>{describeValuationError(add.error)}</ErrorBanner>}
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="submit" disabled={add.isPending} aria-busy={add.isPending} className={primaryButton}>
