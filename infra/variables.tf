@@ -22,7 +22,7 @@ variable "budget_email" {
 variable "budget_limit_usd" {
   description = "Monthly AWS cost budget in USD."
   type        = number
-  default     = 25
+  default     = 30
 }
 
 variable "instance_type" {
@@ -40,7 +40,7 @@ variable "root_volume_size_gb" {
 variable "data_volume_size_gb" {
   description = "Data volume size in GB (gp3, encrypted, holds /srv/finances and Docker data)."
   type        = number
-  default     = 20
+  default     = 50
 }
 
 variable "ssh_public_key_path" {

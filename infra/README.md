@@ -10,7 +10,7 @@ does **not** start the stack.
 | --- | --- |
 | Network | default VPC and subnet; security group: 443 only from Cloudflare ranges (one rule per CIDR), 22 only from `admin_cidr`, port 80 closed, egress open |
 | Compute | `t4g.small`, root gp3 12 GB encrypted, IMDSv2 required, Elastic IP; a new Canonical AMI never replaces the instance (`ignore_changes = [ami]`) |
-| Data | gp3 20 GB encrypted EBS (`prevent_destroy`), mounted at `/srv/finances`, Docker `data-root` = `/srv/finances/docker` |
+| Data | gp3 50 GB encrypted EBS (`prevent_destroy`), mounted at `/srv/finances`, Docker `data-root` = `/srv/finances/docker` |
 | Certificate | Cloudflare Origin CA (RSA 2048, 15 years) stored as SSM SecureString; the VM downloads it at first boot to `/etc/finances/certs` |
 | IAM | instance role can only `ssm:GetParameter` on the two certificate parameters; DLM role for snapshots |
 | Snapshots | DLM, daily at `snapshot_time_utc`, keeps 7, volumes tagged `Backup=daily` |
@@ -79,10 +79,10 @@ snapshot before destroying anything.
 | `hostname` | required | public host name inside the zone |
 | `budget_email` | required | budget alert recipient |
 | `region` | `us-east-2` | AWS region |
-| `budget_limit_usd` | `25` | monthly cost budget |
+| `budget_limit_usd` | `30` | monthly cost budget |
 | `instance_type` | `t4g.small` | arm64 instance type |
 | `root_volume_size_gb` | `12` | root disk |
-| `data_volume_size_gb` | `20` | data disk |
+| `data_volume_size_gb` | `50` | data disk (can only grow; see "Growing the data disk") |
 | `ssh_public_key_path` | `./.keys/finances-prod.pub` | public key registered on the VM |
 | `enable_ssh` | `true` | `false` removes the SSH rule |
 | `admin_cidr` | `null` (auto-detect /32) | SSH source; `""` closes SSH |
@@ -107,4 +107,12 @@ snapshot before destroying anything.
 
 ## Cost (approximate, verify in the AWS calculator)
 
-About 19 USD/month: t4g.small ~12, root ~1, data ~1.6, public IPv4 ~3.6, snapshots under 1.
+About 22 USD/month: t4g.small ~12, root ~1, data 50 GB ~4, public IPv4 ~3.6, snapshots ~1-2 (approximate; check the AWS calculator).
+
+## Growing the data disk
+
+The volume is online-resizable (it can only grow, never shrink):
+
+1. Raise `data_volume_size_gb` in `terraform.tfvars` and run `terraform apply` (an in-place change).
+2. On the VM, with everything still running: `sudo resize2fs <device>` (the ext4 filesystem sits on the raw device, no partition table; find the device with `lsblk`, it is the one mounted at `/srv/finances`).
+3. AWS requires a wait of several hours before the next modification of the same volume.
