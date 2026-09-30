@@ -30,6 +30,9 @@ import (
 	invoicess3 "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/s3"
 	invoicesapp "github.com/valium69mg/finances-app/backend/internal/invoices/app"
 	ledgerpg "github.com/valium69mg/finances-app/backend/internal/ledger/adapters/postgres"
+	monthclosehttp "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/http"
+	monthclosepg "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/postgres"
+	monthcloseapp "github.com/valium69mg/finances-app/backend/internal/monthclose/app"
 	"github.com/valium69mg/finances-app/backend/internal/platform/config"
 	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
@@ -124,6 +127,9 @@ func run() error {
 
 	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, nil)
 	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, nil, slog.Default())
+	monthclosehttp.New(monthcloseSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {
