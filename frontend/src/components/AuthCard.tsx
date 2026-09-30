@@ -50,7 +50,7 @@ export function TextField({ label, error, hint, inputRef, ...input }: FieldProps
   const hintId = `${id}-hint`;
   const describedBy = [error ? errorId : null, hint ? hintId : null].filter(Boolean).join(" ") || undefined;
   return (
-    <div>
+    <div className="min-w-0">
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
         {label}
       </label>

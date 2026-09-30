@@ -68,6 +68,67 @@
   }
 }
 
+@layer components {
+  /* Temporary "you are editing here" cue, see hooks/useFocusOnEdit. Uses the accent (green) token. */
+  .edit-highlight {
+    scroll-margin-top: 5rem;
+    border-radius: 0.75rem;
+    box-shadow:
+      0 0 0 0.5rem rgb(var(--color-accent) / 0.14),
+      0 0 0 0.625rem rgb(var(--color-accent) / 0.75);
+    animation: edit-highlight-fade 2s ease-out forwards;
+  }
+  .edit-highlight-inset {
+    box-shadow:
+      inset 0 0 0 0.25rem rgb(var(--color-accent) / 0.14),
+      inset 0 0 0 0.3125rem rgb(var(--color-accent) / 0.75);
+    animation-name: edit-highlight-inset-fade;
+  }
+}
+
+@keyframes edit-highlight-fade {
+  to {
+    box-shadow:
+      0 0 0 0.5rem rgb(var(--color-accent) / 0),
+      0 0 0 0.625rem rgb(var(--color-accent) / 0);
+  }
+}
+
+@keyframes edit-highlight-inset-fade {
+  to {
+    box-shadow:
+      inset 0 0 0 0.25rem rgb(var(--color-accent) / 0),
+      inset 0 0 0 0.3125rem rgb(var(--color-accent) / 0);
+  }
+}
+
+/* Reduced motion: keep the cue static; the hook removes it after two seconds. */
+@media (prefers-reduced-motion: reduce) {
+  .edit-highlight {
+    animation: none !important;
+  }
+}
+
+/* iOS Safari gives date and month inputs an intrinsic width that ignores width: 100%. */
+@layer base {
+  input[type="date"],
+  input[type="month"],
+  input[type="time"],
+  input[type="datetime-local"] {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+    max-width: 100%;
+  }
+  input[type="date"]::-webkit-date-and-time-value,
+  input[type="month"]::-webkit-date-and-time-value,
+  input[type="time"]::-webkit-date-and-time-value,
+  input[type="datetime-local"]::-webkit-date-and-time-value {
+    min-width: 0;
+    text-align: left;
+  }
+}
+
 @keyframes drawer-in {
   from {
     transform: translateX(-100%);

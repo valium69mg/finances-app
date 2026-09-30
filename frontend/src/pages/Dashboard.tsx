@@ -73,7 +73,7 @@ export function Dashboard() {
           </h1>
           <p className="mt-1 text-sm text-muted">Tu resumen del mes: presupuesto contra gasto real, dinero disponible y ahorro.</p>
         </div>
-        <div className="w-full sm:w-56">
+        <div className="w-full min-w-0 max-w-full sm:w-56">
           <TextField label="Mes" type="month" hint={hint || undefined} value={month ?? ""} onChange={(e) => e.target.value && setMonth(e.target.value)} />
         </div>
       </div>
