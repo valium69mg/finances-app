@@ -10,7 +10,7 @@ does **not** start the stack.
 | --- | --- |
 | Network | default VPC and subnet; security group: 443 only from Cloudflare ranges (one rule per CIDR), 22 only from `admin_cidr`, port 80 closed, egress open |
 | Compute | `t4g.small`, root gp3 12 GB encrypted, IMDSv2 required, Elastic IP; a new Canonical AMI never replaces the instance (`ignore_changes = [ami]`) |
-| Data | gp3 50 GB encrypted EBS (`prevent_destroy`), mounted at `/srv/finances`, Docker `data-root` = `/srv/finances/docker` |
+| Data | gp3 50 GB encrypted EBS (`prevent_destroy`), mounted at `/srv/finances`, Docker `data-root` = `/srv/finances/docker` and containerd `root` = `/srv/finances/containerd` (Docker 29 keeps images and build cache in containerd's store, not in `data-root`, so without the second setting they fill the 12 GB root disk) |
 | Certificate | Cloudflare Origin CA (RSA 2048, 15 years) stored as SSM SecureString; the VM downloads it at first boot to `/etc/finances/certs` |
 | IAM | instance role can only `ssm:GetParameter` on the two certificate parameters; DLM role for snapshots |
 | Snapshots | DLM, daily at `snapshot_time_utc`, keeps 7, volumes tagged `Backup=daily` |

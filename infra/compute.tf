@@ -53,8 +53,10 @@ resource "aws_instance" "app" {
   }
 
   lifecycle {
-    # A newer Canonical AMI must never replace the instance (and its bootstrap).
-    ignore_changes = [ami]
+    # A newer Canonical AMI must never replace the instance (and its bootstrap). user_data
+    # only runs on first boot, and changing it on a live instance would stop and restart it,
+    # so edits to the template apply to new VMs only (existing ones are changed by hand).
+    ignore_changes = [ami, user_data]
   }
 }
 

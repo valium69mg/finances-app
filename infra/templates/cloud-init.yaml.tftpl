@@ -83,6 +83,14 @@ write_files:
       mountpoint -q "$MOUNT_POINT" || { echo "$MOUNT_POINT is not mounted"; exit 1; }
       mkdir -p "${docker_data_root}"
 
+      # Docker 29 keeps images and build cache in containerd's store, NOT in data-root, so
+      # without this they fill the small root disk. Written before the package installs so
+      # it is kept (see --force-confold below); containerd waits for the data volume.
+      log "containerd store on the data volume"
+      mkdir -p "$MOUNT_POINT/containerd" /etc/containerd /etc/systemd/system/containerd.service.d
+      printf 'disabled_plugins = ["cri"]\nroot = "%s/containerd"\n' "$MOUNT_POINT" > /etc/containerd/config.toml
+      printf '[Unit]\nRequiresMountsFor=%s\n' "$MOUNT_POINT" > /etc/systemd/system/containerd.service.d/finances-data.conf
+
       log "docker engine"
       install -m 0755 -d /etc/apt/keyrings
       curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
@@ -91,7 +99,7 @@ write_files:
       echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
         > /etc/apt/sources.list.d/docker.list
       apt-get update -y
-      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      apt-get install -y -o Dpkg::Options::=--force-confold docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
       systemctl enable --now docker
       usermod -aG docker ubuntu
       docker info --format '{{.DockerRootDir}}'
