@@ -35,6 +35,20 @@ curl -i localhost:8080/healthz
 
 The Makefile reads `.env`, so `DATABASE_URL` and the Postgres credentials must stay in sync.
 
+### One-time imports
+
+The legacy CLI data in `~/finances` is loaded with idempotent commands that refuse to run on
+non-empty data unless `FORCE=1` (which appends, never deletes):
+
+```sh
+make import-config          # settings from ~/finances/config.json
+make import-movements       # movements from ~/finances/movimientos.csv
+make import-bills           # the five Servicios bills from the note of the Servicios category
+```
+
+`make import-bills` creates monthly bills for megacable, agua, luz, telcel and gas LP, due on the
+1st of next month as a placeholder: adjust the real due days in the app.
+
 ### Invoice document storage
 
 The API stores issued CFDI files (XML, PDF) in S3-compatible storage (MinIO locally) and
