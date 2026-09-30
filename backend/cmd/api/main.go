@@ -121,6 +121,8 @@ func run() error {
 
 	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, nil, slog.Default())
 	taxfilinghttp.New(taxfilingSvc, slog.Default()).Register(mux, auth.RequireAuth)
+	// Issuing an invoice in an already filed period warns (period_already_filed).
+	invoicesSvc.WithFilings(taxfilingSvc)
 
 	billsSvc := billsapp.NewService(billspg.NewRepo(pool), expensesSvc, settingsSvc, nil, slog.Default())
 	billshttp.New(billsSvc, slog.Default()).Register(mux, auth.RequireAuth)
