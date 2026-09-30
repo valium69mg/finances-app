@@ -104,7 +104,8 @@ func Load(getenv func(string) string) (Config, error) {
 // loadS3 reads the storage settings. The credentials default to the MinIO root
 // credentials of docker-compose (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD), so a
 // local .env needs no extra keys; a real deployment sets S3_ACCESS_KEY and
-// S3_SECRET_KEY for a dedicated identity.
+// S3_SECRET_KEY for a dedicated identity. When neither pair is set the storage
+// is left unconfigured (S3.Configured is false) instead of failing the load.
 func loadS3(getenv func(string) string) (S3, []error) {
 	var errs []error
 	get := func(key string) string { return strings.TrimSpace(getenv(key)) }
@@ -141,14 +142,16 @@ func loadS3(getenv func(string) string) (S3, []error) {
 		}
 		s3.UseSSL = ssl
 	}
-	if s3.AccessKey == "" {
-		errs = append(errs, errors.New("S3_ACCESS_KEY (or MINIO_ROOT_USER) is required"))
-	}
-	if s3.SecretKey == "" {
-		errs = append(errs, errors.New("S3_SECRET_KEY (or MINIO_ROOT_PASSWORD) is required"))
-	}
+	// Missing credentials are not an error: the object storage is optional at
+	// boot (see S3.Configured) so a missing or unreachable MinIO never takes the
+	// whole API down; only the invoice file routes answer 503.
 	return s3, errs
 }
+
+// Configured reports whether the credentials needed to talk to the object
+// storage are set. Without them the API still starts and the file routes
+// answer 503 storage_unavailable.
+func (s S3) Configured() bool { return s.AccessKey != "" && s.SecretKey != "" }
 
 func validateDatabaseURL(raw string) error {
 	u, err := url.Parse(raw)

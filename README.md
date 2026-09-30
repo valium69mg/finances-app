@@ -52,8 +52,12 @@ make import-bills           # the five Servicios bills from the note of the Serv
 ### Invoice document storage
 
 The API stores issued CFDI files (XML, PDF) in S3-compatible storage (MinIO locally) and
-creates the private bucket on startup, so MinIO must be up (`make db-up`). Optional `.env` keys,
-all with local defaults:
+creates the private bucket the first time it is used. The storage is optional at boot: the API
+starts even when MinIO is down or its credentials are missing (a warning is logged), and only the
+file routes (issuing an invoice with files, attaching, uploading and downloading documents) answer
+`503 storage_unavailable` until it is available. It recovers on its own, without a restart: after
+a failure the bucket check is retried with backoff (1s doubling up to 30s). Issuing an invoice with
+just its UUID does not need the storage. Optional `.env` keys, all with local defaults:
 
 ```
 S3_ENDPOINT=localhost:9100        # host:port, no scheme
@@ -63,6 +67,11 @@ S3_USE_SSL=false
 S3_ACCESS_KEY=                    # defaults to MINIO_ROOT_USER
 S3_SECRET_KEY=                    # defaults to MINIO_ROOT_PASSWORD
 ```
+
+The credentials fall back to the MinIO root credentials of `docker-compose`, so a local `.env`
+needs no extra keys; a real deployment sets `S3_ACCESS_KEY` and `S3_SECRET_KEY` for a dedicated
+identity. When neither pair is set the storage is disabled (file routes answer 503, a clear line
+is logged) instead of stopping the API.
 
 The S3 adapter integration test is skipped unless `TEST_S3_ENDPOINT`, `TEST_S3_ACCESS_KEY` and
 `TEST_S3_SECRET_KEY` are set (for example to the MinIO root credentials).

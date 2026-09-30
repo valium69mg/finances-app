@@ -50,8 +50,8 @@ const (
 // Lazy defers the preparation of the storage (ensuring the bucket) to the
 // first use and retries it with backoff until it succeeds. The API can then
 // start while the storage is down: operations fail while it is unavailable and
-// work again as soon as it is back, without a restart. Once prepared it adds no
-// overhead beyond an atomic-free mutex-guarded flag check.
+// work again as soon as it is back, without a restart. Once prepared, an
+// operation only pays a mutex-guarded flag check.
 type Lazy struct {
 	inner  app.ObjectStore
 	ensure func(context.Context) error

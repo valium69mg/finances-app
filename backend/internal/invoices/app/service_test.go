@@ -14,6 +14,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	s3adapter "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/s3"
 	"github.com/valium69mg/finances-app/backend/internal/invoices/app"
 	invoices "github.com/valium69mg/finances-app/backend/internal/invoices/domain"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
@@ -681,6 +682,34 @@ func TestIssueWarnsWhenThePeriodIsAlreadyFiled(t *testing.T) {
 			t.Errorf("warnings %v, err %v", warnings(res), err)
 		}
 	})
+}
+
+// With the object storage down or not configured only the file routes fail
+// (ErrStorage, 503): an invoice can still be issued from a manual UUID.
+func TestStorageDisabledOnlyFailsTheFileRoutes(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	cfg := settingstest.RealConfig()
+	cfg.Issuer = settings.Issuer{RFC: "AAA010101AAA", Name: "Juan", PostalCode: "64000"}
+	svc := app.NewService(e.repo, s3adapter.NewDisabled("S3_ACCESS_KEY is not set"), fakeMovements{}, fakeSettings{cfg}, nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	withFiles := e.prepareUSA(t)
+	if _, err := svc.Issue(ctx, withFiles, app.IssueInput{XML: xmlUpload(uuidA, "3500.00", "3500.00", "USD")}); !errors.Is(err, app.ErrStorage) {
+		t.Fatalf("issue with files: %v, want ErrStorage", err)
+	}
+	if got := e.repo.invoices[withFiles].Status; got != invoices.StatusPrepared {
+		t.Errorf("status = %s, the failed upload must leave the invoice prepared", got)
+	}
+
+	if _, err := svc.Issue(ctx, withFiles, app.IssueInput{UUID: uuidA}); err != nil {
+		t.Fatalf("issue with a manual UUID must not need the storage: %v", err)
+	}
+	if _, err := svc.AttachDocument(ctx, withFiles, invoices.DocumentPDF, *pdfUpload()); !errors.Is(err, app.ErrStorage) {
+		t.Errorf("attach: %v, want ErrStorage", err)
+	}
+	if _, _, err := svc.Download(ctx, withFiles, 1); !errors.Is(err, invoices.ErrDocumentMissing) {
+		t.Errorf("download of an unknown document: %v", err)
+	}
 }
 
 func TestListAndGet(t *testing.T) {

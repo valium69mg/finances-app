@@ -59,6 +59,23 @@ func TestLoad(t *testing.T) {
 			want: want(func(*config.Config) {}),
 		},
 		{
+			// The object storage is optional at boot: without credentials the API
+			// still loads and the file routes answer 503.
+			name: "missing storage credentials still load",
+			vars: base(map[string]string{"MINIO_ROOT_USER": "", "MINIO_ROOT_PASSWORD": ""}),
+			want: want(func(c *config.Config) { c.S3.AccessKey, c.S3.SecretKey = "", "" }),
+		},
+		{
+			name: "dedicated storage credentials win over the MinIO root ones",
+			vars: base(map[string]string{"S3_ACCESS_KEY": "app-key", "S3_SECRET_KEY": "app-secret"}),
+			want: want(func(c *config.Config) { c.S3.AccessKey, c.S3.SecretKey = "app-key", "app-secret" }),
+		},
+		{
+			name:    "malformed storage endpoint is still an error",
+			vars:    base(map[string]string{"S3_ENDPOINT": "http://localhost:9100"}),
+			wantErr: []string{"S3_ENDPOINT is invalid"},
+		},
+		{
 			name:    "missing database url",
 			vars:    map[string]string{"JWT_SECRET": secret, "RESEND_API_KEY": "k"},
 			wantErr: []string{"DATABASE_URL is required"},
@@ -129,6 +146,22 @@ func TestLoad(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestS3Configured(t *testing.T) {
+	for _, tc := range []struct {
+		s3   config.S3
+		want bool
+	}{
+		{config.S3{AccessKey: "a", SecretKey: "b"}, true},
+		{config.S3{AccessKey: "a"}, false},
+		{config.S3{SecretKey: "b"}, false},
+		{config.S3{}, false},
+	} {
+		if got := tc.s3.Configured(); got != tc.want {
+			t.Errorf("%+v Configured() = %v, want %v", tc.s3, got, tc.want)
+		}
 	}
 }
 

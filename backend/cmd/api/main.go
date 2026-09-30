@@ -60,6 +60,37 @@ func main() {
 	}
 }
 
+// invoiceStore builds the object store of the invoice files. The storage is
+// optional at boot: a missing configuration or an unreachable MinIO never stops
+// the API. Missing credentials disable the storage; otherwise the bucket is
+// ensured lazily (with backoff) on first use, so the file routes answer 503
+// storage_unavailable while it is down and work again as soon as it is back,
+// without a restart.
+func invoiceStore(ctx context.Context, cfg config.S3) invoicesapp.ObjectStore {
+	if !cfg.Configured() {
+		slog.Warn("object storage is not configured (set S3_ACCESS_KEY and S3_SECRET_KEY, or MINIO_ROOT_USER and MINIO_ROOT_PASSWORD): " +
+			"invoice file routes answer 503 storage_unavailable, every other route works")
+		return invoicess3.NewDisabled("S3_ACCESS_KEY and S3_SECRET_KEY (or MINIO_ROOT_USER and MINIO_ROOT_PASSWORD) are not set")
+	}
+	store, err := invoicess3.New(invoicess3.Config{
+		Endpoint: cfg.Endpoint, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey,
+		Bucket: cfg.Bucket, Region: cfg.Region, UseSSL: cfg.UseSSL,
+	})
+	if err != nil {
+		slog.Warn("object storage client could not be built: invoice file routes answer 503 storage_unavailable", "error", err)
+		return invoicess3.NewDisabled("the storage client could not be built")
+	}
+	lazy := invoicess3.NewLazy(store, store.EnsureBucket, slog.Default())
+	// An early, non-fatal check so a misconfigured or stopped MinIO is visible in
+	// the log at startup; the failed attempt is logged by the store itself.
+	checkCtx, cancel := context.WithTimeout(ctx, storageStartupTimeout)
+	defer cancel()
+	if err := lazy.Prepare(checkCtx); err != nil {
+		slog.Warn("object storage is not reachable yet: the API starts anyway and retries on demand (is MinIO up? run make db-up)")
+	}
+	return lazy
+}
+
 func run() error {
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
@@ -103,19 +134,7 @@ func run() error {
 	savingsSvc := savingsapp.NewService(movements, savingspg.NewRepo(pool), settingsSvc, nil)
 	savingshttp.New(savingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
-	store, err := invoicess3.New(invoicess3.Config{
-		Endpoint: cfg.S3.Endpoint, AccessKey: cfg.S3.AccessKey, SecretKey: cfg.S3.SecretKey,
-		Bucket: cfg.S3.Bucket, Region: cfg.S3.Region, UseSSL: cfg.S3.UseSSL,
-	})
-	if err != nil {
-		return err
-	}
-	bucketCtx, cancelBucket := context.WithTimeout(ctx, storageStartupTimeout)
-	err = store.EnsureBucket(bucketCtx)
-	cancelBucket()
-	if err != nil {
-		return fmt.Errorf("prepare invoice storage (is MinIO up? run make db-up): %w", err)
-	}
+	store := invoiceStore(ctx, cfg.S3)
 	invoicesSvc := invoicesapp.NewService(invoicespg.NewRepo(pool), store, movements, settingsSvc, nil, slog.Default())
 	invoiceshttp.New(invoicesSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
