@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS bill_occurrences;
+DROP TABLE IF EXISTS bills;
