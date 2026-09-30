@@ -116,6 +116,7 @@ refuses to start while a required variable is missing). Variables:
 | `DOMAIN` | public host name, no scheme (nginx `server_name`, redirects) |
 | `APP_BASE_URL` | optional, defaults to `https://$DOMAIN` (email links, CORS origin) |
 | `POSTGRES_*`, `MINIO_ROOT_*`, `JWT_SECRET`, `RESEND_API_KEY`, `RESEND_FROM` | secrets and sender |
+| `REMINDERS_ENABLED`, `TZ_NAME`, `DISK_ALERT_PCT` | optional: email reminders on/off (default `true`), zone that defines "today" (default `America/Mexico_City`), used-disk percent that triggers the alert (default `80`); the disk is measured through the empty `/srv/finances/probe` directory mounted at `/probe` |
 | `TLS_CERT_DIR` | host directory holding `origin.pem` and `origin.key` |
 | `HTTP_PORT`, `HTTPS_PORT` | published ports, default 80 and 443 |
 | `TRUSTED_PROXIES` | peers whose `X-Real-IP` the API believes; default is the nginx container |

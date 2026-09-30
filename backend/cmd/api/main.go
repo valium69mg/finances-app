@@ -8,8 +8,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata" // embed the zone database: the distroless image ships none
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	authhttp "github.com/valium69mg/finances-app/backend/internal/auth/adapters/http"
 	authpg "github.com/valium69mg/finances-app/backend/internal/auth/adapters/postgres"
@@ -39,6 +43,9 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
 	"github.com/valium69mg/finances-app/backend/internal/platform/postgres"
+	remindersdisk "github.com/valium69mg/finances-app/backend/internal/reminders/adapters/disk"
+	reminderspg "github.com/valium69mg/finances-app/backend/internal/reminders/adapters/postgres"
+	remindersapp "github.com/valium69mg/finances-app/backend/internal/reminders/app"
 	savingshttp "github.com/valium69mg/finances-app/backend/internal/savings/adapters/http"
 	savingspg "github.com/valium69mg/finances-app/backend/internal/savings/adapters/postgres"
 	savingsapp "github.com/valium69mg/finances-app/backend/internal/savings/app"
@@ -104,6 +111,26 @@ func invoiceStore(ctx context.Context, cfg config.S3) invoicesapp.ObjectStore {
 	return lazy
 }
 
+// reminderRunner wires the email reminders. The disk alert is left out, with a
+// warning, when the probe directory cannot be measured (for example in local
+// development, where /probe does not exist).
+func reminderRunner(cfg config.Config, pool *pgxpool.Pool, lister remindersapp.BillLister, mailer remindersapp.Mailer, now func() time.Time) *remindersapp.Runner {
+	repo := reminderspg.NewRepo(pool)
+	deps := remindersapp.Deps{
+		Bills: lister, Mailer: mailer, Log: repo, Owner: repo,
+		AppBaseURL: cfg.AppBaseURL, DiskAlertPct: cfg.DiskAlertPct, Now: now, Logger: slog.Default(),
+	}
+	probe := remindersdisk.NewProbe(cfg.DiskProbePath)
+	if used, err := probe.UsedPercent(); err != nil {
+		slog.Warn("the disk alert is off: the probe path cannot be measured", "path", cfg.DiskProbePath, "error", err)
+	} else {
+		deps.Disk = probe
+		slog.Info("disk alert armed", "path", cfg.DiskProbePath, "used_percent", int(used), "threshold_percent", cfg.DiskAlertPct)
+	}
+	slog.Info("email reminders enabled", "timezone", cfg.TZName, "interval", remindersapp.DefaultInterval.String())
+	return remindersapp.NewRunner(deps)
+}
+
 func run() error {
 	cfg, err := config.Load(os.Getenv)
 	if err != nil {
@@ -120,11 +147,20 @@ func run() error {
 	}
 	defer pool.Close()
 
+	// "Today" is the calendar day in the configured zone, not in the container's
+	// UTC: it drives the bill flags, the default dates and the reminders.
+	loc, err := time.LoadLocation(cfg.TZName)
+	if err != nil {
+		return fmt.Errorf("load TZ_NAME: %w", err)
+	}
+	now := func() time.Time { return time.Now().In(loc) }
+
+	resendMailer := resend.New(cfg.ResendAPIKey, cfg.ResendFrom, "", nil)
 	authSvc := authapp.NewService(authapp.Deps{
 		Users:              authpg.NewUserRepo(pool),
 		RefreshTokens:      authpg.NewRefreshTokenRepo(pool),
 		VerificationTokens: authpg.NewVerificationTokenRepo(pool),
-		Mailer:             resend.New(cfg.ResendAPIKey, cfg.ResendFrom, "", nil),
+		Mailer:             resendMailer,
 		Limiter:            ratelimit.New(nil),
 		JWTSecret:          []byte(cfg.JWTSecret),
 		AppBaseURL:         cfg.AppBaseURL,
@@ -139,7 +175,7 @@ func run() error {
 	settingshttp.New(settingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	movements := ledgerpg.NewRepo(pool)
-	expensesSvc := expensesapp.NewService(movements, settingsSvc, nil)
+	expensesSvc := expensesapp.NewService(movements, settingsSvc, now)
 	expenseshttp.New(expensesSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	incomeSvc := incomeapp.NewService(movements, settingsSvc, nil)
@@ -157,10 +193,28 @@ func run() error {
 	// Issuing an invoice in an already filed period warns (period_already_filed).
 	invoicesSvc.WithFilings(taxfilingSvc)
 
-	billsSvc := billsapp.NewService(billspg.NewRepo(pool), expensesSvc, settingsSvc, nil, slog.Default())
+	billsSvc := billsapp.NewService(billspg.NewRepo(pool), expensesSvc, settingsSvc, now, slog.Default())
 	billshttp.New(billsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
-	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, nil)
+	// Stopped before the pool is closed (deferred after it, so it runs first).
+	remindersCtx, stopReminders := context.WithCancel(ctx)
+	var reminders sync.WaitGroup
+	defer func() {
+		stopReminders()
+		reminders.Wait()
+	}()
+	if cfg.RemindersEnabled {
+		runner := reminderRunner(cfg, pool, billsSvc, resendMailer, now)
+		reminders.Add(1)
+		go func() {
+			defer reminders.Done()
+			runner.Run(remindersCtx)
+		}()
+	} else {
+		slog.Info("email reminders are disabled (REMINDERS_ENABLED=false)")
+	}
+
+	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, now)
 	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, nil, slog.Default())
