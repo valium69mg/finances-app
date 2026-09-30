@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	allowMethods = "GET, POST, OPTIONS"
+	allowMethods = "GET, POST, PUT, DELETE, OPTIONS"
 	allowHeaders = "Authorization, Content-Type"
 	maxAge       = "600"
 )

@@ -20,6 +20,9 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
 	"github.com/valium69mg/finances-app/backend/internal/platform/postgres"
+	settingshttp "github.com/valium69mg/finances-app/backend/internal/settings/adapters/http"
+	settingspg "github.com/valium69mg/finances-app/backend/internal/settings/adapters/postgres"
+	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
 )
 
 const shutdownTimeout = 10 * time.Second
@@ -58,7 +61,11 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", health.Handler(pool))
-	authhttp.New(authSvc, slog.Default()).Register(mux)
+	auth := authhttp.New(authSvc, slog.Default())
+	auth.Register(mux)
+
+	settingsSvc := settingsapp.NewService(settingspg.NewRepo(pool))
+	settingshttp.New(settingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {

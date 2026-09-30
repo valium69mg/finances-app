@@ -70,7 +70,7 @@ func TestMiddleware(t *testing.T) {
 				t.Errorf("Allow-Credentials = %q, want empty", got)
 			}
 			if tc.wantPreflight {
-				if got := h.Get("Access-Control-Allow-Methods"); got != "GET, POST, OPTIONS" {
+				if got := h.Get("Access-Control-Allow-Methods"); got != "GET, POST, PUT, DELETE, OPTIONS" {
 					t.Errorf("Allow-Methods = %q", got)
 				}
 				if got := h.Get("Access-Control-Allow-Headers"); got != "Authorization, Content-Type" {
