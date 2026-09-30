@@ -1,4 +1,7 @@
 import type { Page, Route } from "@playwright/test";
+import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
+
+export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
 
 export const API_ORIGIN = "http://localhost:8080";
 
@@ -78,7 +81,7 @@ export const SETTINGS_FIXTURE = {
   ],
   clients: [
     {
-      id: "c1",
+      id: "usa",
       name: "Acme Inc.",
       type: "extranjero",
       currency: "USD",
@@ -95,6 +98,25 @@ export const SETTINGS_FIXTURE = {
       tax_residence: "US",
       contract: "",
       real_payer: "",
+    },
+    {
+      id: "b",
+      name: "Público en general",
+      type: "nacional",
+      currency: "MXN",
+      iva_rate: "0.16",
+      rfc: "XAXX010101000",
+      regimen: "616",
+      uso_cfdi: "S01",
+      ret_isr_rate: "0",
+      ret_iva_rate: "0",
+      concepto: "Servicios de consultoría",
+      clave_prod_serv: "80101500",
+      clave_unidad: "E48",
+      address: "",
+      tax_residence: "MX",
+      contract: "",
+      real_payer: "Empresa pagadora",
     },
   ],
   instruments: {
@@ -130,7 +152,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -153,12 +175,16 @@ export async function mockApi(
   // In-memory settings so a saved change is served back on the next GET.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settings: any = structuredClone(SETTINGS_FIXTURE);
+  if (opts.issuer) settings.issuer = opts.issuer;
+  const invoiceMock = createInvoicesMock(opts.invoices ?? [], opts.invoicesFail, json);
   await page.route(`${API_ORIGIN}/**`, async (route) => {
     const request = route.request();
     if (request.method() === "OPTIONS") {
       return route.fulfill({ status: 204, headers: CORS });
     }
     const { pathname, searchParams } = new URL(request.url());
+
+    if (await invoiceMock.handle(route, request, pathname, searchParams, settings)) return;
 
     if (pathname === "/income/infer-category") {
       const d = (searchParams.get("description") ?? "").toLowerCase();
@@ -353,7 +379,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes, expenses, income, savings, valuations, dashboardMonths };
+  return { requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads };
 }
 
 /** Dashboard computed from the in-memory movements; Gasto categories are the mock's fixed/variable ones. */
