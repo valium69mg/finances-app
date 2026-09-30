@@ -22,6 +22,10 @@ import (
 	expensesapp "github.com/valium69mg/finances-app/backend/internal/expenses/app"
 	incomehttp "github.com/valium69mg/finances-app/backend/internal/income/adapters/http"
 	incomeapp "github.com/valium69mg/finances-app/backend/internal/income/app"
+	invoiceshttp "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/http"
+	invoicespg "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/postgres"
+	invoicess3 "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/s3"
+	invoicesapp "github.com/valium69mg/finances-app/backend/internal/invoices/app"
 	ledgerpg "github.com/valium69mg/finances-app/backend/internal/ledger/adapters/postgres"
 	"github.com/valium69mg/finances-app/backend/internal/platform/config"
 	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
@@ -35,7 +39,10 @@ import (
 	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
 )
 
-const shutdownTimeout = 10 * time.Second
+const (
+	shutdownTimeout       = 10 * time.Second
+	storageStartupTimeout = 10 * time.Second
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -89,6 +96,22 @@ func run() error {
 
 	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, nil)
 	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	store, err := invoicess3.New(invoicess3.Config{
+		Endpoint: cfg.S3.Endpoint, AccessKey: cfg.S3.AccessKey, SecretKey: cfg.S3.SecretKey,
+		Bucket: cfg.S3.Bucket, Region: cfg.S3.Region, UseSSL: cfg.S3.UseSSL,
+	})
+	if err != nil {
+		return err
+	}
+	bucketCtx, cancelBucket := context.WithTimeout(ctx, storageStartupTimeout)
+	err = store.EnsureBucket(bucketCtx)
+	cancelBucket()
+	if err != nil {
+		return fmt.Errorf("prepare invoice storage (is MinIO up? run make db-up): %w", err)
+	}
+	invoicesSvc := invoicesapp.NewService(invoicespg.NewRepo(pool), store, movements, settingsSvc, nil, slog.Default())
+	invoiceshttp.New(invoicesSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {
