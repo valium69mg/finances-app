@@ -123,11 +123,15 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[] } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
   const settingsFail = opts.settingsFail;
+  const expensesFail = opts.expensesFail;
+  // In-memory expenses so writes are served back on the next GET.
+  const expenses: MockExpense[] = structuredClone(opts.expenses ?? []);
+  let nextExpenseId = expenses.reduce((max, e) => Math.max(max, e.id), 0) + 1;
   const requests: RecordedRequest[] = [];
   const writes: RecordedWrite[] = [];
   // In-memory settings so a saved change is served back on the next GET.
@@ -138,7 +142,45 @@ export async function mockApi(
     if (request.method() === "OPTIONS") {
       return route.fulfill({ status: 204, headers: CORS });
     }
-    const { pathname } = new URL(request.url());
+    const { pathname, searchParams } = new URL(request.url());
+
+    if (pathname === "/expenses/infer-category") {
+      const d = (searchParams.get("description") ?? "").toLowerCase();
+      const hit = Object.entries(INFER_KEYWORDS).find(([k]) => d.includes(k));
+      return json(route, 200, { category: hit ? hit[1] : null });
+    }
+    if (pathname === "/expenses" && request.method() === "GET") {
+      const month = searchParams.get("month") ?? "";
+      const rows = expenses
+        .filter((e) => e.date.startsWith(month))
+        .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
+      return json(route, 200, rows);
+    }
+    if (pathname === "/expenses" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      requests.push({ path: pathname, body });
+      if (expensesFail) return json(route, 400, { error: "invalid_expense", message: expensesFail });
+      const expense = buildExpense(nextExpenseId++, body, settings);
+      expenses.push(expense);
+      return json(route, 201, { expense, budget: budgetFor(expense, expenses, settings) });
+    }
+    const expenseMatch = /^\/expenses\/(\d+)$/.exec(pathname);
+    if (expenseMatch && (request.method() === "PUT" || request.method() === "DELETE")) {
+      const id = Number(expenseMatch[1]);
+      const body = request.method() === "PUT" ? request.postDataJSON() : undefined;
+      writes.push({ method: request.method(), path: pathname, body });
+      const index = expenses.findIndex((e) => e.id === id);
+      if (index < 0) return json(route, 404, { error: "not_found" });
+      if (request.method() === "DELETE") {
+        expenses.splice(index, 1);
+        return json(route, 204);
+      }
+      if (expensesFail) return json(route, 400, { error: "invalid_expense", message: expensesFail });
+      const expense = buildExpense(id, body, settings);
+      expenses[index] = expense;
+      return json(route, 200, { expense, budget: budgetFor(expense, expenses, settings) });
+    }
+
     if (request.method() === "POST") {
       requests.push({ path: pathname, body: request.postDataJSON() });
     }
@@ -182,7 +224,68 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes };
+  return { requests, writes, expenses };
+}
+
+export interface MockExpense {
+  id: number;
+  date: string;
+  description: string;
+  category: string;
+  payment_method: string;
+  currency: string;
+  amount: string;
+  exchange_rate: string | null;
+  amount_mxn: string;
+}
+
+/** Description keyword -> category, standing in for the backend's keyword inference. */
+const INFER_KEYWORDS: Record<string, string> = { tacos: "Comida", super: "Comida", uber: "Renta" };
+
+function todayLocal() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildExpense(id: number, body: any, settings: any): MockExpense {
+  const currency = body.currency ?? "MXN";
+  const rate: string | null = currency === "USD" ? (body.exchange_rate ?? settings.general.fx_rate_applied) : null;
+  const amountMxn = rate ? (Number(body.amount) * Number(rate)).toFixed(4) : body.amount;
+  const d = String(body.description ?? "").toLowerCase();
+  const inferred = Object.entries(INFER_KEYWORDS).find(([k]) => d.includes(k))?.[1];
+  return {
+    id,
+    date: body.date ?? todayLocal(),
+    description: body.description ?? "",
+    category: body.category || inferred || "Sin categoría",
+    payment_method: body.payment_method ?? "Débito",
+    currency,
+    amount: body.amount,
+    exchange_rate: rate,
+    amount_mxn: amountMxn,
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function budgetFor(expense: MockExpense, all: MockExpense[], settings: any) {
+  const month = expense.date.slice(0, 7);
+  const cat = settings.categories.find((c: { name: string }) => c.name === expense.category);
+  if (!cat) return null;
+  const spent = all
+    .filter((e) => e.category === expense.category && e.date.startsWith(month))
+    .reduce((sum, e) => sum + Number(e.amount_mxn), 0);
+  const budget: string | null = cat.budget;
+  const remaining = budget === null ? null : String(Number(budget) - spent);
+  return {
+    month,
+    category: expense.category,
+    budget,
+    spent: String(spent),
+    remaining,
+    over_budget: budget !== null && spent > Number(budget),
+  };
 }
 
 /** Starts the page with a stored session, as if the user had already logged in. */
