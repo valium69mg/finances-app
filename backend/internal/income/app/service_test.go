@@ -220,6 +220,42 @@ func TestSplitUsesAmountMXNAndInvestmentWeights(t *testing.T) {
 	}
 }
 
+func TestMonthSummary(t *testing.T) {
+	svc, repo, st := newService(t)
+	ctx := context.Background()
+	repo.Create(ctx, ledger.Movement{Date: "2026-10-02", Kind: ledger.KindIncome, Category: "Sueldo", AmountMXN: d("24000"), Amount: d("24000")})
+	repo.Create(ctx, ledger.Movement{Date: "2026-10-09", Kind: ledger.KindIncome, Category: "Otros ingresos", AmountMXN: d("2000"), Amount: d("2000")})
+	repo.Create(ctx, ledger.Movement{Date: "2026-09-02", Kind: ledger.KindIncome, Category: "Sueldo", AmountMXN: d("90000"), Amount: d("90000")})
+	repo.Create(ctx, ledger.Movement{Date: "2026-10-03", Kind: ledger.KindExpense, Category: "Ocio", AmountMXN: d("5000"), Amount: d("5000")})
+
+	// The empty month defaults to the current one; only its income counts.
+	sum, err := svc.MonthSummary(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := sum.Resico
+	if sum.Month != "2026-10" || !sum.MonthTotalMXN.Equal(d("26000")) || r == nil || !r.Rate.Equal(d("0.011")) ||
+		!r.EstimatedISR.Equal(d("286")) || r.RateIncreased || r.PreviousRate != nil {
+		t.Errorf("summary %+v resico %+v", sum, r)
+	}
+
+	// A month without income takes the first bracket.
+	sum, err = svc.MonthSummary(ctx, "2027-01")
+	if err != nil || !sum.MonthTotalMXN.IsZero() || sum.Resico == nil || !sum.Resico.Rate.Equal(d("0.01")) || !sum.Resico.EstimatedISR.IsZero() {
+		t.Errorf("empty month: %+v, %v", sum, err)
+	}
+
+	if _, err := svc.MonthSummary(ctx, "2026-13"); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("bad month: err = %v, want ErrInvalid", err)
+	}
+
+	st.cfg.Brackets = nil
+	sum, err = svc.MonthSummary(ctx, "2026-10")
+	if err != nil || sum.Resico != nil || !sum.MonthTotalMXN.Equal(d("26000")) {
+		t.Errorf("no brackets: %+v, %v", sum, err)
+	}
+}
+
 func TestIncompleteSettingsDegradeGracefully(t *testing.T) {
 	svc, repo, st := newService(t)
 	st.cfg.Brackets = nil

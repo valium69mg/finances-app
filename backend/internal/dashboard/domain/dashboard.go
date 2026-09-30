@@ -33,6 +33,34 @@ type Totals struct {
 	Savings  decimal.Decimal
 }
 
+// Available is the money left in the month, as fin.py computes "disponible":
+// income minus expenses minus the savings contributed in the month. Savings are
+// net of withdrawals, so a negative Ahorro adds money back.
+func (t Totals) Available() decimal.Decimal {
+	return t.Income.Sub(t.Expenses).Sub(t.Savings)
+}
+
+// newRow builds the row of one category from the movements of the month.
+func newRow(name string, kind ledger.Kind, budget *decimal.Decimal, monthly []ledger.Movement) Row {
+	real := ledger.SumBy(monthly, ledger.Filter{Kind: kind, Category: name})
+	row := Row{Name: name, Kind: kind, Budget: budget, Real: real}
+	if budget != nil {
+		diff := budget.Sub(real)
+		row.Diff = &diff
+		if !budget.IsZero() {
+			pct := real.Mul(hundred).DivRound(*budget, ledger.DivisionPrecision)
+			row.Pct = &pct
+		}
+	}
+	return row
+}
+
+// OverBudget reports whether the row spent more than its budget. A row without
+// budget, or exactly on it, is not over budget.
+func (r Row) OverBudget() bool {
+	return r.Diff != nil && r.Diff.IsNegative()
+}
+
 // ISR compares the tax the month's income would cause with the budget.
 type ISR struct {
 	Rate   decimal.Decimal
@@ -86,18 +114,7 @@ func ComputeSummary(cfg settings.Config, movements []ledger.Movement, month stri
 
 	rows := make([]Row, 0, len(cfg.Categories))
 	for _, c := range cfg.Categories {
-		budget := settings.CategoryBudget(c, overrides)
-		real := ledger.SumBy(monthly, ledger.Filter{Kind: c.Kind, Category: c.Name})
-		row := Row{Name: c.Name, Kind: c.Kind, Budget: budget, Real: real}
-		if budget != nil {
-			diff := budget.Sub(real)
-			row.Diff = &diff
-			if !budget.IsZero() {
-				pct := real.Mul(hundred).DivRound(*budget, ledger.DivisionPrecision)
-				row.Pct = &pct
-			}
-		}
-		rows = append(rows, row)
+		rows = append(rows, newRow(c.Name, c.Kind, settings.CategoryBudget(c, overrides), monthly))
 	}
 
 	totals := Totals{
@@ -122,7 +139,7 @@ func ComputeSummary(cfg settings.Config, movements []ledger.Movement, month stri
 		Month:        month,
 		Rows:         rows,
 		Totals:       totals,
-		Available:    totals.Income.Sub(totals.Expenses).Sub(totals.Savings),
+		Available:    totals.Available(),
 		ISR:          ISR{Rate: rate, Real: totals.Income.Mul(rate), Budget: tb.TaxesBudget},
 		Emergency:    emergency,
 		TaxBreakdown: tb,

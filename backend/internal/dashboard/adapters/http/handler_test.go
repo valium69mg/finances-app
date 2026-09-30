@@ -1,0 +1,148 @@
+package dashboardhttp_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/shopspring/decimal"
+
+	dashboardhttp "github.com/valium69mg/finances-app/backend/internal/dashboard/adapters/http"
+	dashboard "github.com/valium69mg/finances-app/backend/internal/dashboard/domain"
+	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
+	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
+	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
+)
+
+func d(s string) decimal.Decimal { return decimal.RequireFromString(s) }
+func p(s string) *decimal.Decimal {
+	v := d(s)
+	return &v
+}
+
+type fakeService struct {
+	out      dashboard.Overview
+	err      error
+	gotMonth string
+}
+
+func (f *fakeService) Month(_ context.Context, month string) (dashboard.Overview, error) {
+	f.gotMonth = month
+	return f.out, f.err
+}
+
+func requireGoodToken(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer good" {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func get(svc *fakeService, path string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	dashboardhttp.New(svc, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(mux, requireGoodToken)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	req.Header.Set("Authorization", "Bearer good")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	return rec
+}
+
+func sample() dashboard.Overview {
+	return dashboard.Overview{
+		Month: "2026-10",
+		Rows: []dashboard.Row{
+			{Name: "Mandado", Kind: ledger.KindExpense, Real: d("1500"), Budget: p("1000"), Diff: p("-500")},
+			{Name: "Ocio", Kind: ledger.KindExpense, Real: d("200")},
+		},
+		Totals:    dashboard.Totals{Income: d("50000"), Expenses: d("1700"), Savings: d("5000")},
+		Available: d("43300"),
+		Emergency: savings.EmergencyStatus{Accumulated: d("10000"), Goal: d("120000")},
+		Tax:       &dashboard.TaxCard{Rate: d("0.011"), EstimatedISR: d("550")},
+	}
+}
+
+func TestRequiresAuth(t *testing.T) {
+	mux := http.NewServeMux()
+	dashboardhttp.New(&fakeService{}, nil).Register(mux, requireGoodToken)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/dashboard", nil))
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status %d, want 401", rec.Code)
+	}
+}
+
+func TestGet(t *testing.T) {
+	svc := &fakeService{out: sample()}
+	rec := get(svc, "/dashboard?month=2026-10")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if svc.gotMonth != "2026-10" {
+		t.Errorf("month = %q", svc.gotMonth)
+	}
+	if rec.Header().Get("Cache-Control") != "no-store" {
+		t.Error("missing Cache-Control: no-store")
+	}
+	want := `{"month":"2026-10","categories":[` +
+		`{"category":"Mandado","spent":"1500","budget":"1000","remaining":"-500","over_budget":true},` +
+		`{"category":"Ocio","spent":"200","budget":null,"remaining":null,"over_budget":false}],` +
+		`"income":"50000","expenses":"1700","savings":"5000","available":"43300",` +
+		`"emergency":{"accumulated":"10000","goal":"120000"},` +
+		`"tax":{"rate":"0.011","estimated_isr":"550"}}`
+	if got := strings.TrimSpace(rec.Body.String()); got != want {
+		t.Errorf("body\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestGetDefaultMonthIsLeftToTheService(t *testing.T) {
+	svc := &fakeService{out: sample()}
+	if rec := get(svc, "/dashboard"); rec.Code != http.StatusOK || svc.gotMonth != "" {
+		t.Errorf("status %d, month %q", rec.Code, svc.gotMonth)
+	}
+}
+
+func TestGetWithoutTaxAndCategories(t *testing.T) {
+	out := sample()
+	out.Tax, out.Rows = nil, nil
+	rec := get(&fakeService{out: out}, "/dashboard")
+	body := rec.Body.String()
+	if !strings.Contains(body, `"tax":null`) || !strings.Contains(body, `"categories":[]`) {
+		t.Errorf("body %s, want null tax and an empty (not null) categories list", body)
+	}
+}
+
+func TestErrorMapping(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		status int
+		body   string
+	}{
+		{"unexpected", errors.New("x"), http.StatusInternalServerError, `{"error":"internal_error"}`},
+		{"bad month", fmt.Errorf("%w: month \"x\" must be YYYY-MM", ledger.ErrInvalid), http.StatusBadRequest,
+			`{"error":"invalid_dashboard","message":"invalid movement: month \"x\" must be YYYY-MM"}`},
+		{"settings incomplete", fmt.Errorf("%w: emergency_months", settings.ErrMissingConfig), http.StatusUnprocessableEntity,
+			`{"error":"settings_incomplete","message":"missing required config: emergency_months"}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := get(&fakeService{err: tt.err}, "/dashboard?month=x")
+			if rec.Code != tt.status {
+				t.Errorf("status %d, want %d", rec.Code, tt.status)
+			}
+			if got := strings.TrimSpace(rec.Body.String()); got != tt.body {
+				t.Errorf("body\n got %s\nwant %s", got, tt.body)
+			}
+		})
+	}
+}

@@ -16,6 +16,8 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/ratelimit"
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/resend"
 	authapp "github.com/valium69mg/finances-app/backend/internal/auth/app"
+	dashboardhttp "github.com/valium69mg/finances-app/backend/internal/dashboard/adapters/http"
+	dashboardapp "github.com/valium69mg/finances-app/backend/internal/dashboard/app"
 	expenseshttp "github.com/valium69mg/finances-app/backend/internal/expenses/adapters/http"
 	expensesapp "github.com/valium69mg/finances-app/backend/internal/expenses/app"
 	incomehttp "github.com/valium69mg/finances-app/backend/internal/income/adapters/http"
@@ -84,6 +86,9 @@ func run() error {
 
 	savingsSvc := savingsapp.NewService(movements, savingspg.NewRepo(pool), settingsSvc, nil)
 	savingshttp.New(savingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, nil)
+	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {

@@ -164,6 +164,29 @@ func (s *Service) List(ctx context.Context, month string, limit int) ([]ledger.M
 	return s.repo.ListByMonth(ctx, month, ledger.KindIncome, limit)
 }
 
+// MonthSummary returns the income total of a YYYY-MM month (the current one
+// when empty) and its RESICO ISR estimate, which is nil when the tax settings
+// are incomplete. A month without income is estimated at the first bracket
+// rate, as fin.py does.
+func (s *Service) MonthSummary(ctx context.Context, month string) (Summary, error) {
+	if month == "" {
+		month = ledger.CurrentMonth(s.now())
+	}
+	if _, err := time.Parse("2006-01", month); err != nil {
+		return Summary{}, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
+	}
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	movements, err := s.repo.ListByMonth(ctx, month, ledger.KindIncome, 0)
+	if err != nil {
+		return Summary{}, err
+	}
+	total := ledger.SumBy(movements, ledger.Filter{Kind: ledger.KindIncome})
+	return Summary{Month: month, MonthTotalMXN: total, Resico: resicoEstimate(cfg, total, total)}, nil
+}
+
 // InferCategory suggests the income category for a description.
 func (s *Service) InferCategory(ctx context.Context, description string) (string, bool, error) {
 	cfg, err := s.settings.Get(ctx)
