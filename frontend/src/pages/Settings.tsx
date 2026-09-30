@@ -5,6 +5,7 @@ import { getSettings, settingsKeys, type AllSettings } from "../api/settings";
 import { BracketsSection } from "./settings/BracketsSection";
 import { CategoriesSection } from "./settings/CategoriesSection";
 import { ClientsSection } from "./settings/ClientsSection";
+import { FutureExpensesSection } from "./settings/FutureExpensesSection";
 import { GeneralSection } from "./settings/GeneralSection";
 import { InstrumentsSection } from "./settings/InstrumentsSection";
 import { PauseSection } from "./settings/PauseSection";
@@ -16,6 +17,7 @@ const SECTIONS = [
   { id: "clientes", label: "Clientes", render: (s: AllSettings) => <ClientsSection data={s.clients} /> },
   { id: "instrumentos", label: "Instrumentos", render: (s: AllSettings) => <InstrumentsSection data={s.instruments} /> },
   { id: "resico", label: "Rangos de RESICO", render: (s: AllSettings) => <BracketsSection data={s.brackets} /> },
+  { id: "gastos-futuros", label: "Gastos futuros", render: (s: AllSettings) => <FutureExpensesSection settings={s} /> },
   { id: "pausa", label: "Pausa de inversiones", render: (s: AllSettings) => <PauseSection data={s.investment_pause} /> },
 ] as const;
 
