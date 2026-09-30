@@ -15,6 +15,7 @@ import (
 
 	dashboardhttp "github.com/valium69mg/finances-app/backend/internal/dashboard/adapters/http"
 	dashboard "github.com/valium69mg/finances-app/backend/internal/dashboard/domain"
+	future "github.com/valium69mg/finances-app/backend/internal/futureexpenses/domain"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
@@ -75,12 +76,12 @@ func sample() dashboard.Overview {
 			Filing: taxfiling.MonthStatus{Payment: taxfiling.PaymentPending, PreviousPeriod: "2026-09", PreviousPending: true},
 		},
 		Cycle: dashboard.CycleProgress{Today: "2026-10-15", Day: 16, Days: 31},
-		Future: dashboard.FutureExpenses{
-			Items: []dashboard.FutureExpense{{
-				Name: "Predial", DueDate: "2027-01-20", Target: d("10000"), Saved: d("2500"), Remaining: d("7500"),
-				Suggested: d("2500"), CyclesLeft: 3,
+		Future: future.Plan{
+			Items: []future.Planned{{
+				FutureExpense: future.FutureExpense{ID: 4, Name: "Laptop", DueDate: "2027-01-20", Target: d("10000"), Saved: d("2500")},
+				Remaining:     d("7500"), Suggested: d("2500"), CyclesLeft: 3,
 			}},
-			Target: d("10000"), Saved: d("2500"), Remaining: d("7500"), Suggested: d("2500"),
+			Target: d("10000"), Saved: d("2500"), Remaining: d("7500"), Suggested: d("2500"), FreeBalance: d("300.50"),
 		},
 		Upcoming: []dashboard.UpcomingBill{
 			{ID: 7, Name: "Luz", Category: "Servicios", Amount: p("200"), Currency: "MXN", DueDate: "2026-10-17", DaysUntilDue: 2},
@@ -121,8 +122,8 @@ func TestGet(t *testing.T) {
 		`"emergency":{"accumulated":"10000","goal":"120000"},` +
 		`"tax":{"rate":"0.011","estimated_isr":"550","filing_status":"pendiente","previous_period":"2026-09","previous_period_pending":true},` +
 		`"cycle":{"today":"2026-10-15","day":16,"days":31},` +
-		`"future_expenses":{"items":[{"name":"Predial","due_date":"2027-01-20","target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500","cycles_left":3}],` +
-		`"target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500"},` +
+		`"future_expenses":{"items":[{"id":4,"name":"Laptop","due_date":"2027-01-20","target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500","cycles_left":3}],` +
+		`"target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500","free_balance":"300.5"},` +
 		`"upcoming_bills":[{"id":7,"name":"Luz","category":"Servicios","amount":"200","currency":"MXN","due_date":"2026-10-17","days_until_due":2,"overdue":false},` +
 		`{"id":8,"name":"Agua","category":"Servicios","amount":null,"currency":"MXN","due_date":"2026-10-14","days_until_due":-1,"overdue":true}],` +
 		`"recent_movements":[{"id":3,"date":"2026-10-14","kind":"Ahorro","description":"Apartado","category":"Gastos futuros","amount_mxn":"2500"}]}`

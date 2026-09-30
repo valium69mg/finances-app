@@ -12,6 +12,7 @@ import (
 	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
 	bills "github.com/valium69mg/finances-app/backend/internal/bills/domain"
 	"github.com/valium69mg/finances-app/backend/internal/dashboard/app"
+	future "github.com/valium69mg/finances-app/backend/internal/futureexpenses/domain"
 	incomeapp "github.com/valium69mg/finances-app/backend/internal/income/app"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
@@ -74,6 +75,14 @@ func (f *fakeBills) List(context.Context, bool) ([]billsapp.Status, error) { ret
 
 // billStatus builds a bill with a pending occurrence due in days days from the
 // fake clock (2026-10-15).
+// fakeFuture is the future expenses port: it returns a canned plan, or an error.
+type fakeFuture struct {
+	plan future.Plan
+	err  error
+}
+
+func (f *fakeFuture) Overview(context.Context) (future.Plan, error) { return f.plan, f.err }
+
 func billStatus(id int, name, recurrence, currency, amount string, due string, days int) billsapp.Status {
 	b := bills.Bill{
 		ID: id, Name: name, Category: "Servicios", Currency: currency, Recurrence: bills.Recurrence(recurrence),
@@ -127,11 +136,20 @@ func newServiceWithBills(list ...billsapp.Status) (*app.Service, *fakeMovements)
 	return svc, mvs
 }
 
+func newServiceWithFuture(ff *fakeFuture) *app.Service {
+	svc, _, _, _, _ := buildServiceWith(&fakeBills{}, ff)
+	return svc
+}
+
 func newServiceWithFilings() (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements, *fakeFilings) {
 	return buildService(&fakeBills{})
 }
 
 func buildService(fb *fakeBills) (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements, *fakeFilings) {
+	return buildServiceWith(fb, &fakeFuture{})
+}
+
+func buildServiceWith(fb *fakeBills, ff *fakeFuture) (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements, *fakeFilings) {
 	st := &fakeSettings{
 		cfg: settingstest.RealConfig(),
 		budgets: []settingsapp.CategoryBudget{
@@ -158,7 +176,7 @@ func buildService(fb *fakeBills) (*app.Service, *fakeSettings, *fakeIncome, *fak
 	}}
 	now := func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }
 	filings := &fakeFilings{status: taxfiling.MonthStatus{Payment: taxfiling.PaymentNone, PreviousPeriod: "2026-09"}}
-	return app.NewService(mvs, st, inc, filings, fb, now), st, inc, mvs, filings
+	return app.NewService(mvs, st, inc, filings, fb, ff, now), st, inc, mvs, filings
 }
 
 func TestMonthComposesTheSummary(t *testing.T) {
@@ -406,37 +424,33 @@ func TestMonthUpcomingBillsWindow(t *testing.T) {
 	}
 }
 
-func TestMonthFutureExpensesFromYearlyBills(t *testing.T) {
-	svc, mvs := newServiceWithBills(
-		billStatus(1, "Seguro", "yearly", "MXN", "36000", "2026-12-15", 61),
-		billStatus(2, "Predial", "yearly", "MXN", "10000", "2027-01-20", 97),
-		billStatus(3, "Luz", "monthly", "MXN", "200", "2026-10-20", 5),     // not yearly
-		billStatus(4, "Dominio", "yearly", "USD", "20", "2027-03-01", 137), // not MXN
-		billStatus(5, "Variable", "yearly", "MXN", "", "2027-03-01", 137),  // no amount
-	)
-	mvs.rows = append(mvs.rows,
-		mv("2026-09-01", ledger.KindSavings, ledger.CategoryFutureExpenses, "5000.50"),
-		mv("2026-10-02", ledger.KindSavings, ledger.CategoryFutureExpenses, "1000"),
-		mv("2026-10-03", ledger.KindSavings, "Inversiones", "9999"), // another category
-	)
+func TestMonthFutureExpensesComeFromTheFutureModule(t *testing.T) {
+	plan := future.Plan{
+		Items: []future.Planned{{
+			FutureExpense: future.FutureExpense{ID: 9, Name: "Laptop", DueDate: "2027-01-20", Target: d("8000"), Saved: d("2000")},
+			Remaining:     d("6000"), Suggested: d("1500"), CyclesLeft: 4,
+		}},
+		Target: d("8000"), Saved: d("2000"), Remaining: d("6000"), Suggested: d("1500"), FreeBalance: d("120"),
+	}
+	// A yearly fixed-amount MXN bill and Gastos futuros savings must not leak
+	// into the card any more: only the module plan counts.
+	svc, _, _, mvs, _ := buildServiceWith(&fakeBills{list: []billsapp.Status{
+		billStatus(1, "Dominio", "yearly", "MXN", "300", "2026-12-15", 61),
+	}}, &fakeFuture{plan: plan})
+	mvs.rows = append(mvs.rows, mv("2026-09-01", ledger.KindSavings, ledger.CategoryFutureExpenses, "5000.50"))
 	got, err := svc.Month(context.Background(), "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := got.Future
-	if len(f.Items) != 2 || f.Items[0].Name != "Seguro" || f.Items[1].Name != "Predial" {
-		t.Fatalf("items = %+v, want Seguro then Predial (earliest due first)", f.Items)
+	if len(got.Future.Items) != 1 || got.Future.Items[0].Name != "Laptop" || !got.Future.FreeBalance.Equal(d("120")) || !got.Future.Suggested.Equal(d("1500")) {
+		t.Errorf("future = %+v, want exactly the plan of the module", got.Future)
 	}
-	if !f.Target.Equal(d("46000")) || !f.Saved.Equal(d("6000.50")) {
-		t.Errorf("totals target %s saved %s, want 46000 and 6000.50", f.Target, f.Saved)
-	}
-	// The pool funds the earliest expense first: 6000.50 of the insurance.
-	// October to December: 2 cycles, 29999.50 / 2.
-	if !f.Items[0].Saved.Equal(d("6000.50")) || f.Items[0].CyclesLeft != 2 || !f.Items[0].Suggested.Equal(d("14999.75")) {
-		t.Errorf("Seguro = %+v", f.Items[0])
-	}
-	if !f.Items[1].Saved.IsZero() || f.Items[1].CyclesLeft != 3 || !f.Items[1].Suggested.Equal(d("3333.34")) {
-		t.Errorf("Predial = %+v", f.Items[1])
+}
+
+func TestMonthPropagatesFutureErrors(t *testing.T) {
+	svc := newServiceWithFuture(&fakeFuture{err: errors.New("boom")})
+	if _, err := svc.Month(context.Background(), ""); err == nil {
+		t.Error("want the future expenses error")
 	}
 }
 

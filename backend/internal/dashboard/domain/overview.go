@@ -3,6 +3,7 @@ package domain
 import (
 	"github.com/shopspring/decimal"
 
+	future "github.com/valium69mg/finances-app/backend/internal/futureexpenses/domain"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
 	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
@@ -42,8 +43,8 @@ type Overview struct {
 	Tax         *TaxCard
 	// Cycle is where today sits in the displayed cycle.
 	Cycle CycleProgress
-	// Future is the plan of the expenses known in advance (yearly bills).
-	Future FutureExpenses
+	// Future is the plan of the active future expenses (the Futuros module).
+	Future future.Plan
 	// Upcoming are the bills due within the next UpcomingDays days, overdue
 	// ones included, earliest first.
 	Upcoming []UpcomingBill

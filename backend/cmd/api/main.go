@@ -27,6 +27,9 @@ import (
 	dashboardapp "github.com/valium69mg/finances-app/backend/internal/dashboard/app"
 	expenseshttp "github.com/valium69mg/finances-app/backend/internal/expenses/adapters/http"
 	expensesapp "github.com/valium69mg/finances-app/backend/internal/expenses/app"
+	futureexpenseshttp "github.com/valium69mg/finances-app/backend/internal/futureexpenses/adapters/http"
+	futureexpensespg "github.com/valium69mg/finances-app/backend/internal/futureexpenses/adapters/postgres"
+	futureexpensesapp "github.com/valium69mg/finances-app/backend/internal/futureexpenses/app"
 	incomehttp "github.com/valium69mg/finances-app/backend/internal/income/adapters/http"
 	incomeapp "github.com/valium69mg/finances-app/backend/internal/income/app"
 	invoiceshttp "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/http"
@@ -217,7 +220,10 @@ func run() error {
 		slog.Info("email reminders are disabled (REMINDERS_ENABLED=false)")
 	}
 
-	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, billsSvc, now)
+	futureSvc := futureexpensesapp.NewService(futureexpensespg.NewRepo(pool), savingsSvc, expensesSvc, settingsSvc, now)
+	futureexpenseshttp.New(futureSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, billsSvc, futureSvc, now)
 	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, nil, slog.Default())

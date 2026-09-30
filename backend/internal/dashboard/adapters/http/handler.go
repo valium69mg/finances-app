@@ -79,9 +79,11 @@ type cycleDTO struct {
 	Days  int    `json:"days"`
 }
 
-// futureExpenseDTO is one expense known in advance: what is saved towards it
-// and the amount to put aside each cycle (suggested_monthly) to have it on time.
+// futureExpenseDTO is one active future expense: what is saved towards it (the
+// savings linked to it) and the amount to put aside each cycle
+// (suggested_monthly) to have it on time.
 type futureExpenseDTO struct {
+	ID               int             `json:"id"`
 	Name             string          `json:"name"`
 	DueDate          string          `json:"due_date"`
 	Target           decimal.Decimal `json:"target"`
@@ -97,6 +99,8 @@ type futureExpensesDTO struct {
 	Saved            decimal.Decimal    `json:"saved"`
 	Remaining        decimal.Decimal    `json:"remaining"`
 	SuggestedMonthly decimal.Decimal    `json:"suggested_monthly"`
+	// FreeBalance is the Gastos futuros savings linked to no item yet.
+	FreeBalance decimal.Decimal `json:"free_balance"`
 }
 
 // upcomingBillDTO is a bill due soon; amount is null for a variable bill.
@@ -156,13 +160,14 @@ func toDTO(d dashboard.Overview) dashboardDTO {
 		FutureExpenses: futureExpensesDTO{
 			Items:  make([]futureExpenseDTO, len(d.Future.Items)),
 			Target: d.Future.Target, Saved: d.Future.Saved, Remaining: d.Future.Remaining, SuggestedMonthly: d.Future.Suggested,
+			FreeBalance: d.Future.FreeBalance,
 		},
 		UpcomingBills: make([]upcomingBillDTO, len(d.Upcoming)),
 		Recent:        make([]recentMovementDTO, len(d.Recent)),
 	}
 	for i, f := range d.Future.Items {
 		out.FutureExpenses.Items[i] = futureExpenseDTO{
-			Name: f.Name, DueDate: f.DueDate, Target: f.Target, Saved: f.Saved, Remaining: f.Remaining,
+			ID: f.ID, Name: f.Name, DueDate: f.DueDate, Target: f.Target, Saved: f.Saved, Remaining: f.Remaining,
 			SuggestedMonthly: f.Suggested, CyclesLeft: f.CyclesLeft,
 		}
 	}

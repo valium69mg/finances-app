@@ -12,6 +12,7 @@ import (
 	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
 	bills "github.com/valium69mg/finances-app/backend/internal/bills/domain"
 	dashboard "github.com/valium69mg/finances-app/backend/internal/dashboard/domain"
+	futuredomain "github.com/valium69mg/finances-app/backend/internal/futureexpenses/domain"
 	incomeapp "github.com/valium69mg/finances-app/backend/internal/income/app"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
@@ -40,6 +41,12 @@ type Filings interface {
 	MonthStatus(ctx context.Context, month string) (taxfiling.MonthStatus, error)
 }
 
+// Future is the part of the future expenses module the dashboard consumes: the
+// plan of the active items with the free balance.
+type Future interface {
+	Overview(ctx context.Context) (futuredomain.Plan, error)
+}
+
 // Bills is the part of the bills module the dashboard consumes: the active
 // bills with their pending occurrence and due flags.
 type Bills interface {
@@ -66,15 +73,16 @@ type Service struct {
 	income    Income
 	filings   Filings
 	bills     Bills
+	future    Future
 	now       func() time.Time
 }
 
 // NewService builds a Service. A nil now selects time.Now.
-func NewService(movements Movements, settings Settings, income Income, filings Filings, bills Bills, now func() time.Time) *Service {
+func NewService(movements Movements, settings Settings, income Income, filings Filings, bills Bills, future Future, now func() time.Time) *Service {
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{movements: movements, settings: settings, income: income, filings: filings, bills: bills, now: now}
+	return &Service{movements: movements, settings: settings, income: income, filings: filings, bills: bills, future: future, now: now}
 }
 
 // Month builds the dashboard of a YYYY-MM budget cycle (the current one when
@@ -141,7 +149,7 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 	if err != nil {
 		return dashboard.Overview{}, err
 	}
-	future, err := dashboard.PlanFutureExpenses(cycle, today, ledger.SumBy(allSavings, ledger.Filter{Kind: ledger.KindSavings, Category: ledger.CategoryFutureExpenses}), futureItems(statuses))
+	plan, err := s.future.Overview(ctx)
 	if err != nil {
 		return dashboard.Overview{}, err
 	}
@@ -159,7 +167,7 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 		Available:   totals.Available(),
 		Emergency:   emergency,
 		Cycle:       progress,
-		Future:      future,
+		Future:      plan,
 		Upcoming:    upcomingBills(statuses),
 		Recent:      recent,
 	}
@@ -178,21 +186,6 @@ const (
 	recentFrom = "1900-01-01"
 	recentTo   = "9999-12-31"
 )
-
-// futureItems picks the expenses known in advance: active yearly bills with a
-// fixed MXN amount and a pending occurrence. The target is the bill amount and
-// the due date that of the pending occurrence.
-func futureItems(statuses []billsapp.Status) []dashboard.FutureItem {
-	var out []dashboard.FutureItem
-	for _, st := range statuses {
-		b := st.Bill
-		if !b.Active || b.Pending == nil || b.Amount == nil || b.Recurrence != bills.Yearly || b.Currency != bills.CurrencyMXN {
-			continue
-		}
-		out = append(out, dashboard.FutureItem{Name: b.Name, DueDate: b.Pending.DueDate, Target: *b.Amount})
-	}
-	return out
-}
 
 // upcomingBills keeps the pending occurrences due within UpcomingDays days,
 // overdue ones included. The bills arrive sorted by due date.
