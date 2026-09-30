@@ -1,4 +1,5 @@
 import type { Page, Route } from "@playwright/test";
+import { cycleOf, cycleRange } from "../src/pages/cycle";
 import { createBillsMock, type BillsFail, type MockBill } from "./billsMock";
 import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
 import { createMonthCloseMock, type MockClose, type MonthCloseFail } from "./monthCloseMock";
@@ -75,6 +76,7 @@ export const SETTINGS_FIXTURE = {
       { key: "VOO", value: "0.6" },
       { key: "BTC", value: "0.4" },
     ],
+    cycle_start_day: 0,
   },
   categories: [
     { name: "Renta", kind: "fixed", budget: "12000.50", includes: "Renta y mantenimiento", keywords: ["renta", "alquiler"] },
@@ -160,7 +162,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -184,6 +186,7 @@ export async function mockApi(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settings: any = structuredClone(SETTINGS_FIXTURE);
   if (opts.issuer) settings.issuer = opts.issuer;
+  if (opts.cycleStartDay !== undefined) settings.general.cycle_start_day = opts.cycleStartDay;
   const invoiceMock = createInvoicesMock(opts.invoices ?? [], opts.invoicesFail, json);
   const taxMock = createTaxFilingMock(opts.filings ?? [], opts.taxFilingFail, {
     invoices: () => invoiceMock.invoices,
@@ -237,7 +240,7 @@ export async function mockApi(
     if (pathname === "/income" && request.method() === "GET") {
       const month = searchParams.get("month") ?? "";
       const rows = income
-        .filter((e) => e.date.startsWith(month))
+        .filter((e) => inCycle(e.date, month, settings))
         .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
       return json(route, 200, rows);
     }
@@ -310,7 +313,7 @@ export async function mockApi(
       const month = searchParams.get("month") ?? "";
       const limit = Number(searchParams.get("limit")) || Infinity;
       const rows = savings
-        .filter((e) => e.date.startsWith(month))
+        .filter((e) => inCycle(e.date, month, settings))
         .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1))
         .slice(0, limit);
       return json(route, 200, rows);
@@ -352,7 +355,7 @@ export async function mockApi(
     if (pathname === "/expenses" && request.method() === "GET") {
       const month = searchParams.get("month") ?? "";
       const rows = expenses
-        .filter((e) => e.date.startsWith(month))
+        .filter((e) => inCycle(e.date, month, settings))
         .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
       return json(route, 200, rows);
     }
@@ -427,6 +430,12 @@ export async function mockApi(
   return { requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes };
 }
 
+/** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function inCycle(date: string, month: string, settings: any): boolean {
+  return cycleOf(date, settings.general.cycle_start_day ?? 0) === month;
+}
+
 /** Dashboard computed from the in-memory movements; Gasto categories are the mock's fixed/variable ones. */
 function buildDashboard(
   month: string,
@@ -436,7 +445,7 @@ function buildDashboard(
   withTax: boolean,
   filing: { filing_status: string; previous_period_pending: boolean },
 ) {
-  const inMonth = <T extends { date: string }>(rows: T[]) => rows.filter((r) => r.date.startsWith(month));
+  const inMonth = <T extends { date: string }>(rows: T[]) => rows.filter((r) => inCycle(r.date, month, settings));
   const sum = (rows: { amount_mxn: string }[]) => rows.reduce((total, r) => total + Number(r.amount_mxn), 0);
   const monthExpenses = inMonth(data.expenses);
   const income = sum(inMonth(data.income));
@@ -456,8 +465,11 @@ function buildDashboard(
       };
     });
   const rate = resicoRate(income);
+  const range = cycleRange(month, settings.general.cycle_start_day ?? 0);
   return {
     month,
+    period_start: range?.from ?? "",
+    period_end: range?.to ?? "",
     categories,
     income: income.toFixed(2),
     expenses: expenses.toFixed(2),

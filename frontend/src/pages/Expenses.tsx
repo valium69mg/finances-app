@@ -8,11 +8,11 @@ import { BudgetFeedbackNote } from "./expenses/BudgetFeedbackNote";
 import { ExpenseForm } from "./expenses/ExpenseForm";
 import { ExpenseList } from "./expenses/ExpenseList";
 import { describeExpenseError } from "./expenses/errors";
-import { todayISO } from "./expenses/money";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
+import { useCyclePeriod } from "./useCycle";
 
 export function Expenses() {
-  const [month, setMonth] = useState(() => todayISO().slice(0, 7));
+  const { month, setMonth, rangeHint } = useCyclePeriod();
   const [editing, setEditing] = useState<Expense | null>(null);
   const [feedback, setFeedback] = useState<SaveExpenseResult | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
@@ -60,19 +60,25 @@ export function Expenses() {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Gastos del mes</h2>
           <div className="w-full sm:w-56">
-            <TextField label="Mes" type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+            <TextField label="Mes" type="month" hint={rangeHint || undefined} value={month ?? ""} onChange={(e) => e.target.value && setMonth(e.target.value)} />
           </div>
         </div>
-        <ExpenseList
-          month={month}
-          editingId={editing?.id ?? null}
-          onEdit={(e) => {
-            setFeedback(null);
-            setEditing(e);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
-        />
+        {month === null ? (
+          <p role="status" className="text-sm text-muted">
+            Cargando periodo…
+          </p>
+        ) : (
+          <ExpenseList
+            month={month}
+            editingId={editing?.id ?? null}
+            onEdit={(e) => {
+              setFeedback(null);
+              setEditing(e);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
+          />
+        )}
       </div>
     </section>
   );

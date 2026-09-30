@@ -48,7 +48,7 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-sm text-muted">No hay ahorros registrados en este mes.</p>;
+    return <p className="text-sm text-muted">No hay ahorros registrados en este periodo.</p>;
   }
 
   return (
@@ -56,7 +56,7 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
       {remove.isError && <ErrorBanner>{describeSavingsError(remove.error)}</ErrorBanner>}
       {list.data.length >= SAVINGS_LIST_LIMIT && (
         <p role="status" className="text-sm text-muted">
-          Mostrando los {SAVINGS_LIST_LIMIT} más recientes de este mes; los anteriores no aparecen en la lista.
+          Mostrando los {SAVINGS_LIST_LIMIT} más recientes de este periodo; los anteriores no aparecen en la lista.
         </p>
       )}
       <ul className="divide-y divide-border rounded-xl border border-border">

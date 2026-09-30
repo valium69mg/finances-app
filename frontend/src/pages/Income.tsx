@@ -4,15 +4,15 @@ import { Loader2 } from "lucide-react";
 import type { Income as IncomeRow, SaveIncomeResult } from "../api/income";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
-import { todayISO } from "./expenses/money";
 import { IncomeForm } from "./income/IncomeForm";
 import { IncomeList } from "./income/IncomeList";
 import { SaveSummary } from "./income/SaveSummary";
 import { describeIncomeError } from "./income/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
+import { useCyclePeriod } from "./useCycle";
 
 export function Income() {
-  const [month, setMonth] = useState(() => todayISO().slice(0, 7));
+  const { month, setMonth, rangeHint } = useCyclePeriod();
   const [editing, setEditing] = useState<IncomeRow | null>(null);
   const [result, setResult] = useState<SaveIncomeResult | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
@@ -60,19 +60,25 @@ export function Income() {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Ingresos del mes</h2>
           <div className="w-full sm:w-56">
-            <TextField label="Mes" type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+            <TextField label="Mes" type="month" hint={rangeHint || undefined} value={month ?? ""} onChange={(e) => e.target.value && setMonth(e.target.value)} />
           </div>
         </div>
-        <IncomeList
-          month={month}
-          editingId={editing?.id ?? null}
-          onEdit={(i) => {
-            setResult(null);
-            setEditing(i);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
-        />
+        {month === null ? (
+          <p role="status" className="text-sm text-muted">
+            Cargando periodo…
+          </p>
+        ) : (
+          <IncomeList
+            month={month}
+            editingId={editing?.id ?? null}
+            onEdit={(i) => {
+              setResult(null);
+              setEditing(i);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
+          />
+        )}
       </div>
     </section>
   );

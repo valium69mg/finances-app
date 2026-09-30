@@ -13,6 +13,7 @@ const MSG = {
   required: "Este campo es obligatorio.",
   decimal: "Escribe un número válido, sin signos ni comas (por ejemplo 1500.50).",
   month: "Usa el formato AAAA-MM (por ejemplo 2026-10).",
+  cycleStartDay: "Elige cuándo empieza tu periodo.",
 };
 
 function decimal(errors: Errors, key: string, value: string, required = true) {
@@ -35,6 +36,7 @@ export function validateGeneral(g: General): Errors {
   decimal(e, "morse_fee_rate", g.morse_fee_rate);
   decimal(e, "emergency_months", g.emergency_months);
   decimal(e, "extra_income_estimate_mxn", g.extra_income_estimate_mxn);
+  if (!Number.isInteger(g.cycle_start_day) || g.cycle_start_day < 0 || g.cycle_start_day > 31) e["cycle_start_day"] = MSG.cycleStartDay;
   for (const [k, v] of Object.entries(g.extra_income_split)) decimal(e, `split.${k}`, v);
   g.investment_allocation.forEach((w, i) => decimal(e, `alloc.${i}`, w.value));
   return e;

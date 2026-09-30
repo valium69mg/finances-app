@@ -24,6 +24,8 @@ describe("dashboard api", () => {
   it("gets a month with the bearer token and returns decimal strings untouched", async () => {
     const payload = {
       month: "2026-10",
+      period_start: "2026-09-30",
+      period_end: "2026-10-30",
       categories: [{ category: "Mandado", spent: "1500.50", budget: "1000", remaining: "-500.50", over_budget: true }],
       income: "50000",
       expenses: "1500.50",

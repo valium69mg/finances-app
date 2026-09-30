@@ -38,9 +38,24 @@ async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
 }
 
 test.describe("expenses page", () => {
+  test("with a pay cycle starting on the last day, a 2026-09-30 expense lists under 2026-10, not 2026-09", async ({ page }) => {
+    await open(page, { cycleStartDay: 31, expenses: [seeded({ id: 7, date: "2026-09-30", description: "Mandado fin de mes" })] });
+
+    const month = page.getByLabel("Mes", { exact: true });
+    await month.fill("2026-10");
+    await expect(page.getByText("30 sep – 30 oct", { exact: true })).toBeVisible();
+    await expect(page.getByRole("listitem").filter({ hasText: "Mandado fin de mes" })).toBeVisible();
+
+    await month.fill("2026-09");
+    await expect(page.getByText("No hay gastos registrados en este periodo.")).toBeVisible();
+
+    await page.getByLabel("Fecha").fill("2026-09-30");
+    await expect(page.getByText("Se cuenta en el periodo 30 sep – 30 oct")).toBeVisible();
+  });
+
   test("adds an expense with a suggested category and shows budget feedback", async ({ page }) => {
     const api = await open(page);
-    await expect(page.getByText("No hay gastos registrados en este mes.")).toBeVisible();
+    await expect(page.getByText("No hay gastos registrados en este periodo.")).toBeVisible();
 
     await page.getByLabel("Descripción").fill("Tacos al pastor");
     await expect(page.getByText("Sugerida según la descripción: Comida.")).toBeVisible();
@@ -148,7 +163,7 @@ test.describe("expenses page", () => {
 
     await page.getByRole("button", { name: "Eliminar Tacos del centro" }).click();
     await page.getByRole("button", { name: "Sí, eliminar" }).click();
-    await expect(page.getByText("No hay gastos registrados en este mes.")).toBeVisible();
+    await expect(page.getByText("No hay gastos registrados en este periodo.")).toBeVisible();
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/expenses/1")).toBe(true);
   });
 

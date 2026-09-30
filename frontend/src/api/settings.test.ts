@@ -74,6 +74,7 @@ describe("settings api", () => {
       budget_includes_extra_income: false,
       extra_income_split: { ahorro: "0.5" },
       investment_allocation: [{ key: "VOO", value: "1" }],
+      cycle_start_day: 31,
     };
     await updateGeneral(general);
     await updateBrackets([{ upper: "25000.00", rate: "0.0125" }]);
@@ -86,6 +87,7 @@ describe("settings api", () => {
     });
     expect(call(fn, 0).url).toMatch(/\/settings\/general$/);
     expect(call(fn, 0).body).toEqual(general);
+    expect(call(fn, 0).body.cycle_start_day).toBe(31);
     expect(call(fn, 1).url).toMatch(/\/settings\/brackets$/);
     expect(call(fn, 1).body).toEqual([{ upper: "25000.00", rate: "0.0125" }]);
     expect(call(fn, 2).url).toMatch(/\/settings\/investment-pause$/);

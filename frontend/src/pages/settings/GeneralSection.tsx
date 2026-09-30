@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { updateGeneral, type General } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
+import { SelectField } from "../expenses/SelectField";
 import { Checkbox, SectionForm, fieldGrid, useDraft, useSave } from "./ui";
 import { validateGeneral, type Errors } from "./validation";
 
@@ -39,6 +40,18 @@ export function GeneralSection({ data }: { data: General }) {
             error={errors[f.key]}
           />
         ))}
+      </div>
+      <div className={fieldGrid}>
+        <SelectField
+          label="Inicio del periodo"
+          hint="Con “Último día del mes”, el periodo de octubre va del 30 de septiembre al 30 de octubre. Gastos, ingresos, ahorros y cierre de mes usan este periodo; las facturas y la declaración siguen por mes calendario."
+          value={String(draft.cycle_start_day)}
+          onChange={(e) => setDraft({ ...draft, cycle_start_day: Number(e.target.value) })}
+        >
+          <option value="0">Mes calendario</option>
+          <option value="31">Último día del mes</option>
+          {![0, 31].includes(draft.cycle_start_day) && <option value={draft.cycle_start_day}>{`Día ${draft.cycle_start_day} (configurado)`}</option>}
+        </SelectField>
       </div>
       <Checkbox
         label="El presupuesto incluye el ingreso extra estimado"

@@ -7,8 +7,10 @@ import {
   toCategoryDraft,
   validateBrackets,
   validateCategories,
+  validateGeneral,
   validatePause,
 } from "./validation";
+import type { General } from "../../api/settings";
 
 describe("isDecimal", () => {
   it.each(["0", "12", "1500.50", "0.0125"])("accepts %s", (v) => expect(isDecimal(v)).toBe(true));
@@ -68,4 +70,22 @@ describe("pause", () => {
     expect(out.months).toEqual(["2026-10"]);
     expect(out.future_expenses_plan).toEqual({ "2026-10": "12000" });
   });
+});
+
+describe("general", () => {
+  const general = (over: Partial<General> = {}): General => ({
+    salary_usd: "1000",
+    fx_rate_applied: "17.5",
+    morse_fee_rate: "0.01",
+    emergency_months: "6",
+    extra_income_estimate_mxn: "0",
+    budget_includes_extra_income: false,
+    extra_income_split: {},
+    investment_allocation: [],
+    cycle_start_day: 0,
+    ...over,
+  });
+
+  it.each([0, 31])("accepts cycle_start_day %i", (d) => expect(validateGeneral(general({ cycle_start_day: d }))).toEqual({}));
+  it.each([-1, 32, 1.5])("rejects cycle_start_day %j", (d) => expect(validateGeneral(general({ cycle_start_day: d }))).toHaveProperty("cycle_start_day"));
 });

@@ -40,7 +40,7 @@ async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
 test.describe("income page", () => {
   test("adds a Sueldo income and shows the month summary", async ({ page }) => {
     const api = await open(page);
-    await expect(page.getByText("No hay ingresos registrados en este mes.")).toBeVisible();
+    await expect(page.getByText("No hay ingresos registrados en este periodo.")).toBeVisible();
     await expect(page.getByLabel("Método de pago")).toHaveValue("Transferencia");
     // Only income categories are offered.
     await expect(page.getByLabel("Categoría").locator("option")).toHaveText([
@@ -158,7 +158,7 @@ test.describe("income page", () => {
 
     await page.getByRole("button", { name: "Eliminar Sueldo octubre" }).click();
     await page.getByRole("button", { name: "Sí, eliminar" }).click();
-    await expect(page.getByText("No hay ingresos registrados en este mes.")).toBeVisible();
+    await expect(page.getByText("No hay ingresos registrados en este periodo.")).toBeVisible();
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/income/1")).toBe(true);
   });
 

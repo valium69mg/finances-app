@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -9,7 +8,8 @@ import { BudgetTable } from "./dashboard/BudgetTable";
 import { TaxCard } from "./dashboard/TaxCard";
 import { TotalsCards } from "./dashboard/TotalsCards";
 import { describeDashboardError } from "./dashboard/errors";
-import { todayISO } from "./expenses/money";
+import { rangeText } from "./cycle";
+import { useCyclePeriod } from "./useCycle";
 import { EmergencyCard } from "./savings/PortfolioPanel";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
 
@@ -21,7 +21,7 @@ function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
     <div className="space-y-6">
       {isEmptyMonth(dashboard) && (
         <p className="rounded-lg border border-border p-4 text-sm text-muted">
-          Aún no hay movimientos en este mes. Registra ingresos, gastos o ahorros y aquí verás tu resumen.
+          Aún no hay movimientos en este periodo. Registra ingresos, gastos o ahorros y aquí verás tu resumen.
         </p>
       )}
 
@@ -53,8 +53,15 @@ function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
 
 /** Main screen: the month's budget versus actual, totals, emergency fund and estimated ISR. */
 export function Dashboard() {
-  const [month, setMonth] = useState(() => todayISO().slice(0, 7));
-  const query = useQuery({ queryKey: dashboardKeys.month(month), queryFn: () => getDashboard(month), retry: false });
+  const { month, setMonth, rangeHint } = useCyclePeriod();
+  const query = useQuery({
+    queryKey: dashboardKeys.month(month ?? ""),
+    queryFn: () => getDashboard(month ?? ""),
+    enabled: month !== null,
+    retry: false,
+  });
+  // The API's own period wins once it answers for the selected month.
+  const hint = query.data && query.data.month === month && query.data.period_start ? rangeText(query.data.period_start, query.data.period_end) : rangeHint;
   const incomplete = query.error instanceof ApiError && query.error.code === "settings_incomplete";
 
   return (
@@ -67,7 +74,7 @@ export function Dashboard() {
           <p className="mt-1 text-sm text-muted">Tu resumen del mes: presupuesto contra gasto real, dinero disponible y ahorro.</p>
         </div>
         <div className="w-full sm:w-56">
-          <TextField label="Mes" type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+          <TextField label="Mes" type="month" hint={hint || undefined} value={month ?? ""} onChange={(e) => e.target.value && setMonth(e.target.value)} />
         </div>
       </div>
 

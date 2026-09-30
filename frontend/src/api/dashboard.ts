@@ -38,6 +38,9 @@ export interface DashboardTax {
 export interface Dashboard {
   /** YYYY-MM */
   month: string;
+  /** First and last day (YYYY-MM-DD, inclusive) of the personal period the month label stands for. */
+  period_start: string;
+  period_end: string;
   categories: DashboardCategory[];
   income: string;
   expenses: string;

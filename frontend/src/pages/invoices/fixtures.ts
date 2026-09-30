@@ -32,6 +32,7 @@ export const SETTINGS: AllSettings = {
     budget_includes_extra_income: false,
     extra_income_split: {},
     investment_allocation: [],
+    cycle_start_day: 0,
   },
   categories: [],
   clients: [client({ id: "usa", name: "Acme Inc.", currency: "USD" }), client({ id: "b", name: "Público en general", iva_rate: "0.16" })],

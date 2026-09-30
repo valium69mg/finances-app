@@ -78,7 +78,7 @@ test.describe("savings page", () => {
 
   test("shows empty states when nothing is registered", async ({ page }) => {
     await open(page);
-    await expect(page.getByText("No hay ahorros registrados en este mes.")).toBeVisible();
+    await expect(page.getByText("No hay ahorros registrados en este periodo.")).toBeVisible();
     await expect(page.getByRole("row", { name: /CETES/ })).toContainText("sin valuar");
     await expect(page.getByRole("row", { name: /^Total/ })).toContainText("$0.00");
   });
@@ -199,7 +199,7 @@ test.describe("savings page", () => {
 
     await page.getByRole("button", { name: "Eliminar Aportación VOO" }).click();
     await page.getByRole("button", { name: "Sí, eliminar" }).click();
-    await expect(page.getByText("No hay ahorros registrados en este mes.")).toBeVisible();
+    await expect(page.getByText("No hay ahorros registrados en este periodo.")).toBeVisible();
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/savings/1")).toBe(true);
     await expect(page.getByRole("row", { name: /VOO/ })).toContainText("$0.00");
   });

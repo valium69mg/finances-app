@@ -4,7 +4,6 @@ import { Loader2 } from "lucide-react";
 import type { Saving } from "../api/savings";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
-import { todayISO } from "./expenses/money";
 import { PortfolioPanel } from "./savings/PortfolioPanel";
 import { SavingForm } from "./savings/SavingForm";
 import { SavingsList } from "./savings/SavingsList";
@@ -12,11 +11,12 @@ import { TransferForm } from "./savings/TransferForm";
 import { ValuationForm } from "./savings/ValuationForm";
 import { describeSavingsError } from "./savings/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
+import { useCyclePeriod } from "./useCycle";
 
 const panel = "mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6";
 
 export function Savings() {
-  const [month, setMonth] = useState(() => todayISO().slice(0, 7));
+  const { month, setMonth, rangeHint } = useCyclePeriod();
   const [editing, setEditing] = useState<Saving | null>(null);
   const [saved, setSaved] = useState(false);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
@@ -83,20 +83,26 @@ export function Savings() {
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">Ahorros del mes</h2>
           <div className="w-full sm:w-56">
-            <TextField label="Mes" type="month" value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} />
+            <TextField label="Mes" type="month" hint={rangeHint || undefined} value={month ?? ""} onChange={(e) => e.target.value && setMonth(e.target.value)} />
           </div>
         </div>
-        <SavingsList
-          month={month}
-          instruments={settings.data?.instruments.instruments ?? []}
-          editingId={editing?.id ?? null}
-          onEdit={(s) => {
-            setSaved(false);
-            setEditing(s);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-          }}
-          onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
-        />
+        {month === null ? (
+          <p role="status" className="text-sm text-muted">
+            Cargando periodo…
+          </p>
+        ) : (
+          <SavingsList
+            month={month}
+            instruments={settings.data?.instruments.instruments ?? []}
+            editingId={editing?.id ?? null}
+            onEdit={(s) => {
+              setSaved(false);
+              setEditing(s);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
+            onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
+          />
+        )}
       </div>
     </section>
   );

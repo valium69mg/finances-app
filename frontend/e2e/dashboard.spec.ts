@@ -127,7 +127,7 @@ test.describe("dashboard page", () => {
 
   test("shows the empty state for a month without movements", async ({ page }) => {
     await open(page);
-    await expect(page.getByText("Aún no hay movimientos en este mes.")).toBeVisible();
+    await expect(page.getByText("Aún no hay movimientos en este periodo.")).toBeVisible();
     await expect(page.getByRole("row", { name: /Renta/ })).toContainText("$12,000.50");
     await expect(page.getByRole("region", { name: "Resumen del mes" }).getByText("Disponible").locator("xpath=following-sibling::dd")).toHaveText("$0.00");
   });
@@ -138,7 +138,7 @@ test.describe("dashboard page", () => {
 
     const previous = previousMonth();
     await page.getByLabel("Mes", { exact: true }).fill(previous);
-    await expect(page.getByText("Aún no hay movimientos en este mes.")).toBeVisible();
+    await expect(page.getByText("Aún no hay movimientos en este periodo.")).toBeVisible();
     expect(api.dashboardMonths.at(-1)).toBe(previous);
     await expect(page.getByRole("row", { name: /Renta/ })).toContainText("$0.00");
   });

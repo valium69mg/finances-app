@@ -37,6 +37,24 @@ test.describe("settings page", () => {
     await expect(page.getByLabel("Presupuesto de Renta")).toHaveValue("13500.75");
   });
 
+  test("saves the pay cycle start day as a number", async ({ page }) => {
+    const api = await mockApi(page);
+    await seedSession(page);
+    await page.goto("/configuracion");
+
+    const select = page.getByLabel("Inicio del periodo");
+    await expect(select).toHaveValue("0");
+    await select.selectOption({ label: "Último día del mes" });
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(page.getByText("Cambios guardados.")).toBeVisible();
+
+    const put = api.writes.find((w) => w.method === "PUT" && w.path === "/settings/general");
+    expect((put?.body as { cycle_start_day: number }).cycle_start_day).toBe(31);
+
+    await page.reload();
+    await expect(page.getByLabel("Inicio del periodo")).toHaveValue("31");
+  });
+
   test("blocks an invalid budget, focuses the field and sends nothing", async ({ page }) => {
     const api = await mockApi(page);
     await seedSession(page);

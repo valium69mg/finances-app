@@ -12,6 +12,7 @@ import {
 } from "../../api/income";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
+import { cycleOf, cycleRangeLabel } from "../cycle";
 import { DEBOUNCE_MS, useDebounced, withValue } from "../expenses/formHelpers";
 import { isPositiveDecimal, todayISO } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
@@ -92,6 +93,8 @@ export function IncomeForm({ settings, editing, onSaved, onCancelEdit }: Props) 
     category,
   );
   const methodOptions = withValue(methods, method);
+  const cycleStartDay = settings.general.cycle_start_day;
+  const periodHint = date ? `Se cuenta en el periodo ${cycleRangeLabel(cycleOf(date, cycleStartDay), cycleStartDay)}` : "";
   const title = editing ? "Editar ingreso" : "Nuevo ingreso";
 
   return (
@@ -125,7 +128,14 @@ export function IncomeForm({ settings, editing, onSaved, onCancelEdit }: Props) 
             autoComplete="off"
           />
         )}
-        <TextField label="Fecha" type="date" value={date} onChange={(e) => setDate(e.target.value)} error={errors.date} />
+        <TextField
+          label="Fecha"
+          type="date"
+          hint={periodHint || undefined}
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          error={errors.date}
+        />
         <SelectField label="Método de pago" value={method} onChange={(e) => setMethod(e.target.value)}>
           {methodOptions.map((m) => (
             <option key={m} value={m}>

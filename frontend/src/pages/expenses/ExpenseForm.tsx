@@ -4,6 +4,7 @@ import { Loader2, Plus, Save } from "lucide-react";
 import { createExpense, expensesKeys, inferCategory, updateExpense, type Expense, type ExpenseInput, type SaveExpenseResult } from "../../api/expenses";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
+import { cycleOf, cycleRangeLabel } from "../cycle";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeExpenseError } from "./errors";
 import { DEBOUNCE_MS, useDebounced, withValue } from "./formHelpers";
@@ -82,6 +83,8 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props)
     category,
   );
   const methodOptions = withValue(methods, method);
+  const cycleStartDay = settings.general.cycle_start_day;
+  const periodHint = date ? `Se cuenta en el periodo ${cycleRangeLabel(cycleOf(date, cycleStartDay), cycleStartDay)}` : "";
   const title = editing ? "Editar gasto" : "Nuevo gasto";
 
   return (
@@ -115,7 +118,14 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props)
             autoComplete="off"
           />
         )}
-        <TextField label="Fecha" type="date" value={date} onChange={(e) => setDate(e.target.value)} error={errors.date} />
+        <TextField
+          label="Fecha"
+          type="date"
+          hint={periodHint || undefined}
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          error={errors.date}
+        />
         <SelectField label="Método de pago" value={method} onChange={(e) => setMethod(e.target.value)}>
           {methodOptions.map((m) => (
             <option key={m} value={m}>

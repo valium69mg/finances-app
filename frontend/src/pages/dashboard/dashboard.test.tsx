@@ -55,6 +55,8 @@ describe("BudgetTable", () => {
 describe("TotalsCards", () => {
   const dashboard = (over: Partial<Dashboard>): Dashboard => ({
     month: "2026-10",
+    period_start: "2026-09-30",
+    period_end: "2026-10-30",
     categories: [],
     income: "50000",
     expenses: "1700",

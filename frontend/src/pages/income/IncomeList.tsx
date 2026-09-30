@@ -46,7 +46,7 @@ export function IncomeList({ month, editingId, onEdit, onDeleted }: Props) {
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-sm text-muted">No hay ingresos registrados en este mes.</p>;
+    return <p className="text-sm text-muted">No hay ingresos registrados en este periodo.</p>;
   }
 
   return (

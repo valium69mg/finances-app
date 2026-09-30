@@ -2,15 +2,14 @@ import { useState } from "react";
 import { CheckCircle2 } from "lucide-react";
 import type { MonthClose as StoredClose } from "../api/monthClose";
 import { TextField } from "../components/AuthCard";
-import { todayISO } from "./expenses/money";
 import { History } from "./monthclose/History";
 import { PreviewPanel } from "./monthclose/PreviewPanel";
-import { periodLabel, previousPeriod } from "./taxfiling/labels";
+import { periodLabel } from "./taxfiling/labels";
+import { useCyclePeriod } from "./useCycle";
 
 /** Cierre de mes: a preview of a month and its stored snapshots. Replaces /cierre-mes. */
 export function MonthClose() {
-  const currentMonth = todayISO().slice(0, 7);
-  const [period, setPeriod] = useState(() => previousPeriod(currentMonth));
+  const { month: period, setMonth: setPeriod, currentMonth, rangeHint } = useCyclePeriod("previous");
   const [selected, setSelected] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -33,7 +32,8 @@ export function MonthClose() {
           <TextField
             label="Mes a cerrar"
             type="month"
-            value={period}
+            hint={rangeHint || undefined}
+            value={period ?? ""}
             onChange={(e) => {
               if (!e.target.value) return;
               setPeriod(e.target.value);
@@ -42,16 +42,22 @@ export function MonthClose() {
           />
         </div>
         <div className="mt-6">
-          <PreviewPanel
-            key={period}
-            period={period}
-            currentMonth={currentMonth}
-            onClosed={onClosed}
-            onOpenStored={(p) => {
-              setSelected(p);
-              document.getElementById("month-close-history")?.scrollIntoView({ behavior: "smooth" });
-            }}
-          />
+          {period === null ? (
+            <p role="status" className="text-sm text-muted">
+              Cargando periodo…
+            </p>
+          ) : (
+            <PreviewPanel
+              key={period}
+              period={period}
+              currentMonth={currentMonth}
+              onClosed={onClosed}
+              onOpenStored={(p) => {
+                setSelected(p);
+                document.getElementById("month-close-history")?.scrollIntoView({ behavior: "smooth" });
+              }}
+            />
+          )}
         </div>
       </div>
 
