@@ -42,9 +42,15 @@ type Overview struct {
 // month's movements spent in it. Other kinds are skipped, and an expense in a
 // category without a budget entry only counts in the totals.
 func ExpenseRows(budgets []Budget, monthly []ledger.Movement) []Row {
+	return RowsOfKind(ledger.KindExpense, budgets, monthly)
+}
+
+// RowsOfKind is ExpenseRows for any kind: one row per budget of that kind, in
+// order, with what the month's movements of the kind put in it.
+func RowsOfKind(kind ledger.Kind, budgets []Budget, monthly []ledger.Movement) []Row {
 	rows := make([]Row, 0, len(budgets))
 	for _, b := range budgets {
-		if b.Kind != ledger.KindExpense {
+		if b.Kind != kind {
 			continue
 		}
 		rows = append(rows, newRow(b.Name, b.Kind, b.Amount, monthly))
