@@ -115,11 +115,14 @@ export const savingsKeys = {
   valuations: ["savings", "valuations"] as const,
 };
 
+/** Most savings the API returns per request (the backend caps the list at 200). */
+export const SAVINGS_LIST_LIMIT = 200;
+
 type Client = Pick<typeof api, "request">;
 
 export function createSavingsApi(client: Client = api) {
   return {
-    list: (month: string, limit = 200) =>
+    list: (month: string, limit = SAVINGS_LIST_LIMIT) =>
       client.request<Saving[]>(`/savings?month=${encodeURIComponent(month)}&limit=${limit}`),
     create: (input: SavingInput) => client.request<Saving>("/savings", { method: "POST", body: input }),
     update: (id: number, input: SavingInput) => client.request<Saving>(`/savings/${id}`, { method: "PUT", body: input }),

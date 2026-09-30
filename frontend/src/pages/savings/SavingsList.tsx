@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Pencil, Trash2 } from "lucide-react";
-import { deleteSaving, listSavings, savingsKeys, type Saving } from "../../api/savings";
+import { SAVINGS_LIST_LIMIT, deleteSaving, listSavings, savingsKeys, type Saving } from "../../api/savings";
 import type { Instrument } from "../../api/settings";
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
@@ -54,6 +54,11 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
   return (
     <div className="space-y-3">
       {remove.isError && <ErrorBanner>{describeSavingsError(remove.error)}</ErrorBanner>}
+      {list.data.length >= SAVINGS_LIST_LIMIT && (
+        <p role="status" className="text-sm text-muted">
+          Mostrando los {SAVINGS_LIST_LIMIT} más recientes de este mes; los anteriores no aparecen en la lista.
+        </p>
+      )}
       <ul className="divide-y divide-border rounded-xl border border-border">
         {list.data.map((s) => {
           const label = s.description || "Sin descripción";

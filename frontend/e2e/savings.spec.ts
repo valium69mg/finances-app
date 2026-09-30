@@ -358,6 +358,23 @@ test.describe("savings page", () => {
     await expect(page.getByRole("listitem").filter({ hasText: "Aportación VOO" })).toHaveCount(0);
   });
 
+  test("tells the user when the list is cut at the 200 most recent savings", async ({ page }) => {
+    const many = Array.from({ length: 205 }, (_, i) => seeded({ id: i + 1, description: `Aporte ${i + 1}` }));
+    await open(page, { savings: many });
+    await expect(page.getByText("Mostrando los 200 más recientes")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Editar Aporte/ })).toHaveCount(200);
+    // The newest 200 are shown, the oldest 5 are not.
+    await expect(page.getByText("Aporte 205", { exact: true })).toBeVisible();
+    await expect(page.getByText("Aporte 5", { exact: true })).toHaveCount(0);
+  });
+
+  test("shows no cut-off notice below the limit", async ({ page }) => {
+    const few = Array.from({ length: 199 }, (_, i) => seeded({ id: i + 1, description: `Aporte ${i + 1}` }));
+    await open(page, { savings: few });
+    await expect(page.getByRole("button", { name: /^Editar Aporte/ })).toHaveCount(199);
+    await expect(page.getByText("Mostrando los 200 más recientes")).toHaveCount(0);
+  });
+
   for (const vp of [
     { name: "375", width: 375, height: 800 },
     { name: "768", width: 768, height: 900 },
