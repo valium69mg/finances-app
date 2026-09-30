@@ -5,22 +5,18 @@ package expenseshttp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
 
 	"github.com/shopspring/decimal"
 
 	"github.com/valium69mg/finances-app/backend/internal/expenses/app"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/httpjson"
 )
 
-const (
-	maxBodyBytes = 1 << 20
-	maxListLimit = 200
-)
+const maxListLimit = 200
 
 // Service is the set of use cases the handlers need.
 type Service interface {
@@ -132,7 +128,7 @@ func toResultDTO(r app.Result) resultDTO {
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req expenseRequest
-	if !decode(w, r, &req) {
+	if !httpjson.Decode(w, r, &req) {
 		return
 	}
 	res, err := h.svc.Create(r.Context(), req.toInput())
@@ -140,16 +136,16 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, "create", err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toResultDTO(res))
+	httpjson.WriteJSON(w, http.StatusCreated, toResultDTO(res))
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
+	id, ok := httpjson.PathID(w, r)
 	if !ok {
 		return
 	}
 	var req expenseRequest
-	if !decode(w, r, &req) {
+	if !httpjson.Decode(w, r, &req) {
 		return
 	}
 	res, err := h.svc.Update(r.Context(), id, req.toInput())
@@ -157,11 +153,11 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, "update", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toResultDTO(res))
+	httpjson.WriteJSON(w, http.StatusOK, toResultDTO(res))
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
-	id, ok := pathID(w, r)
+	id, ok := httpjson.PathID(w, r)
 	if !ok {
 		return
 	}
@@ -174,14 +170,9 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	limit := 0
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n <= 0 || n > maxListLimit {
-			writeError(w, http.StatusBadRequest, "invalid_request")
-			return
-		}
-		limit = n
+	limit, ok := httpjson.ListLimit(w, r, maxListLimit)
+	if !ok {
+		return
 	}
 	movements, err := h.svc.List(r.Context(), r.URL.Query().Get("month"), limit)
 	if err != nil {
@@ -192,7 +183,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	for i, m := range movements {
 		out[i] = toExpenseDTO(m)
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpjson.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) inferCategory(w http.ResponseWriter, r *http.Request) {
@@ -205,47 +196,17 @@ func (h *Handler) inferCategory(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		out.Category = &name
 	}
-	writeJSON(w, http.StatusOK, out)
+	httpjson.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, ledger.ErrInvalid):
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_expense", "message": err.Error()})
+		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_expense", "message": err.Error()})
 	case errors.Is(err, ledger.ErrNotFound):
-		writeError(w, http.StatusNotFound, "not_found")
+		httpjson.WriteError(w, http.StatusNotFound, "not_found")
 	default:
 		h.logger.Error("expenses request failed", "op", op, "error", err)
-		writeError(w, http.StatusInternalServerError, "internal_error")
+		httpjson.WriteError(w, http.StatusInternalServerError, "internal_error")
 	}
-}
-
-func pathID(w http.ResponseWriter, r *http.Request) (int, bool) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil || id <= 0 {
-		writeError(w, http.StatusNotFound, "not_found")
-		return 0, false
-	}
-	return id, true
-}
-
-func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBodyBytes))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(dst); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_request")
-		return false
-	}
-	return true
-}
-
-func writeError(w http.ResponseWriter, status int, code string) {
-	writeJSON(w, status, map[string]string{"error": code})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }

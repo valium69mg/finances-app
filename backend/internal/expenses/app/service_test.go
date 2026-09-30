@@ -54,6 +54,15 @@ func (f *fakeRepo) GetByID(_ context.Context, id int) (ledger.Movement, error) {
 	}
 	return m, nil
 }
+func (f *fakeRepo) ListAllByKind(_ context.Context, kind ledger.Kind) ([]ledger.Movement, error) {
+	var out []ledger.Movement
+	for _, m := range f.rows {
+		if m.Kind == kind {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
 func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
 	f.listMonth, f.listKind, f.listLimit = month, kind, limit
 	var out []ledger.Movement

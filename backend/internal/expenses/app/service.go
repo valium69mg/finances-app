@@ -72,18 +72,6 @@ func NewService(repo ledgerapp.MovementRepo, settings Settings, now func() time.
 	return &Service{repo: repo, settings: settings, now: now}
 }
 
-func catalogOf(cfg settings.Config) ledger.Catalog {
-	cats := make([]ledger.CatalogCategory, len(cfg.Categories))
-	for i, c := range cfg.Categories {
-		cats[i] = ledger.CatalogCategory{Name: c.Name, Kind: c.Kind}
-	}
-	return ledger.Catalog{
-		Categories:     cats,
-		PaymentMethods: cfg.PaymentMethods,
-		DefaultRate:    cfg.General().FXRateApplied,
-	}
-}
-
 // build validates the input into a Gasto movement, inferring the category when
 // it is empty.
 func (s *Service) build(ctx context.Context, in Input) (ledger.Movement, error) {
@@ -102,7 +90,7 @@ func (s *Service) build(ctx context.Context, in Input) (ledger.Movement, error) 
 	return ledger.NewMovement(ledger.MovementInput{
 		Date: in.Date, Description: in.Description, Category: category, Kind: ledger.KindExpense,
 		PaymentMethod: in.PaymentMethod, Currency: in.Currency, Amount: in.Amount, ExchangeRate: in.ExchangeRate,
-	}, catalogOf(cfg), s.now().Format("2006-01-02"))
+	}, cfg.Catalog(), s.now().Format("2006-01-02"))
 }
 
 // Create registers an expense and returns it with the budget feedback of its month.

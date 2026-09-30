@@ -108,6 +108,20 @@ func (c Config) General() General {
 	}
 }
 
+// Catalog returns the part of the configuration that movement validation
+// depends on: categories, payment methods and the default USD rate.
+func (c Config) Catalog() ledger.Catalog {
+	cats := make([]ledger.CatalogCategory, len(c.Categories))
+	for i, cat := range c.Categories {
+		cats[i] = ledger.CatalogCategory{Name: cat.Name, Kind: cat.Kind}
+	}
+	return ledger.Catalog{
+		Categories:     cats,
+		PaymentMethods: c.PaymentMethods,
+		DefaultRate:    c.General().FXRateApplied,
+	}
+}
+
 // Instrument is an investment or savings instrument.
 type Instrument struct {
 	ID       string
