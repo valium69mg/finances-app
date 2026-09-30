@@ -20,9 +20,9 @@ const maxBodyBytes = 1 << 20
 type Service interface {
 	Identify(ctx context.Context, email, ip string) (app.IdentifyStatus, error)
 	Login(ctx context.Context, email, password, ip string) (*app.Session, error)
-	Refresh(ctx context.Context, refreshToken string) (*app.Session, error)
+	Refresh(ctx context.Context, refreshToken, ip string) (*app.Session, error)
 	Logout(ctx context.Context, refreshToken string) error
-	CompleteVerification(ctx context.Context, token, newPassword string) error
+	CompleteVerification(ctx context.Context, token, newPassword, ip string) error
 	Authenticate(accessToken string) (userID string, err error)
 	Me(ctx context.Context, userID string) (domain.User, error)
 }
@@ -156,8 +156,11 @@ func (h *Handler) refresh(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	sess, err := h.svc.Refresh(r.Context(), req.RefreshToken)
+	sess, err := h.svc.Refresh(r.Context(), req.RefreshToken, clientIP(r))
 	switch {
+	case errors.Is(err, domain.ErrRateLimited):
+		w.Header().Set("Retry-After", "900")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
 	case errors.Is(err, domain.ErrInvalidToken):
 		writeError(w, http.StatusUnauthorized, "invalid_token")
 	case err != nil:
@@ -184,8 +187,11 @@ func (h *Handler) verify(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &req) {
 		return
 	}
-	err := h.svc.CompleteVerification(r.Context(), req.Token, req.Password)
+	err := h.svc.CompleteVerification(r.Context(), req.Token, req.Password, clientIP(r))
 	switch {
+	case errors.Is(err, domain.ErrRateLimited):
+		w.Header().Set("Retry-After", "900")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
 	case errors.Is(err, domain.ErrWeakPassword):
 		writeError(w, http.StatusBadRequest, "weak_password")
 	case errors.Is(err, domain.ErrInvalidToken):

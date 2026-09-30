@@ -46,8 +46,8 @@ func (f *fakeService) Login(_ context.Context, email, _ string, ip string) (*app
 	return f.loginSession, f.loginErr
 }
 
-func (f *fakeService) Refresh(_ context.Context, tok string) (*app.Session, error) {
-	f.gotRefresh = tok
+func (f *fakeService) Refresh(_ context.Context, tok, ip string) (*app.Session, error) {
+	f.gotRefresh, f.gotIP = tok, ip
 	return f.refreshSess, f.refreshErr
 }
 
@@ -56,8 +56,8 @@ func (f *fakeService) Logout(_ context.Context, tok string) error {
 	return f.logoutErr
 }
 
-func (f *fakeService) CompleteVerification(_ context.Context, tok, pw string) error {
-	f.gotVerifyToken, f.gotPassword = tok, pw
+func (f *fakeService) CompleteVerification(_ context.Context, tok, pw, ip string) error {
+	f.gotVerifyToken, f.gotPassword, f.gotIP = tok, pw, ip
 	return f.verifyErr
 }
 
@@ -261,6 +261,18 @@ func TestIdentifyDoesNotTrustForwardingHeaders(t *testing.T) {
 	}
 }
 
+func TestRefreshAndVerifyRateLimitedSetRetryAfter(t *testing.T) {
+	for path, body := range map[string]string{
+		"/auth/refresh": `{"refresh_token":"r1"}`,
+		"/auth/verify":  `{"token":"t","password":"pw"}`,
+	} {
+		rec := do(t, newServer(&fakeService{refreshErr: domain.ErrRateLimited, verifyErr: domain.ErrRateLimited}), "POST", path, body, "")
+		if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "900" || decodeMap(t, rec)["error"] != "rate_limited" {
+			t.Errorf("%s: status=%d Retry-After=%q body=%s", path, rec.Code, rec.Header().Get("Retry-After"), rec.Body)
+		}
+	}
+}
+
 func TestIdentifyBodySizeLimit(t *testing.T) {
 	svc := &fakeService{identifyStatus: app.IdentifyPasswordRequired}
 	huge := `{"email":"` + strings.Repeat("a", 2<<20) + `@b.co"}`
@@ -300,6 +312,7 @@ func TestRefresh(t *testing.T) {
 	}{
 		{"ok", fakeService{refreshSess: goodSession}, `{"refresh_token":"r1"}`, 200},
 		{"invalid or reused", fakeService{refreshErr: domain.ErrInvalidToken}, `{"refresh_token":"r1"}`, 401},
+		{"rate limited", fakeService{refreshErr: domain.ErrRateLimited}, `{"refresh_token":"r1"}`, 429},
 		{"internal", fakeService{refreshErr: errors.New("boom")}, `{"refresh_token":"r1"}`, 500},
 		{"bad body", fakeService{}, `nope`, 400},
 	}
@@ -339,6 +352,7 @@ func TestVerify(t *testing.T) {
 		{"ok", nil, 204, ""},
 		{"invalid token", domain.ErrInvalidToken, 400, "invalid_token"},
 		{"weak password", domain.ErrWeakPassword, 400, "weak_password"},
+		{"rate limited", domain.ErrRateLimited, 429, "rate_limited"},
 		{"internal", errors.New("boom"), 500, "internal_error"},
 	}
 	for _, tt := range tests {

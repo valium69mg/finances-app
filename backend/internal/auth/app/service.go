@@ -32,6 +32,19 @@ const (
 	LoginEmailFailLimit = 5
 	LoginIPFailLimit    = 20
 	LoginFailWindow     = 15 * time.Minute
+
+	// RefreshIPLimit is the number of refresh calls (successful or not) one client
+	// IP may make per RefreshIPWindow. A session refreshes about every 15 minutes
+	// per tab, so this is far above normal use (many tabs, reloads, a shared NAT)
+	// and only stops floods against the token table.
+	RefreshIPLimit  = 60
+	RefreshIPWindow = 15 * time.Minute
+
+	// VerifyIPLimit is the number of verification completions one client IP may
+	// attempt per VerifyIPWindow. Each attempt costs a bcrypt hash, and a legitimate
+	// user needs one or two (a weak password is rejected without burning the token).
+	VerifyIPLimit  = 10
+	VerifyIPWindow = 15 * time.Minute
 )
 
 const (
@@ -40,6 +53,8 @@ const (
 	keyVerifyHourly   = "verify:hourly:"
 	keyLoginFailEmail = "login:fail:email:"
 	keyLoginFailIP    = "login:fail:ip:"
+	keyRefreshIP      = "refresh:ip:"
+	keyVerifyIP       = "verify:ip:"
 
 	mailSendTimeout  = 15 * time.Second
 	verifyLinkParam  = "token"
@@ -200,7 +215,10 @@ func (s *Service) RequestVerification(ctx context.Context, user domain.User) err
 
 // CompleteVerification consumes a verification token, sets the new password and
 // marks the user verified. Existing refresh tokens are revoked.
-func (s *Service) CompleteVerification(ctx context.Context, rawToken, newPassword string) error {
+func (s *Service) CompleteVerification(ctx context.Context, rawToken, newPassword, ip string) error {
+	if !s.Limiter.Allow(keyVerifyIP+ip, VerifyIPLimit, VerifyIPWindow) {
+		return domain.ErrRateLimited
+	}
 	// Validate first so a weak password does not burn the single-use token.
 	if err := domain.ValidatePassword(newPassword); err != nil {
 		return err
@@ -228,7 +246,10 @@ func (s *Service) CompleteVerification(ctx context.Context, rawToken, newPasswor
 
 // Refresh rotates a refresh token. Presenting an already-used token revokes all
 // of the user's refresh tokens.
-func (s *Service) Refresh(ctx context.Context, rawToken string) (*Session, error) {
+func (s *Service) Refresh(ctx context.Context, rawToken, ip string) (*Session, error) {
+	if !s.Limiter.Allow(keyRefreshIP+ip, RefreshIPLimit, RefreshIPWindow) {
+		return nil, domain.ErrRateLimited
+	}
 	now := s.Clock.Now()
 	hash := domain.HashToken(rawToken)
 

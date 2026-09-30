@@ -187,6 +187,9 @@ var ctx = context.Background()
 
 func ipN(i int) string { return fmt.Sprintf("198.51.100.%d", i) }
 
+// testIP is the client of the refresh and verify tests that are not about rate limits.
+const testIP = "203.0.113.50"
+
 func TestIdentify(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -712,7 +715,7 @@ func TestRefreshRotation(t *testing.T) {
 	e := newEnv(t)
 	first := loginSession(t, e)
 
-	second, err := e.svc.Refresh(context.Background(), first.RefreshToken)
+	second, err := e.svc.Refresh(context.Background(), first.RefreshToken, testIP)
 	if err != nil {
 		t.Fatalf("refresh: %v", err)
 	}
@@ -722,7 +725,7 @@ func TestRefreshRotation(t *testing.T) {
 	if e.refresh.tokens[domain.HashToken(first.RefreshToken)].UsedAt == nil {
 		t.Fatal("old token must be marked used")
 	}
-	if _, err := e.svc.Refresh(context.Background(), second.RefreshToken); err != nil {
+	if _, err := e.svc.Refresh(context.Background(), second.RefreshToken, testIP); err != nil {
 		t.Fatalf("rotated token must work once: %v", err)
 	}
 }
@@ -730,13 +733,13 @@ func TestRefreshRotation(t *testing.T) {
 func TestRefreshReuseRevokesAll(t *testing.T) {
 	e := newEnv(t)
 	first := loginSession(t, e)
-	second, err := e.svc.Refresh(context.Background(), first.RefreshToken)
+	second, err := e.svc.Refresh(context.Background(), first.RefreshToken, testIP)
 	if err != nil {
 		t.Fatal(err)
 	}
 	other := loginSession(t, e) // another device
 
-	_, err = e.svc.Refresh(context.Background(), first.RefreshToken) // replay
+	_, err = e.svc.Refresh(context.Background(), first.RefreshToken, testIP) // replay
 	if !errors.Is(err, domain.ErrInvalidToken) {
 		t.Fatalf("reuse err = %v, want ErrInvalidToken", err)
 	}
@@ -744,7 +747,7 @@ func TestRefreshReuseRevokesAll(t *testing.T) {
 		t.Fatalf("live tokens after reuse = %d, want 0", n)
 	}
 	for name, tok := range map[string]string{"rotated": second.RefreshToken, "other device": other.RefreshToken} {
-		if _, err := e.svc.Refresh(context.Background(), tok); !errors.Is(err, domain.ErrInvalidToken) {
+		if _, err := e.svc.Refresh(context.Background(), tok, testIP); !errors.Is(err, domain.ErrInvalidToken) {
 			t.Errorf("%s token still usable: %v", name, err)
 		}
 	}
@@ -775,11 +778,73 @@ func TestRefreshInvalid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newEnv(t)
 			tok := tt.setup(e, loginSession(t, e))
-			sess, err := e.svc.Refresh(context.Background(), tok)
+			sess, err := e.svc.Refresh(context.Background(), tok, testIP)
 			if sess != nil || !errors.Is(err, domain.ErrInvalidToken) {
 				t.Fatalf("got %v, %v; want ErrInvalidToken", sess, err)
 			}
 		})
+	}
+}
+
+func TestRefreshRateLimitPerIP(t *testing.T) {
+	e := newEnv(t)
+	// Unknown tokens count too: the budget is per IP, whatever the outcome.
+	for i := range app.RefreshIPLimit {
+		if _, err := e.svc.Refresh(ctx, "unknown", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+			t.Fatalf("call %d: err = %v, want ErrInvalidToken", i, err)
+		}
+	}
+	if _, err := e.svc.Refresh(ctx, "unknown", testIP); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("over the limit: err = %v, want ErrRateLimited", err)
+	}
+	// A valid token from the limited IP is rejected as well, without being consumed.
+	sess := loginSession(t, e)
+	if _, err := e.svc.Refresh(ctx, sess.RefreshToken, testIP); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("limited IP: err = %v, want ErrRateLimited", err)
+	}
+	if e.refresh.tokens[domain.HashToken(sess.RefreshToken)].UsedAt != nil {
+		t.Fatal("a rate limited refresh must not consume the token")
+	}
+	// Another IP is unaffected and the window reopens.
+	if _, err := e.svc.Refresh(ctx, sess.RefreshToken, ipN(1)); err != nil {
+		t.Fatalf("other IP: %v", err)
+	}
+	e.clock.now = e.clock.now.Add(app.RefreshIPWindow)
+	if _, err := e.svc.Refresh(ctx, "unknown", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("after the window: err = %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestRefreshNormalUseIsNeverLimited(t *testing.T) {
+	e := newEnv(t)
+	sess := loginSession(t, e)
+	// A busy day from one IP: a rotation every 15 minutes for 8 hours, times 3 tabs.
+	for i := range 8 * 4 * 3 {
+		e.clock.now = t0.Add(time.Duration(i) * 5 * time.Minute)
+		next, err := e.svc.Refresh(ctx, sess.RefreshToken, testIP)
+		if err != nil {
+			t.Fatalf("rotation %d: %v", i, err)
+		}
+		sess = next
+	}
+}
+
+func TestVerifyRateLimitPerIP(t *testing.T) {
+	e := newEnv(t)
+	for i := range app.VerifyIPLimit {
+		if err := e.svc.CompleteVerification(ctx, "bogus", "a valid passphrase", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+			t.Fatalf("call %d: err = %v, want ErrInvalidToken", i, err)
+		}
+	}
+	raw := requestToken(t, e)
+	if err := e.svc.CompleteVerification(ctx, raw, "a valid passphrase", testIP); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("over the limit: err = %v, want ErrRateLimited", err)
+	}
+	if e.users.byID["u2"].Verified {
+		t.Fatal("a rate limited verification must not verify the user")
+	}
+	if err := e.svc.CompleteVerification(ctx, raw, "a valid passphrase", ipN(1)); err != nil {
+		t.Fatalf("other IP: %v", err)
 	}
 }
 
@@ -793,10 +858,10 @@ func TestLogoutRevokesOnlyPresentedToken(t *testing.T) {
 	if err := e.svc.Logout(context.Background(), "unknown"); err != nil {
 		t.Fatalf("unknown token must be ignored: %v", err)
 	}
-	if _, err := e.svc.Refresh(context.Background(), a.RefreshToken); !errors.Is(err, domain.ErrInvalidToken) {
+	if _, err := e.svc.Refresh(context.Background(), a.RefreshToken, testIP); !errors.Is(err, domain.ErrInvalidToken) {
 		t.Errorf("logged-out token usable: %v", err)
 	}
-	if _, err := e.svc.Refresh(context.Background(), b.RefreshToken); err != nil {
+	if _, err := e.svc.Refresh(context.Background(), b.RefreshToken, testIP); err != nil {
 		t.Errorf("other token must survive: %v", err)
 	}
 }
@@ -834,7 +899,7 @@ func TestCompleteVerification(t *testing.T) {
 			raw := requestToken(t, e)
 			e.clock.now = t0.Add(tt.advance)
 
-			err := e.svc.CompleteVerification(context.Background(), tt.token(raw), tt.password)
+			err := e.svc.CompleteVerification(context.Background(), tt.token(raw), tt.password, testIP)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tt.wantErr)
 			}
@@ -852,10 +917,10 @@ func TestCompleteVerification(t *testing.T) {
 func TestCompleteVerificationSingleUse(t *testing.T) {
 	e := newEnv(t)
 	raw := requestToken(t, e)
-	if err := e.svc.CompleteVerification(context.Background(), raw, "brand new passphrase"); err != nil {
+	if err := e.svc.CompleteVerification(context.Background(), raw, "brand new passphrase", testIP); err != nil {
 		t.Fatal(err)
 	}
-	err := e.svc.CompleteVerification(context.Background(), raw, "another passphrase!")
+	err := e.svc.CompleteVerification(context.Background(), raw, "another passphrase!", testIP)
 	if !errors.Is(err, domain.ErrInvalidToken) {
 		t.Fatalf("second use err = %v, want ErrInvalidToken", err)
 	}
@@ -867,10 +932,10 @@ func TestCompleteVerificationSingleUse(t *testing.T) {
 func TestWeakPasswordDoesNotBurnToken(t *testing.T) {
 	e := newEnv(t)
 	raw := requestToken(t, e)
-	if err := e.svc.CompleteVerification(context.Background(), raw, "short"); !errors.Is(err, domain.ErrWeakPassword) {
+	if err := e.svc.CompleteVerification(context.Background(), raw, "short", testIP); !errors.Is(err, domain.ErrWeakPassword) {
 		t.Fatal(err)
 	}
-	if err := e.svc.CompleteVerification(context.Background(), raw, "a valid passphrase"); err != nil {
+	if err := e.svc.CompleteVerification(context.Background(), raw, "a valid passphrase", testIP); err != nil {
 		t.Fatalf("token must still be usable: %v", err)
 	}
 }
@@ -880,7 +945,7 @@ func TestCompleteVerificationRevokesRefreshTokens(t *testing.T) {
 	e.users.byID["u2"] = domain.User{ID: "u2", Email: unverifiedEmail, PasswordHash: "x"}
 	e.refresh.tokens["h"] = &domain.RefreshToken{Hash: "h", UserID: "u2", ExpiresAt: t0.Add(time.Hour)}
 	raw := requestToken(t, e)
-	if err := e.svc.CompleteVerification(context.Background(), raw, "brand new passphrase"); err != nil {
+	if err := e.svc.CompleteVerification(context.Background(), raw, "brand new passphrase", testIP); err != nil {
 		t.Fatal(err)
 	}
 	if n := e.refresh.liveCount("u2"); n != 0 {
