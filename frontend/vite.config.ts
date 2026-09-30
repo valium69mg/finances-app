@@ -27,9 +27,16 @@ function cspPlugin(apiOrigin: string, isBuild: boolean): Plugin {
   };
 }
 
+// A relative VITE_API_URL (e.g. "/api", the same-origin production build behind nginx)
+// is covered by 'self'; an absolute one is limited to its own origin.
+export function apiOriginOf(apiUrl: string | undefined): string {
+  const url = apiUrl || DEFAULT_API_URL;
+  return url.startsWith("/") ? "'self'" : new URL(url).origin;
+}
+
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, ".", "VITE_");
-  const apiOrigin = new URL(env.VITE_API_URL || DEFAULT_API_URL).origin;
+  const apiOrigin = apiOriginOf(env.VITE_API_URL);
   return {
     plugins: [react(), cspPlugin(apiOrigin, command === "build")],
     test: {

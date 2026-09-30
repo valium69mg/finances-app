@@ -68,6 +68,31 @@ describe("api client", () => {
     expect(onSessionExpired).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["rate limited", () => json(429, { error: "rate_limited" })],
+    ["server error", () => json(503, { error: "internal_error" })],
+  ])("keeps the session when the refresh endpoint is %s", async (_name, refreshResponse) => {
+    const { client, store, onSessionExpired } = setup((url) =>
+      url.endsWith("/auth/refresh") ? refreshResponse() : json(401, { error: "unauthorized" }),
+    );
+    await expect(client.request("/auth/me")).rejects.toMatchObject({ status: 401 });
+    expect(store.s).toEqual({ access: "old", refresh: "r1" });
+    expect(onSessionExpired).not.toHaveBeenCalled();
+  });
+
+  it("keeps the session when the refresh call fails on the network", async () => {
+    const store = memoryStore("old", "r1");
+    const fetchFn = vi.fn(async (url: RequestInfo | URL) => {
+      if (String(url).endsWith("/auth/refresh")) throw new TypeError("network down");
+      return json(401, { error: "unauthorized" });
+    });
+    const onSessionExpired = vi.fn();
+    const client = createApiClient({ baseUrl: "http://api", fetchFn: fetchFn as unknown as typeof fetch, store, onSessionExpired });
+    await expect(client.request("/auth/me")).rejects.toBeInstanceOf(ApiError);
+    expect(store.s).toEqual({ access: "old", refresh: "r1" });
+    expect(onSessionExpired).not.toHaveBeenCalled();
+  });
+
   it("does not retry more than once when the retry also returns 401", async () => {
     const { client, fetchFn, onSessionExpired } = setup((url) =>
       url.endsWith("/auth/refresh") ? json(200, { access_token: "new", refresh_token: "r2" }) : json(401, { error: "unauthorized" }),

@@ -14,6 +14,8 @@ export class ApiError extends Error {
   }
 }
 
+type RefreshOutcome = "ok" | "invalid" | "unavailable";
+
 export interface ApiClientOptions {
   baseUrl: string;
   fetchFn?: typeof fetch;
@@ -39,7 +41,7 @@ export interface RequestOptions {
 export function createApiClient(opts: ApiClientOptions) {
   const fetchFn = opts.fetchFn ?? ((...args: Parameters<typeof fetch>) => fetch(...args));
   const store = opts.store ?? tokenStore;
-  let refreshing: Promise<boolean> | null = null;
+  let refreshing: Promise<RefreshOutcome> | null = null;
 
   async function send(path: string, o: RequestOptions): Promise<Response> {
     const headers: Record<string, string> = {};
@@ -56,27 +58,36 @@ export function createApiClient(opts: ApiClientOptions) {
   }
 
   // Single-flight: concurrent 401s share one refresh call, since refresh tokens rotate.
-  function refresh(): Promise<boolean> {
+  // "invalid" means the server rejected the token (the session is over); "unavailable" means
+  // the answer says nothing about the token (rate limit, server error, network), so the
+  // session must survive and the call simply fails.
+  function refreshOutcome(): Promise<RefreshOutcome> {
     if (refreshing) return refreshing;
-    refreshing = (async () => {
+    refreshing = (async (): Promise<RefreshOutcome> => {
       const refreshToken = store.getRefresh();
-      if (!refreshToken) return false;
+      if (!refreshToken) return "invalid";
       try {
         const res = await fetchFn(`${opts.baseUrl}/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ refresh_token: refreshToken }),
         });
-        if (!res.ok) return false;
-        store.set((await res.json()) as TokenPair);
-        return true;
+        if (res.ok) {
+          store.set((await res.json()) as TokenPair);
+          return "ok";
+        }
+        return res.status === 429 || res.status >= 500 ? "unavailable" : "invalid";
       } catch {
-        return false;
+        return "unavailable";
       }
     })().finally(() => {
       refreshing = null;
     });
     return refreshing;
+  }
+
+  async function refresh(): Promise<boolean> {
+    return (await refreshOutcome()) === "ok";
   }
 
   async function parse<T>(res: Response, blob = false): Promise<T> {
@@ -100,10 +111,11 @@ export function createApiClient(opts: ApiClientOptions) {
   async function request<T>(path: string, o: RequestOptions = {}): Promise<T> {
     let res = await send(path, o);
     if (res.status === 401 && !o.anonymous) {
-      if (await refresh()) {
+      const outcome = await refreshOutcome();
+      if (outcome === "ok") {
         res = await send(path, o);
       }
-      if (res.status === 401) {
+      if (res.status === 401 && outcome !== "unavailable") {
         store.clear();
         opts.onSessionExpired?.();
       }
