@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { Layout } from "./components/Layout";
 import { modules } from "./modules";
+import { Dashboard } from "./pages/Dashboard";
 import { Expenses } from "./pages/Expenses";
 import { Income } from "./pages/Income";
 import { Login } from "./pages/Login";
@@ -11,6 +12,7 @@ import { Settings } from "./pages/Settings";
 import { VerifyEmail } from "./pages/VerifyEmail";
 
 function pageFor(path: string) {
+  if (path === "/") return <Dashboard />;
   if (path === "/configuracion") return <Settings />;
   if (path === "/gastos") return <Expenses />;
   if (path === "/ingresos") return <Income />;

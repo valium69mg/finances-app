@@ -120,7 +120,8 @@ function Subtotals({ portfolio }: { portfolio: Portfolio }) {
   );
 }
 
-function EmergencyCard({ emergency }: { emergency: EmergencyProgress }) {
+/** Emergency fund progress: the accumulated balance against its goal (also used by the dashboard). */
+export function EmergencyCard({ emergency }: { emergency: EmergencyProgress }) {
   const pct = percentOf(emergency.accumulated, emergency.goal);
   const hasGoal = /[1-9]/.test(emergency.goal);
   return (

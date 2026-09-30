@@ -130,7 +130,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[] } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -148,6 +148,8 @@ export async function mockApi(
   const valuations: MockValuation[] = structuredClone(opts.valuations ?? []);
   const requests: RecordedRequest[] = [];
   const writes: RecordedWrite[] = [];
+  /** Months asked of GET /dashboard, in order. */
+  const dashboardMonths: string[] = [];
   // In-memory settings so a saved change is served back on the next GET.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settings: any = structuredClone(SETTINGS_FIXTURE);
@@ -195,6 +197,12 @@ export async function mockApi(
       return json(route, 200, incomeResult(row, income, false));
     }
 
+    if (pathname === "/dashboard" && request.method() === "GET") {
+      dashboardMonths.push(searchParams.get("month") ?? "");
+      if (opts.dashboardFail === "server") return json(route, 500, { error: "internal_error" });
+      if (opts.dashboardFail === "incomplete") return json(route, 422, { error: "settings_incomplete", message: "missing required config: emergency_months" });
+      return json(route, 200, buildDashboard(searchParams.get("month") ?? "", { expenses, income, savings }, settings, !opts.dashboardNoTax));
+    }
     if (pathname === "/savings/portfolio" && request.method() === "GET") {
       if (opts.portfolioFail) return json(route, 500, { error: "internal_error" });
       return json(route, 200, buildPortfolio(savings, valuations, settings));
@@ -345,7 +353,50 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes, expenses, income, savings, valuations };
+  return { requests, writes, expenses, income, savings, valuations, dashboardMonths };
+}
+
+/** Dashboard computed from the in-memory movements; Gasto categories are the mock's fixed/variable ones. */
+function buildDashboard(
+  month: string,
+  data: { expenses: MockExpense[]; income: MockIncome[]; savings: MockSaving[] },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  settings: any,
+  withTax: boolean,
+) {
+  const inMonth = <T extends { date: string }>(rows: T[]) => rows.filter((r) => r.date.startsWith(month));
+  const sum = (rows: { amount_mxn: string }[]) => rows.reduce((total, r) => total + Number(r.amount_mxn), 0);
+  const monthExpenses = inMonth(data.expenses);
+  const income = sum(inMonth(data.income));
+  const expenses = sum(monthExpenses);
+  const savings = sum(inMonth(data.savings));
+  const categories = settings.categories
+    .filter((c: { kind: string }) => ["Gasto", "fixed", "variable"].includes(c.kind))
+    .map((c: { name: string; budget: string | null }) => {
+      const spent = sum(monthExpenses.filter((e) => e.category === c.name));
+      const budget = c.budget === null ? null : Number(c.budget);
+      return {
+        category: c.name,
+        spent: spent.toFixed(2),
+        budget: c.budget,
+        remaining: budget === null ? null : (budget - spent).toFixed(2),
+        over_budget: budget !== null && spent > budget,
+      };
+    });
+  const rate = resicoRate(income);
+  return {
+    month,
+    categories,
+    income: income.toFixed(2),
+    expenses: expenses.toFixed(2),
+    savings: savings.toFixed(2),
+    available: (income - expenses - savings).toFixed(2),
+    emergency: {
+      accumulated: sum(data.savings.filter((s) => s.category === "Fondo de emergencia")).toFixed(2),
+      goal: "60000.00",
+    },
+    tax: withTax ? { rate, estimated_isr: (income * Number(rate)).toFixed(5) } : null,
+  };
 }
 
 export interface MockIncome {

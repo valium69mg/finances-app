@@ -53,7 +53,7 @@ export function Layout() {
   const mainRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
-  const firstRender = useRef(true);
+  const shownPath = useRef(location.pathname);
   const me = useQuery({ queryKey: ["me"], queryFn: fetchMe, retry: false, staleTime: 5 * 60_000 });
 
   const closeDrawer = useCallback(() => {
@@ -61,12 +61,11 @@ export function Layout() {
     menuButtonRef.current?.focus();
   }, []);
 
-  // Move focus to the page content after client-side navigation (skipped on first load).
+  // Move focus to the page content after client-side navigation. Comparing the path (instead of a
+  // first-render flag) also skips the first load when StrictMode runs the effect twice in development.
   useEffect(() => {
-    if (firstRender.current) {
-      firstRender.current = false;
-      return;
-    }
+    if (shownPath.current === location.pathname) return;
+    shownPath.current = location.pathname;
     mainRef.current?.focus();
   }, [location.pathname]);
 

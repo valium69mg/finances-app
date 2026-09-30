@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "../api/client";
+import { describeDashboardError } from "./dashboard/errors";
 import { describeExpenseError } from "./expenses/errors";
 import { describeIncomeError } from "./income/errors";
 import { describeMovementError } from "./movementErrors";
@@ -30,6 +31,14 @@ describe("module wrappers", () => {
     expect(describeSavingsError(new ApiError(400, "invalid_saving", "m"))).toContain("Los datos no son válidos");
     expect(describeSavingsError(new ApiError(400, "invalid_valuation", "m"))).not.toContain("Los datos no son válidos");
     expect(describeValuationError(new ApiError(400, "invalid_valuation", "m"))).toContain("Los datos no son válidos");
+  });
+
+  it("maps the dashboard failures, including incomplete settings", () => {
+    expect(describeDashboardError(new ApiError(400, "invalid_dashboard", "month must be YYYY-MM"))).toBe(
+      "Los datos no son válidos: month must be YYYY-MM",
+    );
+    expect(describeDashboardError(new ApiError(422, "settings_incomplete", "missing required config"))).toContain("Faltan parámetros fiscales");
+    expect(describeDashboardError(new ApiError(500, "internal_error"))).toContain("El servidor tuvo un problema");
   });
 
   it("explains a locked transfer leg", () => {
