@@ -4,7 +4,7 @@ import { CheckCircle2, Loader2, Plus } from "lucide-react";
 import { addValuation, savingsKeys, type ValuationInput } from "../../api/savings";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
-import { isPositiveDecimal, todayISO } from "../expenses/money";
+import { isValuationAmount, todayISO } from "../expenses/money";
 import { ErrorBanner, fieldGrid, primaryButton } from "../settings/ui";
 import { describeValuationError } from "./errors";
 import { InstrumentSelect } from "./InstrumentSelect";
@@ -15,7 +15,9 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
   const instruments = settings.instruments.instruments;
   const [instrument, setInstrument] = useState("");
   const [value, setValue] = useState("");
-  const [date, setDate] = useState(todayISO());
+  // null = the user never touched the date, so it is "today" whenever it is read
+  // (a page left open past midnight must not record yesterday).
+  const [date, setDate] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [errors, setErrors] = useState<{ instrument?: string; value?: string; date?: string }>({});
   const valueRef = useRef<HTMLInputElement>(null);
@@ -32,16 +34,19 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     add.reset();
+    const effectiveDate = date ?? todayISO();
     const found: typeof errors = {};
     if (!instrument) found.instrument = "Elige un instrumento.";
-    if (!isPositiveDecimal(value)) found.value = "Escribe un valor mayor a cero, por ejemplo 25000.00.";
-    if (!date) found.date = "Elige una fecha.";
+    if (!isValuationAmount(value)) {
+      found.value = "Escribe un valor mayor a cero, con máximo 2 decimales y menor a 1,000,000,000,000, por ejemplo 25000.00.";
+    }
+    if (!effectiveDate) found.date = "Elige una fecha.";
     setErrors(found);
     if (Object.keys(found).length > 0) {
       if (found.value) valueRef.current?.focus();
       return;
     }
-    const input: ValuationInput = { instrument, value_mxn: value.trim(), date };
+    const input: ValuationInput = { instrument, value_mxn: value.trim(), date: effectiveDate };
     if (note.trim()) input.note = note.trim();
     add.mutate(input);
   }
@@ -73,7 +78,7 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
           error={errors.value}
           autoComplete="off"
         />
-        <TextField label="Fecha de la valuación" type="date" value={date} onChange={(e) => setDate(e.target.value)} error={errors.date} />
+        <TextField label="Fecha de la valuación" type="date" value={date ?? todayISO()} onChange={(e) => setDate(e.target.value)} error={errors.date} />
         <TextField label="Nota (opcional)" value={note} onChange={(e) => setNote(e.target.value)} autoComplete="off" />
       </div>
 

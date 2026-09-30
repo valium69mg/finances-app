@@ -265,6 +265,40 @@ test.describe("savings page", () => {
     expect(api.requests.filter((r) => r.path === "/savings/valuations")).toHaveLength(0);
   });
 
+  test("blocks valuations with sub-cent precision or above the storage limit", async ({ page }) => {
+    const api = await open(page);
+    await valuationForm(page).getByLabel("Instrumento a valuar").selectOption("i1");
+    for (const bad of ["0.004", "100.555", "1000000000000", "1e12"]) {
+      await valuationForm(page).getByLabel("Valor actual (MXN)").fill(bad);
+      await valuationForm(page).getByRole("button", { name: "Registrar valuación" }).click();
+      await expect(page.getByRole("alert").filter({ hasText: "máximo 2 decimales" })).toBeVisible();
+    }
+    expect(api.requests.filter((r) => r.path === "/savings/valuations")).toHaveLength(0);
+
+    await valuationForm(page).getByLabel("Valor actual (MXN)").fill("999999999999.99");
+    await valuationForm(page).getByRole("button", { name: "Registrar valuación" }).click();
+    await expect(page.getByText("Valuación registrada.")).toBeVisible();
+  });
+
+  test("an untouched valuation date is resolved at submit time, not at page load", async ({ page }) => {
+    const api = await open(page);
+    // The page stays open past midnight: the default must follow the clock.
+    await page.clock.setFixedTime(new Date(2031, 0, 2, 10, 0, 0));
+    await valuationForm(page).getByLabel("Instrumento a valuar").selectOption("i1");
+    await valuationForm(page).getByLabel("Valor actual (MXN)").fill("100");
+    await valuationForm(page).getByRole("button", { name: "Registrar valuación" }).click();
+    await expect(page.getByText("Valuación registrada.")).toBeVisible();
+    expect((api.requests.find((r) => r.path === "/savings/valuations")?.body as { date: string }).date).toBe("2031-01-02");
+
+    // A date the user picked is kept.
+    await valuationForm(page).getByLabel("Fecha de la valuación").fill("2030-12-31");
+    await page.clock.setFixedTime(new Date(2031, 0, 3, 10, 0, 0));
+    await valuationForm(page).getByLabel("Valor actual (MXN)").fill("200");
+    await valuationForm(page).getByRole("button", { name: "Registrar valuación" }).click();
+    await expect.poll(() => api.requests.filter((r) => r.path === "/savings/valuations").length).toBe(2);
+    expect((api.requests.filter((r) => r.path === "/savings/valuations")[1].body as { date: string }).date).toBe("2030-12-31");
+  });
+
   test("shows the backend message when the server rejects a saving", async ({ page }) => {
     await open(page, { savingsFail: "instrument \"zzz\" does not exist" });
     await savingForm(page).getByLabel("Monto").fill("10");

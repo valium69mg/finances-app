@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { formatMoney, formatPercent, formatRatePercent, isNonZeroDecimal, isPositiveDecimal, percentOf, todayISO } from "./money";
+import { formatMoney, formatPercent, formatRatePercent, isNonZeroDecimal, isPositiveDecimal, isValuationAmount, percentOf, todayISO } from "./money";
+
+describe("isValuationAmount", () => {
+  it("accepts cents-precision values below 1e12", () => {
+    for (const ok of ["1", "0.01", "25000", "25000.5", "100.55", " 12.30 ", "999999999999", "999999999999.99"]) {
+      expect(isValuationAmount(ok), ok).toBe(true);
+    }
+  });
+
+  it("rejects zero, sub-cent, over-precise, huge and non-decimal values", () => {
+    for (const bad of ["", "0", "0.00", "0.004", "100.555", "1000000000000", "1e12", "1e999999999", "-5", "12,5", "abc", ".5"]) {
+      expect(isValuationAmount(bad), bad).toBe(false);
+    }
+  });
+});
 
 describe("formatMoney", () => {
   it("pads, groups and rounds decimal strings without floats", () => {

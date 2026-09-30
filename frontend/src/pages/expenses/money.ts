@@ -24,6 +24,12 @@ export function todayISO(now = new Date()): string {
 export const isPositiveDecimal = (v: string) => /^\d+(\.\d+)?$/.test(v.trim()) && /[1-9]/.test(v);
 
 /**
+ * Valuation value the API accepts: at least 0.01, at most 2 decimals and below
+ * 1,000,000,000,000 (the numeric(14,2) column), e.g. "25000" or "25000.50".
+ */
+export const isValuationAmount = (v: string) => /^\d{1,12}(\.\d{1,2})?$/.test(v.trim()) && /[1-9]/.test(v);
+
+/**
  * Formats a decimal rate string as a percentage by shifting the decimal point,
  * never through floats: "0.015" -> "1.5%", "0.01" -> "1%", "0.0125" -> "1.25%".
  * Returns the input untouched when it is not a plain decimal.
