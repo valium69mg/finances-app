@@ -1,4 +1,5 @@
-// Package resend sends the verification email through the Resend HTTP API.
+// Package resend sends emails (the verification link and, through Send, any
+// other message) through the Resend HTTP API.
 package resend
 
 import (
@@ -49,12 +50,17 @@ const subject = "Verifica tu correo y define tu contraseña"
 
 // SendVerification emails the verification link to the recipient.
 func (m *Mailer) SendVerification(ctx context.Context, to, link string) error {
+	return m.Send(ctx, to, subject, verificationHTML(link), verificationText(link))
+}
+
+// Send emails one message with an HTML and a plain text body to the recipient.
+func (m *Mailer) Send(ctx context.Context, to, subject, htmlBody, textBody string) error {
 	body, err := json.Marshal(emailRequest{
 		From:    m.from,
 		To:      []string{to},
 		Subject: subject,
-		HTML:    verificationHTML(link),
-		Text:    verificationText(link),
+		HTML:    htmlBody,
+		Text:    textBody,
 	})
 	if err != nil {
 		return fmt.Errorf("encode email: %w", err)
