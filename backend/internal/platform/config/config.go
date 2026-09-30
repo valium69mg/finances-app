@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -13,6 +14,9 @@ const (
 	defaultHTTPAddr    = ":8080"
 	defaultResendFrom  = "onboarding@resend.dev"
 	defaultAppBaseURL  = "http://localhost:5173"
+	defaultS3Endpoint  = "localhost:9100" // MinIO S3 API host port in docker-compose
+	defaultS3Bucket    = "finances-invoices"
+	defaultS3Region    = "us-east-1"
 	minJWTSecretLength = 32
 )
 
@@ -25,6 +29,18 @@ type Config struct {
 	ResendFrom   string
 	// AppBaseURL is the frontend origin used to build links in emails (no trailing slash).
 	AppBaseURL string
+	// S3 is the S3-compatible object storage of the issued CFDI files.
+	S3 S3
+}
+
+// S3 configures the object storage. Endpoint is host:port without a scheme.
+type S3 struct {
+	Endpoint  string
+	AccessKey string
+	SecretKey string
+	Bucket    string
+	Region    string
+	UseSSL    bool
 }
 
 // Load reads the configuration using getenv (typically os.Getenv) and fails fast
@@ -75,10 +91,63 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, fmt.Errorf("APP_BASE_URL is invalid: %w", err))
 	}
 
+	s3, s3Errs := loadS3(getenv)
+	cfg.S3 = s3
+	errs = append(errs, s3Errs...)
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// loadS3 reads the storage settings. The credentials default to the MinIO root
+// credentials of docker-compose (MINIO_ROOT_USER, MINIO_ROOT_PASSWORD), so a
+// local .env needs no extra keys; a real deployment sets S3_ACCESS_KEY and
+// S3_SECRET_KEY for a dedicated identity.
+func loadS3(getenv func(string) string) (S3, []error) {
+	var errs []error
+	get := func(key string) string { return strings.TrimSpace(getenv(key)) }
+	first := func(keys ...string) string {
+		for _, k := range keys {
+			if v := get(k); v != "" {
+				return v
+			}
+		}
+		return ""
+	}
+	s3 := S3{
+		Endpoint:  first("S3_ENDPOINT"),
+		AccessKey: first("S3_ACCESS_KEY", "MINIO_ROOT_USER"),
+		SecretKey: first("S3_SECRET_KEY", "MINIO_ROOT_PASSWORD"),
+		Bucket:    first("S3_BUCKET"),
+		Region:    first("S3_REGION"),
+	}
+	if s3.Endpoint == "" {
+		s3.Endpoint = defaultS3Endpoint
+	} else if strings.Contains(s3.Endpoint, "://") || strings.Contains(s3.Endpoint, "/") {
+		errs = append(errs, errors.New("S3_ENDPOINT is invalid: use host:port without a scheme or path"))
+	}
+	if s3.Bucket == "" {
+		s3.Bucket = defaultS3Bucket
+	}
+	if s3.Region == "" {
+		s3.Region = defaultS3Region
+	}
+	if raw := get("S3_USE_SSL"); raw != "" {
+		ssl, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, errors.New("S3_USE_SSL is invalid: use true or false"))
+		}
+		s3.UseSSL = ssl
+	}
+	if s3.AccessKey == "" {
+		errs = append(errs, errors.New("S3_ACCESS_KEY (or MINIO_ROOT_USER) is required"))
+	}
+	if s3.SecretKey == "" {
+		errs = append(errs, errors.New("S3_SECRET_KEY (or MINIO_ROOT_PASSWORD) is required"))
+	}
+	return s3, errs
 }
 
 func validateDatabaseURL(raw string) error {

@@ -16,7 +16,10 @@ func TestLoad(t *testing.T) {
 	const secret = "0123456789abcdef0123456789abcdef"
 
 	base := func(extra map[string]string) map[string]string {
-		vars := map[string]string{"DATABASE_URL": validURL, "JWT_SECRET": secret, "RESEND_API_KEY": "re_key"}
+		vars := map[string]string{
+			"DATABASE_URL": validURL, "JWT_SECRET": secret, "RESEND_API_KEY": "re_key",
+			"MINIO_ROOT_USER": "minio-user", "MINIO_ROOT_PASSWORD": "minio-password",
+		}
 		for k, v := range extra {
 			vars[k] = v
 		}
@@ -26,6 +29,10 @@ func TestLoad(t *testing.T) {
 		c := config.Config{
 			DatabaseURL: validURL, HTTPAddr: ":8080", JWTSecret: secret, ResendAPIKey: "re_key",
 			ResendFrom: "onboarding@resend.dev", AppBaseURL: "http://localhost:5173",
+			S3: config.S3{
+				Endpoint: "localhost:9100", AccessKey: "minio-user", SecretKey: "minio-password",
+				Bucket: "finances-invoices", Region: "us-east-1",
+			},
 		}
 		mod(&c)
 		return c

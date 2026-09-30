@@ -35,6 +35,24 @@ curl -i localhost:8080/healthz
 
 The Makefile reads `.env`, so `DATABASE_URL` and the Postgres credentials must stay in sync.
 
+### Invoice document storage
+
+The API stores issued CFDI files (XML, PDF) in S3-compatible storage (MinIO locally) and
+creates the private bucket on startup, so MinIO must be up (`make db-up`). Optional `.env` keys,
+all with local defaults:
+
+```
+S3_ENDPOINT=localhost:9100        # host:port, no scheme
+S3_BUCKET=finances-invoices
+S3_REGION=us-east-1
+S3_USE_SSL=false
+S3_ACCESS_KEY=                    # defaults to MINIO_ROOT_USER
+S3_SECRET_KEY=                    # defaults to MINIO_ROOT_PASSWORD
+```
+
+The S3 adapter integration test is skipped unless `TEST_S3_ENDPOINT`, `TEST_S3_ACCESS_KEY` and
+`TEST_S3_SECRET_KEY` are set (for example to the MinIO root credentials).
+
 ## Layout
 
 ```
