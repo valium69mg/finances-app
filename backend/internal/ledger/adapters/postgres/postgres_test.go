@@ -297,6 +297,26 @@ func TestListAllByKind(t *testing.T) {
 	}
 }
 
+func TestCreateMany(t *testing.T) {
+	repo, pool := newRepo(t)
+	ctx := context.Background()
+
+	out, err := repo.CreateMany(ctx, []domain.Movement{saving("2026-10-01", "Inversiones", "-100"), saving("2026-10-01", "Inversiones", "100")})
+	if err != nil || len(out) != 2 || out[0].ID == 0 || out[1].ID <= out[0].ID || !out[0].Amount.Equal(dec("-100")) {
+		t.Fatalf("CreateMany: %+v, %v", out, err)
+	}
+
+	// A failing row rolls the whole batch back.
+	bad := income("2026-10-02", "-5") // incomes must be positive (CHECK)
+	if _, err := repo.CreateMany(ctx, []domain.Movement{saving("2026-10-02", "Inversiones", "50"), bad}); err == nil {
+		t.Fatal("expected the batch to fail")
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movements`).Scan(&count); err != nil || count != 2 {
+		t.Errorf("rows = %d, %v, want 2 (failed batch must roll back)", count, err)
+	}
+}
+
 func TestImportMovements(t *testing.T) {
 	repo, pool := newRepo(t)
 	ctx := context.Background()

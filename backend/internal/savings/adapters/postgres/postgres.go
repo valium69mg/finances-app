@@ -23,16 +23,16 @@ func NewRepo(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
 // Add appends a valuation.
 func (r *Repo) Add(ctx context.Context, v ledger.Valuation) error {
 	_, err := r.pool.Exec(ctx, `
-		INSERT INTO valuations (date, instrument_id, value_mxn)
-		VALUES ($1::date, $2, $3::text::numeric)`,
-		v.Date, v.Instrument, v.ValueMXN.String())
+		INSERT INTO valuations (date, instrument_id, value_mxn, note)
+		VALUES ($1::date, $2, $3::text::numeric, $4)`,
+		v.Date, v.Instrument, v.ValueMXN.String(), v.Note)
 	return err
 }
 
 // List returns every valuation, oldest first (date asc, id asc).
 func (r *Repo) List(ctx context.Context) ([]ledger.Valuation, error) {
 	rows, err := r.pool.Query(ctx, `
-		SELECT date::text, instrument_id, value_mxn::text
+		SELECT date::text, instrument_id, value_mxn::text, note
 		FROM valuations
 		ORDER BY date ASC, id ASC`)
 	if err != nil {
@@ -43,7 +43,7 @@ func (r *Repo) List(ctx context.Context) ([]ledger.Valuation, error) {
 	for rows.Next() {
 		var v ledger.Valuation
 		var value string
-		if err := rows.Scan(&v.Date, &v.Instrument, &value); err != nil {
+		if err := rows.Scan(&v.Date, &v.Instrument, &value, &v.Note); err != nil {
 			return nil, err
 		}
 		if v.ValueMXN, err = decimal.NewFromString(value); err != nil {

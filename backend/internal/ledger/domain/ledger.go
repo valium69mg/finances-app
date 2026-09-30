@@ -64,6 +64,7 @@ type Valuation struct {
 	Date       string // YYYY-MM-DD
 	Instrument string
 	ValueMXN   decimal.Decimal
+	Note       string
 }
 
 // Filter selects movements for SumBy. An empty field matches everything.

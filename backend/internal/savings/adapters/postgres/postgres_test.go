@@ -78,15 +78,30 @@ func TestAddListRoundTrip(t *testing.T) {
 		t.Fatalf("empty list: %v, %v (want empty non-nil slice)", got, err)
 	}
 
-	if err := repo.Add(ctx, val("2026-10-15", "voo", "12345.67")); err != nil {
+	withNote := val("2026-10-15", "voo", "12345.67")
+	withNote.Note = "statement of October"
+	if err := repo.Add(ctx, withNote); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 	got, err = repo.List(ctx)
 	if err != nil || len(got) != 1 {
 		t.Fatalf("List: %v, %v", got, err)
 	}
-	if got[0].Date != "2026-10-15" || got[0].Instrument != "voo" || !got[0].ValueMXN.Equal(dec("12345.67")) {
+	if got[0].Date != "2026-10-15" || got[0].Instrument != "voo" || !got[0].ValueMXN.Equal(dec("12345.67")) ||
+		got[0].Note != "statement of October" {
 		t.Errorf("round trip mismatch: %+v", got[0])
+	}
+}
+
+func TestNoteDefaultsToEmpty(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	if err := repo.Add(ctx, val("2026-10-15", "voo", "1")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.List(ctx)
+	if err != nil || len(got) != 1 || got[0].Note != "" {
+		t.Errorf("List: %+v, %v (want an empty note)", got, err)
 	}
 }
 

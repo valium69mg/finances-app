@@ -99,6 +99,29 @@ func (r *Repo) Create(ctx context.Context, m domain.Movement) (domain.Movement, 
 	return insert(ctx, r.pool, m, nil)
 }
 
+// CreateMany inserts the movements in one transaction: either all of them are
+// stored or none is. It returns them with their generated IDs, in order.
+func (r *Repo) CreateMany(ctx context.Context, ms []domain.Movement) ([]domain.Movement, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	out := make([]domain.Movement, 0, len(ms))
+	for i, m := range ms {
+		saved, err := insert(ctx, tx, m, nil)
+		if err != nil {
+			return nil, fmt.Errorf("movement %d: %w", i+1, err)
+		}
+		out = append(out, saved)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ErrNotEmpty is returned by ImportMovements when the table already has rows.
 var ErrNotEmpty = errors.New("movements table is not empty")
 

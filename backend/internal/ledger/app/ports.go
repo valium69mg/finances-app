@@ -27,3 +27,12 @@ type MovementRepo interface {
 	// first (date asc, id asc). Balances such as the emergency fund need it.
 	ListAllByKind(ctx context.Context, kind domain.Kind) ([]domain.Movement, error)
 }
+
+// BatchCreator stores several movements atomically. It is separate from
+// MovementRepo because only the modules that need all-or-nothing writes (such
+// as savings transfers) depend on it.
+type BatchCreator interface {
+	// CreateMany stores the movements in one transaction and returns them with
+	// their generated IDs, in order. Either every movement is stored or none is.
+	CreateMany(ctx context.Context, ms []domain.Movement) ([]domain.Movement, error)
+}
