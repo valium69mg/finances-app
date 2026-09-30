@@ -57,10 +57,13 @@ type Disk struct {
 	PathMonitored bool
 }
 
-// NewDisk derives the used percentage from the byte counts.
-func NewDisk(total, used uint64) Disk {
+// NewDisk derives the used percentage from the byte counts with df's formula,
+// used / (used + available): the blocks reserved for root (ext4 keeps 5%) are
+// neither used nor available, so this can be above used / total.
+func NewDisk(total, used, available uint64) Disk {
 	used = min(used, total)
-	return Disk{TotalBytes: total, UsedBytes: used, UsedPercent: Percent(used, total), PathMonitored: true}
+	available = min(available, total-used)
+	return Disk{TotalBytes: total, UsedBytes: used, UsedPercent: Percent(used, used+available), PathMonitored: true}
 }
 
 // Load holds the 1, 5 and 15 minute load averages.

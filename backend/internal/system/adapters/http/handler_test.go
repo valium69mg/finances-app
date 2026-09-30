@@ -51,7 +51,7 @@ func get(svc *fakeService, auth bool) *httptest.ResponseRecorder {
 }
 
 func report() app.Report {
-	d := domain.NewDisk(50_000_000_000, 41_000_000_000)
+	d := domain.NewDisk(50_000_000_000, 41_000_000_000, 9_000_000_000)
 	return app.Report{
 		Status: domain.Status{
 			CPUPercent:    12.5,

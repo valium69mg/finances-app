@@ -47,12 +47,20 @@ func TestNewMemoryClampsAvailable(t *testing.T) {
 }
 
 func TestNewDisk(t *testing.T) {
-	d := domain.NewDisk(1000, 800)
+	d := domain.NewDisk(1000, 800, 200)
 	if d.UsedPercent != 80 || !d.PathMonitored || d.UsedBytes != 800 {
 		t.Errorf("disk = %+v", d)
 	}
-	if got := domain.NewDisk(100, 500); got.UsedBytes != 100 || got.UsedPercent != 100 {
+	// df's formula: 50 reserved bytes are neither used nor available, so the
+	// percent is 750/950, not 750/1000.
+	if got := domain.NewDisk(1000, 750, 200); got.UsedBytes != 750 || got.UsedPercent != 78.9 {
+		t.Errorf("reserved blocks = %+v", got)
+	}
+	if got := domain.NewDisk(100, 500, 50); got.UsedBytes != 100 || got.UsedPercent != 100 {
 		t.Errorf("used above total = %+v", got)
+	}
+	if got := domain.NewDisk(100, 0, 0); got.UsedPercent != 0 {
+		t.Errorf("nothing used or available = %+v", got)
 	}
 }
 

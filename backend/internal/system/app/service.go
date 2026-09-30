@@ -27,11 +27,11 @@ type Proc interface {
 	Load() (domain.Load, error)
 }
 
-// DiskUsage measures the filesystem of the monitored path: its size and the
-// bytes in use. It is optional: a nil DiskUsage or a failing one leaves the
-// disk out of the status.
+// DiskUsage measures the filesystem of the monitored path: its size, the bytes
+// in use and the bytes available to unprivileged users (df's figures). It is
+// optional: a nil DiskUsage or a failing one leaves the disk out of the status.
 type DiskUsage interface {
-	Usage() (total, used uint64, err error)
+	Usage() (total, used, available uint64, err error)
 }
 
 // Options configure the service.
@@ -134,13 +134,13 @@ func (s *Service) diskStatus() *domain.Disk {
 	if s.disk == nil {
 		return nil
 	}
-	total, used, err := s.disk.Usage()
+	total, used, available, err := s.disk.Usage()
 	if err != nil || total == 0 {
 		// Debug: the page polls, and dev has no probe mount, so this would repeat.
 		s.opts.Logger.Debug("system status: the disk cannot be measured", "error", err)
 		return nil
 	}
-	d := domain.NewDisk(total, used)
+	d := domain.NewDisk(total, used, available)
 	return &d
 }
 

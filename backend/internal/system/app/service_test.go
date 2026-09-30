@@ -38,11 +38,13 @@ func (f *fakeProc) Load() (domain.Load, error) {
 }
 
 type fakeDisk struct {
-	total, used uint64
-	err         error
+	total, used, available uint64
+	err                    error
 }
 
-func (f fakeDisk) Usage() (uint64, uint64, error) { return f.total, f.used, f.err }
+func (f fakeDisk) Usage() (uint64, uint64, uint64, error) {
+	return f.total, f.used, f.available, f.err
+}
 
 var now = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 
@@ -62,7 +64,7 @@ func proc() *fakeProc {
 func TestStatusComposesEveryFigure(t *testing.T) {
 	p := proc()
 	p.swap = &domain.Swap{TotalBytes: 1000, UsedBytes: 100}
-	r, err := app.NewService(p, fakeDisk{total: 1000, used: 850}, options()).Status(context.Background())
+	r, err := app.NewService(p, fakeDisk{total: 1000, used: 850, available: 150}, options()).Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
