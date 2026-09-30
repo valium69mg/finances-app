@@ -222,6 +222,36 @@ test.describe("savings page", () => {
     await expect(transferForm(page).getByLabel("Monto a traspasar")).toHaveValue("");
   });
 
+  test("transfer legs are badged, cannot be edited and are deleted together", async ({ page }) => {
+    const api = await open(page, { savings: [seeded()] });
+    await transferForm(page).getByLabel("Desde").selectOption("i1");
+    await transferForm(page).getByLabel("Hacia").selectOption("i2");
+    await transferForm(page).getByLabel("Monto a traspasar").fill("300");
+    await transferForm(page).getByRole("button", { name: "Traspasar" }).click();
+
+    const legs = page.getByRole("listitem").filter({ hasText: "Traspaso i1 -> i2" });
+    await expect(legs).toHaveCount(2);
+    for (const leg of await legs.all()) {
+      await expect(leg.getByText("Traspaso", { exact: true })).toBeVisible();
+      await expect(leg.getByRole("button", { name: /^Editar/ })).toHaveCount(0);
+    }
+    // The plain saving keeps its badge-free row and its edit button.
+    const plain = page.getByRole("listitem").filter({ hasText: "Aportación VOO" });
+    await expect(plain.getByText("Traspaso", { exact: true })).toHaveCount(0);
+    await expect(plain.getByRole("button", { name: /^Editar/ })).toBeVisible();
+
+    await legs.first().getByRole("button", { name: /^Eliminar/ }).click();
+    await expect(page.getByText("Se eliminarán ambas partes")).toBeVisible();
+    await page.getByRole("button", { name: "Sí, eliminar" }).click();
+
+    await expect(page.getByText("Traspaso i1 -> i2")).toHaveCount(0);
+    await expect(plain).toBeVisible();
+    expect(api.savings).toHaveLength(1);
+    expect(api.writes.filter((w) => w.method === "DELETE")).toHaveLength(1);
+    await expect(page.getByRole("row", { name: /VOO/ })).toContainText("$10,000.00");
+    await expect(page.getByRole("row", { name: /CETES/ })).toContainText("$0.00");
+  });
+
   test("validates the transfer before sending it", async ({ page }) => {
     const api = await open(page);
     await transferForm(page).getByRole("button", { name: "Traspasar" }).click();

@@ -21,6 +21,8 @@ export interface Saving {
   /** Decimal string, or null for MXN savings. */
   exchange_rate: string | null;
   amount_mxn: string;
+  /** Shared by the two legs of a transfer; null for any other saving. Legs cannot be edited, and deleting one deletes both. */
+  transfer_id: string | null;
 }
 
 /** Body for create and update. Only `amount` is required; the backend fills the rest. */

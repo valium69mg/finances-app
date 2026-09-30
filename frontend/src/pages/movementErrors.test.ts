@@ -32,6 +32,10 @@ describe("module wrappers", () => {
     expect(describeValuationError(new ApiError(400, "invalid_valuation", "m"))).toContain("Los datos no son válidos");
   });
 
+  it("explains a locked transfer leg", () => {
+    expect(describeSavingsError(new ApiError(409, "transfer_leg_locked", "x"))).toContain("no se pueden editar");
+  });
+
   it("never blames the saving for a valuation failure", () => {
     expect(describeValuationError(new ApiError(404, "not_found"))).toBe("La valuación ya no existe. Actualiza la lista e intenta de nuevo.");
     expect(describeValuationError(new ApiError(404, "not_found"))).not.toContain("ahorro");

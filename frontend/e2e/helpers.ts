@@ -216,8 +216,11 @@ export async function mockApi(
       if (savingsFail) return json(route, 400, { error: "invalid_saving", message: savingsFail });
       const description = body.description || `Traspaso ${body.from} -> ${body.to}`;
       const category = body.category || "Inversiones";
-      const leg = (instrument: string, amount: string) =>
-        buildSaving(nextSavingId++, { instrument, amount, description, category, date: body.date }, settings);
+      const transferId = `00000000-0000-4000-8000-${String(nextSavingId).padStart(12, "0")}`;
+      const leg = (instrument: string, amount: string) => ({
+        ...buildSaving(nextSavingId++, { instrument, amount, description, category, date: body.date }, settings),
+        transfer_id: transferId,
+      });
       const out = leg(body.from, `-${body.amount}`);
       const inn = leg(body.to, body.amount);
       savings.push(out, inn);
@@ -226,9 +229,11 @@ export async function mockApi(
     if (pathname === "/savings" && request.method() === "GET") {
       if (opts.savingsListFail) return json(route, 500, { error: "internal_error" });
       const month = searchParams.get("month") ?? "";
+      const limit = Number(searchParams.get("limit")) || Infinity;
       const rows = savings
         .filter((e) => e.date.startsWith(month))
-        .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
+        .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1))
+        .slice(0, limit);
       return json(route, 200, rows);
     }
     if (pathname === "/savings" && request.method() === "POST") {
@@ -246,10 +251,14 @@ export async function mockApi(
       writes.push({ method: request.method(), path: pathname, body });
       const index = savings.findIndex((e) => e.id === id);
       if (index < 0) return json(route, 404, { error: "not_found" });
+      const linked = savings[index].transfer_id;
       if (request.method() === "DELETE") {
-        savings.splice(index, 1);
+        // Deleting a transfer leg removes both legs, like the backend.
+        if (linked) savings.splice(0, savings.length, ...savings.filter((s) => s.transfer_id !== linked));
+        else savings.splice(index, 1);
         return json(route, 204);
       }
+      if (linked) return json(route, 409, { error: "transfer_leg_locked", message: "transfer legs cannot be edited" });
       if (savingsFail) return json(route, 400, { error: "invalid_saving", message: savingsFail });
       const row = buildSaving(id, body, settings, savings[index]);
       savings[index] = row;
@@ -422,6 +431,8 @@ export interface MockSaving {
   amount: string;
   exchange_rate: string | null;
   amount_mxn: string;
+  /** Shared by both legs of a transfer; null (or absent) for a plain saving. */
+  transfer_id?: string | null;
 }
 
 export interface MockValuation {
@@ -449,6 +460,7 @@ function buildSaving(id: number, body: any, settings: any, existing?: MockSaving
     amount: body.amount,
     exchange_rate: rate,
     amount_mxn: rate ? (Number(body.amount) * Number(rate)).toFixed(2) : body.amount,
+    transfer_id: null,
   };
 }
 

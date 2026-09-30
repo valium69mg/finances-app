@@ -60,10 +60,18 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
           const instrument = instruments.find((i) => i.id === s.instrument)?.name ?? s.instrument;
           const confirming = confirmId === s.id;
           const withdrawal = s.amount.trim().startsWith("-");
+          const isTransfer = Boolean(s.transfer_id);
           return (
             <li key={s.id} className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between ${editingId === s.id ? "bg-primary/5" : ""}`}>
               <div className="min-w-0 flex-1">
-                <p className="break-words font-medium">{label}</p>
+                <p className="break-words font-medium">
+                  {label}
+                  {isTransfer && (
+                    <span className="ml-2 inline-block rounded-full border border-border px-2 py-0.5 align-middle text-xs font-medium text-muted">
+                      Traspaso
+                    </span>
+                  )}
+                </p>
                 <p className="mt-0.5 break-words text-sm text-muted">
                   {s.date} · {instrument || "Sin instrumento"} · {s.category || "Sin categoría"}
                 </p>
@@ -81,7 +89,9 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
               </div>
               {confirming ? (
                 <div role="group" aria-label={`Confirmar eliminación de ${label}`} className="flex shrink-0 flex-wrap items-center gap-2">
-                  <span className="text-sm">¿Eliminar este ahorro?</span>
+                  <span className="text-sm">
+                    {isTransfer ? "¿Eliminar este traspaso? Se eliminarán ambas partes (salida y entrada)." : "¿Eliminar este ahorro?"}
+                  </span>
                   <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(s.id)} className={dangerButton}>
                     {remove.isPending && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
                     Sí, eliminar
@@ -92,10 +102,12 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
                 </div>
               ) : (
                 <div className="flex shrink-0 gap-2">
-                  <button type="button" onClick={() => onEdit(s)} aria-label={`Editar ${label}`} className={secondaryButton}>
-                    <Pencil className="h-4 w-4" aria-hidden="true" />
-                    Editar
-                  </button>
+                  {!isTransfer && (
+                    <button type="button" onClick={() => onEdit(s)} aria-label={`Editar ${label}`} className={secondaryButton}>
+                      <Pencil className="h-4 w-4" aria-hidden="true" />
+                      Editar
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
