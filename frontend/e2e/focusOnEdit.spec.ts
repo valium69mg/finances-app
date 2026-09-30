@@ -49,8 +49,9 @@ test.describe("focus on edit (inline form)", () => {
     const edit = page.getByRole("button", { name: "Editar Sueldo 80" });
     await expect(edit).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    const form = page.getByRole("form", { name: "Nuevo ingreso" });
-    await expect(form).not.toBeInViewport();
+    // The create form is collapsed: its toggle sits at the top of the page, far from the last row.
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "+ Nuevo ingreso" })).not.toBeInViewport();
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
 
     await edit.click();

@@ -250,7 +250,7 @@ export async function mockApi(
   const monthCloseMock = createMonthCloseMock(opts.closes ?? [], opts.monthCloseFail, {
     // A close is computed from the same in-memory movements as the dashboard.
     figures: (month) => {
-      const d = buildDashboard(month, { expenses, income, savings }, settings, false, { filing_status: "ninguna", previous_period_pending: false });
+      const d = buildDashboard(month, { expenses, income, savings, bills: [] }, settings, false, { filing_status: "ninguna", previous_period_pending: false }, undefined, todayLocal());
       return { categories: d.categories, income: d.income, expenses: d.expenses, savings: d.savings, available: d.available, emergency: d.emergency };
     },
     filingStatus: (month) => taxMock.monthStatus(month).filing_status as "ninguna" | "pendiente" | "pagada",

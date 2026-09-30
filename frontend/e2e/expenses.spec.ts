@@ -28,16 +28,61 @@ async function expectNoHorizontalOverflow(page: Page, where: string) {
   expect(size.scrollWidth, `page overflows on ${where}`).toBeLessThanOrEqual(size.clientWidth);
 }
 
-async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
+/** Opens the page; the create form is collapsed, so it is expanded unless `expanded` is false. */
+async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expanded = true } = {}) {
   const api = await mockApi(page, opts);
   await seedSession(page);
   await page.goto("/gastos");
   await expect(page.getByRole("heading", { level: 1, name: "Gastos" })).toBeVisible();
-  await expect(page.getByLabel("Categoría")).toBeVisible();
+  if (expanded) {
+    await page.getByRole("button", { name: "+ Nuevo gasto" }).click();
+    await expect(page.getByLabel("Categoría")).toBeVisible();
+  } else {
+    await expect(page.getByRole("button", { name: "+ Nuevo gasto" })).toBeVisible();
+  }
   return api;
 }
 
 test.describe("expenses page", () => {
+  test("the create form is collapsed by default and expands inline from the button", async ({ page }) => {
+    await open(page, { expenses: [seeded()] }, { expanded: false });
+    const toggle = page.getByRole("button", { name: "+ Nuevo gasto" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toHaveAttribute("aria-controls", "expense-form-panel");
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await expect(page.getByLabel("Monto")).toHaveCount(0);
+
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const form = page.getByRole("form", { name: "Nuevo gasto" });
+    await expect(form).toBeVisible();
+    await expect(page.locator("#expense-form-panel")).toContainText("Agregar gasto");
+    await expect(form.getByLabel("Descripción")).toBeFocused();
+
+    // Toggling again collapses it and keeps the focus on the button.
+    await toggle.click();
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toBeFocused();
+  });
+
+  test("starting to edit a row opens the form, keeps the green highlight and collapses on cancel", async ({ page }) => {
+    await open(page, { expenses: [seeded()] }, { expanded: false });
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await page.getByRole("button", { name: "Editar Tacos del centro" }).click();
+
+    const form = page.getByRole("form", { name: "Editar gasto" });
+    await expect(form).toBeVisible();
+    await expect(form).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
+    await expect(form.getByLabel("Descripción")).toBeFocused();
+    await expect(form.getByLabel("Monto")).toHaveValue("180.00");
+
+    await page.getByRole("button", { name: "Cancelar edición" }).click();
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "+ Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
+  });
+
   test("with a pay cycle starting on the last day, a 2026-09-30 expense lists under 2026-10, not 2026-09", async ({ page }) => {
     await open(page, { cycleStartDay: 31, expenses: [seeded({ id: 7, date: "2026-09-30", description: "Mandado fin de mes" })] });
 
@@ -74,7 +119,9 @@ test.describe("expenses page", () => {
     expect(body.category).toBe("Comida");
     expect(body.currency).toBe("MXN");
     expect(body.date).toBe(today());
-    // The form is ready for the next expense.
+    // The form collapses after a successful save and opens empty again.
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await page.getByRole("button", { name: "+ Nuevo gasto" }).click();
     await expect(page.getByLabel("Descripción")).toHaveValue("");
     await expect(page.getByLabel("Monto")).toHaveValue("");
   });
@@ -143,7 +190,9 @@ test.describe("expenses page", () => {
     await page.getByRole("button", { name: "Guardar cambios" }).click();
 
     await expect(page.getByText("Gasto guardado.")).toBeVisible();
-    await expect(page.getByRole("heading", { level: 2, name: "Nuevo gasto" })).toBeVisible();
+    // The form collapses after saving.
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "+ Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByRole("listitem").filter({ hasText: "Tacos del centro" })).toContainText("$220.75 MXN");
     const put = api.writes.find((w) => w.method === "PUT" && w.path === "/expenses/1");
     expect((put?.body as { amount: string }).amount).toBe("220.75");

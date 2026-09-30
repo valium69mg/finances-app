@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import type { Income as IncomeRow, SaveIncomeResult } from "../api/income";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
+import { InlineFormPanel } from "../components/InlineFormPanel";
 import { IncomeForm } from "./income/IncomeForm";
 import { IncomeList } from "./income/IncomeList";
 import { SaveSummary } from "./income/SaveSummary";
@@ -14,6 +15,8 @@ import { useCyclePeriod } from "./useCycle";
 export function Income() {
   const { month, setMonth, rangeHint } = useCyclePeriod();
   const [editing, setEditing] = useState<IncomeRow | null>(null);
+  // The create form stays collapsed until asked for; editing a row opens it by itself.
+  const [formOpen, setFormOpen] = useState(false);
   const [result, setResult] = useState<SaveIncomeResult | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
 
@@ -41,16 +44,22 @@ export function Income() {
         )}
         {settings.data && (
           <div className="space-y-4">
-            <IncomeForm
-              key={editing?.id ?? "new"}
-              settings={settings.data}
-              editing={editing}
-              onSaved={(r) => {
-                setResult(r);
-                setEditing(null);
-              }}
-              onCancelEdit={() => setEditing(null)}
-            />
+            <InlineFormPanel id="income-form-panel" label="+ Nuevo ingreso" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+              <IncomeForm
+                key={editing?.id ?? "new"}
+                settings={settings.data}
+                editing={editing}
+                onSaved={(r) => {
+                  setResult(r);
+                  setEditing(null);
+                  setFormOpen(false);
+                }}
+                onCancelEdit={() => {
+                  setEditing(null);
+                  setFormOpen(false);
+                }}
+              />
+            </InlineFormPanel>
             {result && <SaveSummary result={result} />}
           </div>
         )}

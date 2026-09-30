@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import type { Expense, SaveExpenseResult } from "../api/expenses";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
+import { InlineFormPanel } from "../components/InlineFormPanel";
 import { BudgetFeedbackNote } from "./expenses/BudgetFeedbackNote";
 import { ExpenseForm } from "./expenses/ExpenseForm";
 import { ExpenseList } from "./expenses/ExpenseList";
@@ -14,6 +15,8 @@ import { useCyclePeriod } from "./useCycle";
 export function Expenses() {
   const { month, setMonth, rangeHint } = useCyclePeriod();
   const [editing, setEditing] = useState<Expense | null>(null);
+  // The create form stays collapsed until asked for; editing a row opens it by itself.
+  const [formOpen, setFormOpen] = useState(false);
   const [feedback, setFeedback] = useState<SaveExpenseResult | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
 
@@ -41,16 +44,22 @@ export function Expenses() {
         )}
         {settings.data && (
           <div className="space-y-4">
-            <ExpenseForm
-              key={editing?.id ?? "new"}
-              settings={settings.data}
-              editing={editing}
-              onSaved={(result) => {
-                setFeedback(result);
-                setEditing(null);
-              }}
-              onCancelEdit={() => setEditing(null)}
-            />
+            <InlineFormPanel id="expense-form-panel" label="+ Nuevo gasto" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+              <ExpenseForm
+                key={editing?.id ?? "new"}
+                settings={settings.data}
+                editing={editing}
+                onSaved={(result) => {
+                  setFeedback(result);
+                  setEditing(null);
+                  setFormOpen(false);
+                }}
+                onCancelEdit={() => {
+                  setEditing(null);
+                  setFormOpen(false);
+                }}
+              />
+            </InlineFormPanel>
             {feedback && <BudgetFeedbackNote result={feedback} />}
           </div>
         )}
