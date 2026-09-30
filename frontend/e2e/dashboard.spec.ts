@@ -196,27 +196,28 @@ test.describe("dashboard page", () => {
     await open(page, {
       dashboardFuture: {
         items: [
-          { name: "Seguro", due_date: "2026-12-15", target: "36000.00", saved: "9000.00", remaining: "27000.00", suggested_monthly: "13500.00", cycles_left: 2 },
-          { name: "Predial", due_date: "2027-01-20", target: "10000.00", saved: "0.00", remaining: "10000.00", suggested_monthly: "2500.00", cycles_left: 4 },
+          { id: 2, name: "Viaje", due_date: "2026-12-15", target: "24000.00", saved: "6000.00", remaining: "18000.00", suggested_monthly: "9000.00", cycles_left: 2 },
+          { id: 1, name: "Laptop", due_date: "2027-01-20", target: "8000.00", saved: "0.00", remaining: "8000.00", suggested_monthly: "2000.00", cycles_left: 4 },
         ],
-        target: "46000.00",
-        saved: "9000.00",
-        remaining: "37000.00",
-        suggested_monthly: "16000.00",
+        target: "32000.00",
+        saved: "6000.00",
+        remaining: "26000.00",
+        suggested_monthly: "11000.00",
+        free_balance: "0.00",
       },
     });
     const card = page.getByRole("region", { name: "Gastos futuros" });
-    await expect(card).toContainText("Seguro");
+    await expect(card).toContainText("Viaje");
     await expect(card).toContainText("Vence el 15 de diciembre de 2026");
-    await expect(card).toContainText("$9,000.00 de $36,000.00 (25%)");
-    await expect(card).toContainText("Aparta $13,500.00 al mes");
-    await expect(card.getByRole("progressbar", { name: "Ahorro para Seguro" })).toHaveAttribute("aria-valuenow", "25");
-    await expect(card).toContainText("Predial");
-    await expect(card.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd[1]")).toHaveText("$46,000.00");
+    await expect(card).toContainText("$6,000.00 de $24,000.00 (25%)");
+    await expect(card).toContainText("Aparta $9,000.00 al mes");
+    await expect(card.getByRole("progressbar", { name: "Ahorro para Viaje" })).toHaveAttribute("aria-valuenow", "25");
+    await expect(card).toContainText("Laptop");
+    await expect(card.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd[1]")).toHaveText("$32,000.00");
     await expectNoHorizontalOverflow(page, "dashboard with future expenses");
   });
 
-  test("future expenses explain how to add one when there are none", async ({ page }) => {
+  test("future expenses explain where to add one when there are none", async ({ page }) => {
     await open(page);
     await expect(page.getByRole("region", { name: "Gastos futuros" })).toContainText("Aún no hay gastos futuros");
   });

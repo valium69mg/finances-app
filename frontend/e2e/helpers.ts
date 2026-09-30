@@ -1,11 +1,13 @@
 import type { Page, Route } from "@playwright/test";
 import { cycleOf, cycleRange } from "../src/pages/cycle";
 import { createBillsMock, type BillsFail, type MockBill } from "./billsMock";
+import { createFutureExpensesMock, type FutureExpensesFail, type MockFutureExpense } from "./futureExpensesMock";
 import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
 import { createMonthCloseMock, type MockClose, type MonthCloseFail } from "./monthCloseMock";
 import { createTaxFilingMock, previousMonthOf, type MockFiling, type TaxFilingFail } from "./taxFilingMock";
 
 export type { BillsFail, MockBill, MockOccurrence } from "./billsMock";
+export type { FutureExpensesFail, MockFutureExpense } from "./futureExpensesMock";
 export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
 export type { MockClose, MonthCloseFail } from "./monthCloseMock";
 export type { MockFiling, TaxFilingFail } from "./taxFilingMock";
@@ -194,7 +196,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string }; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server" } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server" } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -247,6 +249,16 @@ export async function mockApi(
     settings: () => settings,
     json,
   });
+  const futureMock = createFutureExpensesMock(opts.futureExpenses ?? [], opts.futureFreeBalance ?? "0", opts.futureFail, {
+    recordExpense: (body) => {
+      const expense = buildExpense(nextExpenseId++, { payment_method: "Débito", ...body }, settings);
+      expenses.push(expense);
+      return { id: expense.id, amount_mxn: expense.amount_mxn };
+    },
+    today: todayLocal,
+    settings: () => settings,
+    json,
+  });
   const monthCloseMock = createMonthCloseMock(opts.closes ?? [], opts.monthCloseFail, {
     // A close is computed from the same in-memory movements as the dashboard.
     figures: (month) => {
@@ -268,6 +280,7 @@ export async function mockApi(
     if (await invoiceMock.handle(route, request, pathname, searchParams, settings)) return;
     if (await taxMock.handle(route, request, pathname, searchParams)) return;
     if (await billsMock.handle(route, request, pathname, searchParams)) return;
+    if (await futureMock.handle(route, request, pathname)) return;
     if (await monthCloseMock.handle(route, request, pathname, searchParams)) return;
 
     if (pathname === "/income/infer-category") {
@@ -320,7 +333,7 @@ export async function mockApi(
       if (opts.dashboardFail === "incomplete") return json(route, 422, { error: "settings_incomplete", message: "missing required config: emergency_months" });
       const dashboardMonth = searchParams.get("month") ?? "";
       const filing = opts.dashboardFiling ?? taxMock.monthStatus(dashboardMonth);
-      return json(route, 200, buildDashboard(dashboardMonth, { expenses, income, savings, bills: billsMock.bills }, settings, !opts.dashboardNoTax, filing, opts.dashboardFuture, todayLocal()));
+      return json(route, 200, buildDashboard(dashboardMonth, { expenses, income, savings, bills: billsMock.bills }, settings, !opts.dashboardNoTax, filing, opts.dashboardFuture ?? futureMock.dashboard(), todayLocal()));
     }
     if (pathname === "/savings/portfolio" && request.method() === "GET") {
       if (opts.portfolioFail) return json(route, 500, { error: "internal_error" });
@@ -472,7 +485,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes };
+  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes };
 }
 
 /** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */
@@ -489,7 +502,7 @@ function buildDashboard(
   settings: any,
   withTax: boolean,
   filing: { filing_status: string; previous_period_pending: boolean },
-  future: { items: unknown[]; target: string; saved: string; remaining: string; suggested_monthly: string } | undefined,
+  future: { items: unknown[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string } | undefined,
   today: string,
 ) {
   const inMonth = <T extends { date: string }>(rows: T[]) => rows.filter((r) => inCycle(r.date, month, settings));
@@ -546,7 +559,7 @@ function buildDashboard(
       goal: "60000.00",
     },
     cycle: { today, day, days },
-    future_expenses: future ?? { items: [], target: "0.00", saved: "0.00", remaining: "0.00", suggested_monthly: "0.00" },
+    future_expenses: future ?? { items: [], target: "0.00", saved: "0.00", remaining: "0.00", suggested_monthly: "0.00", free_balance: "0.00" },
     upcoming_bills: upcoming,
     recent_movements: recent,
     tax: withTax
