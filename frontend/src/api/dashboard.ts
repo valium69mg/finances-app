@@ -35,6 +35,60 @@ export interface DashboardTax {
   previous_period_pending: boolean;
 }
 
+/** Where today sits in the displayed cycle: `day` is 0 before it starts and `days` once it is over. */
+export interface DashboardCycle {
+  /** YYYY-MM-DD in the configured time zone. */
+  today: string;
+  day: number;
+  days: number;
+}
+
+/** An expense known in advance (a yearly bill) with what is saved towards it. */
+export interface FutureExpense {
+  name: string;
+  /** YYYY-MM-DD */
+  due_date: string;
+  target: string;
+  saved: string;
+  remaining: string;
+  /** Amount to put aside each cycle to have it on time, rounded up to the cent. */
+  suggested_monthly: string;
+  cycles_left: number;
+}
+
+export interface FutureExpenses {
+  items: FutureExpense[];
+  target: string;
+  saved: string;
+  remaining: string;
+  suggested_monthly: string;
+}
+
+/** A bill due within the next 14 days, or already overdue. `amount` is null for a variable bill. */
+export interface UpcomingBill {
+  id: number;
+  name: string;
+  category: string;
+  amount: string | null;
+  currency: string;
+  due_date: string;
+  /** Negative when overdue. */
+  days_until_due: number;
+  overdue: boolean;
+}
+
+export type MovementKind = "Ingreso" | "Gasto" | "Ahorro";
+
+/** One of the latest movements of any kind. */
+export interface RecentMovement {
+  id: number;
+  date: string;
+  kind: MovementKind;
+  description: string;
+  category: string;
+  amount_mxn: string;
+}
+
 export interface Dashboard {
   /** YYYY-MM */
   month: string;
@@ -51,6 +105,11 @@ export interface Dashboard {
   emergency: EmergencyProgress;
   /** Null when the tax settings are incomplete. */
   tax: DashboardTax | null;
+  cycle: DashboardCycle;
+  future_expenses: FutureExpenses;
+  upcoming_bills: UpcomingBill[];
+  /** Newest first, at most 8. */
+  recent_movements: RecentMovement[];
 }
 
 export const dashboardKeys = {

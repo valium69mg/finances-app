@@ -5,6 +5,10 @@ import { dashboardKeys, getDashboard, type Dashboard as DashboardData } from "..
 import { ApiError } from "../api/client";
 import { TextField } from "../components/AuthCard";
 import { BudgetTable } from "./dashboard/BudgetTable";
+import { CycleProgress } from "./dashboard/CycleProgress";
+import { FutureExpensesCard } from "./dashboard/FutureExpensesCard";
+import { RecentMovements } from "./dashboard/RecentMovements";
+import { UpcomingBills } from "./dashboard/UpcomingBills";
 import { TaxCard } from "./dashboard/TaxCard";
 import { TotalsCards } from "./dashboard/TotalsCards";
 import { describeDashboardError } from "./dashboard/errors";
@@ -32,6 +36,11 @@ function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
         <TotalsCards dashboard={dashboard} />
       </section>
 
+      <div className="grid gap-4 md:grid-cols-2">
+        <CycleProgress dashboard={dashboard} />
+        <UpcomingBills bills={dashboard.upcoming_bills} />
+      </div>
+
       <section aria-labelledby="budget-title">
         <h2 id="budget-title" className="mb-3 text-lg font-semibold tracking-tight">
           Presupuesto por categoría
@@ -42,6 +51,11 @@ function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
           <BudgetTable categories={dashboard.categories} />
         )}
       </section>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <FutureExpensesCard future={dashboard.future_expenses} />
+        <RecentMovements movements={dashboard.recent_movements} />
+      </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <EmergencyCard emergency={dashboard.emergency} />

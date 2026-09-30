@@ -60,6 +60,11 @@ async function expectNoHorizontalOverflow(page: Page, where: string) {
   expect(size.scrollWidth, `page overflows on ${where}`).toBeLessThanOrEqual(size.clientWidth);
 }
 
+const isPhone = (page: Page) => (page.viewportSize()?.width ?? 1024) < 768;
+
+/** The budget of a category: a compact card below the md breakpoint, a table row from md up. */
+const budgetRow = (page: Page, name: RegExp) => (isPhone(page) ? page.getByTestId("budget-card").filter({ hasText: name }) : page.getByRole("row", { name }));
+
 async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
   const api = await mockApi(page, opts);
   await seedSession(page);
@@ -86,14 +91,14 @@ test.describe("dashboard page", () => {
     // Available = income - expenses - savings.
     await expect(totals.getByText("Disponible").locator("xpath=following-sibling::dd")).toHaveText("$24,000.00");
 
-    const renta = page.getByRole("row", { name: /Renta/ });
+    const renta = budgetRow(page, /Renta/);
     await expect(renta).toContainText("$15,000.00");
     await expect(renta).toContainText("$12,000.50");
-    await expect(renta).toContainText("-$2,999.50");
-    await expect(renta).toContainText("Presupuesto excedido");
+    await expect(renta).toContainText(isPhone(page) ? "Excedido $2,999.50" : "-$2,999.50");
+    if (!isPhone(page)) await expect(renta).toContainText("Presupuesto excedido");
     await expect(renta.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
 
-    const comida = page.getByRole("row", { name: /Comida/ });
+    const comida = budgetRow(page, /Comida/);
     await expect(comida).toContainText("$5,000.00");
     await expect(comida).not.toContainText("Presupuesto excedido");
     await expect(comida.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "17");
@@ -128,19 +133,19 @@ test.describe("dashboard page", () => {
   test("shows the empty state for a month without movements", async ({ page }) => {
     await open(page);
     await expect(page.getByText("Aún no hay movimientos en este periodo.")).toBeVisible();
-    await expect(page.getByRole("row", { name: /Renta/ })).toContainText("$12,000.50");
+    await expect(budgetRow(page, /Renta/)).toContainText("$12,000.50");
     await expect(page.getByRole("region", { name: "Resumen del mes" }).getByText("Disponible").locator("xpath=following-sibling::dd")).toHaveText("$0.00");
   });
 
   test("changing the month reloads the dashboard for that month", async ({ page }) => {
     const api = await open(page, { expenses: [expense({})], income: [salary] });
-    await expect(page.getByRole("row", { name: /Renta/ })).toContainText("$15,000.00");
+    await expect(budgetRow(page, /Renta/)).toContainText("$15,000.00");
 
     const previous = previousMonth();
     await page.getByLabel("Mes", { exact: true }).fill(previous);
     await expect(page.getByText("Aún no hay movimientos en este periodo.")).toBeVisible();
     expect(api.dashboardMonths.at(-1)).toBe(previous);
-    await expect(page.getByRole("row", { name: /Renta/ })).toContainText("$0.00");
+    await expect(budgetRow(page, /Renta/)).toContainText("$0.00");
   });
 
   test("explains a missing tax estimate", async ({ page }) => {
@@ -167,7 +172,7 @@ test.describe("dashboard page", () => {
       income: [salary],
       savings: [emergencySaving],
     });
-    await expect(page.getByRole("row", { name: /Renta/ })).toContainText("$15,000.00");
+    await expect(budgetRow(page, /Renta/)).toContainText("$15,000.00");
     await expectNoHorizontalOverflow(page, "dashboard with data");
   });
 
@@ -175,5 +180,105 @@ test.describe("dashboard page", () => {
     await open(page, { dashboardFail: "incomplete" });
     await expect(page.getByText("Faltan parámetros fiscales")).toBeVisible();
     await expectNoHorizontalOverflow(page, "dashboard error");
+  });
+
+  test("shows the cycle progress with the spending pace", async ({ page }) => {
+    await open(page, { expenses: [expense({ amount: "25000.00", amount_mxn: "25000.00" })], income: [salary] });
+    const cycle = page.getByRole("region", { name: "Progreso del ciclo" });
+    await expect(cycle).toContainText(/Día \d+ de \d+/);
+    await expect(cycle.getByRole("progressbar", { name: "Avance del ciclo" })).toBeVisible();
+    // 25,000 against a 20,000.50 budget is ahead of the pace on any day of the cycle.
+    await expect(cycle).toContainText("Gastado $25,000.00 de");
+    await expect(cycle).toContainText("Vas por encima del ritmo de gasto del ciclo.");
+  });
+
+  test("shows the future expenses with progress, the suggested monthly amount and a total", async ({ page }) => {
+    await open(page, {
+      dashboardFuture: {
+        items: [
+          { name: "Seguro", due_date: "2026-12-15", target: "36000.00", saved: "9000.00", remaining: "27000.00", suggested_monthly: "13500.00", cycles_left: 2 },
+          { name: "Predial", due_date: "2027-01-20", target: "10000.00", saved: "0.00", remaining: "10000.00", suggested_monthly: "2500.00", cycles_left: 4 },
+        ],
+        target: "46000.00",
+        saved: "9000.00",
+        remaining: "37000.00",
+        suggested_monthly: "16000.00",
+      },
+    });
+    const card = page.getByRole("region", { name: "Gastos futuros" });
+    await expect(card).toContainText("Seguro");
+    await expect(card).toContainText("Vence el 15 de diciembre de 2026");
+    await expect(card).toContainText("$9,000.00 de $36,000.00 (25%)");
+    await expect(card).toContainText("Aparta $13,500.00 al mes");
+    await expect(card.getByRole("progressbar", { name: "Ahorro para Seguro" })).toHaveAttribute("aria-valuenow", "25");
+    await expect(card).toContainText("Predial");
+    await expect(card.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd[1]")).toHaveText("$46,000.00");
+    await expectNoHorizontalOverflow(page, "dashboard with future expenses");
+  });
+
+  test("future expenses explain how to add one when there are none", async ({ page }) => {
+    await open(page);
+    await expect(page.getByRole("region", { name: "Gastos futuros" })).toContainText("Aún no hay gastos futuros");
+  });
+
+  test("lists the latest movements of every kind in one list", async ({ page }) => {
+    await open(page, {
+      expenses: [expense({ description: "Renta octubre" })],
+      income: [salary],
+      savings: [emergencySaving],
+    });
+    const recent = page.getByRole("region", { name: "Últimos movimientos" });
+    await expect(recent.getByRole("listitem")).toHaveCount(3);
+    await expect(recent).toContainText("Ingreso");
+    await expect(recent).toContainText("Gasto");
+    await expect(recent).toContainText("Ahorro");
+    await expect(recent).toContainText("Renta octubre");
+    await expect(recent).toContainText("$60,000.00");
+  });
+
+  test("lists the bills due in the next 14 days and leaves later ones out", async ({ page }) => {
+    const due = (offset: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + offset);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    };
+    const bill = (id: number, name: string, offset: number) => ({
+      id, name, category: "Servicios", amount: "200.00", currency: "MXN", recurrence: "monthly" as const,
+      next_due_date: due(offset), reminder_lead_days: 3, active: true, notes: "",
+    });
+    await open(page, { bills: [bill(1, "Luz", 3), bill(2, "Internet", 40), bill(3, "Agua", -2)] });
+    const card = page.getByRole("region", { name: "Próximas cuentas" });
+    await expect(card.getByRole("listitem")).toHaveCount(2);
+    await expect(card).toContainText("Agua");
+    await expect(card).toContainText("Vencida hace 2 días");
+    await expect(card).toContainText("Luz");
+    await expect(card).toContainText("Vence en 3 días");
+    await expect(card).not.toContainText("Internet");
+    await card.getByRole("link", { name: "Ver pagos recurrentes" }).click();
+    await expect(page).toHaveURL(/\/pagos-recurrentes$/);
+  });
+
+  test("budget by category is a compact card list on a phone and a table from md up", async ({ page }) => {
+    await open(page, {
+      expenses: [expense({}), expense({ id: 2, category: "Comida", amount: "1000.00", amount_mxn: "1000.00" })],
+      income: [salary],
+    });
+    if (isPhone(page)) {
+      await expect(page.getByRole("table")).toBeHidden();
+      const card = page.getByTestId("budget-card").filter({ hasText: "Renta" });
+      await expect(card).toContainText("100%");
+      await expect(card).toContainText("Gastado $15,000.00 de $12,000.50");
+      const excess = card.getByText("Excedido $2,999.50");
+      await expect(excess).toBeVisible();
+      await expect(excess).toHaveCSS("color", /^rgb/);
+      const cardBox = await card.boundingBox();
+      const barBox = await card.getByRole("progressbar").boundingBox();
+      // The bar spans the full width of the card (minus its padding).
+      expect(barBox!.width).toBeGreaterThan(cardBox!.width - 32);
+    } else {
+      await expect(page.getByRole("table")).toBeVisible();
+      await expect(page.getByTestId("budget-card").first()).toBeHidden();
+    }
+    await expectNoHorizontalOverflow(page, "budget by category");
   });
 });

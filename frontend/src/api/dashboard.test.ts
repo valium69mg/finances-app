@@ -33,6 +33,16 @@ describe("dashboard api", () => {
       available: "43499.50",
       emergency: { accumulated: "10000", goal: "120000" },
       tax: { rate: "0.011", estimated_isr: "550", filing_status: "pendiente", previous_period: "2026-09", previous_period_pending: true },
+      cycle: { today: "2026-10-15", day: 16, days: 31 },
+      future_expenses: {
+        items: [{ name: "Predial", due_date: "2027-01-20", target: "10000", saved: "2500.50", remaining: "7499.50", suggested_monthly: "1874.88", cycles_left: 4 }],
+        target: "10000",
+        saved: "2500.50",
+        remaining: "7499.50",
+        suggested_monthly: "1874.88",
+      },
+      upcoming_bills: [{ id: 1, name: "Luz", category: "Servicios", amount: null, currency: "MXN", due_date: "2026-10-17", days_until_due: 2, overdue: false }],
+      recent_movements: [{ id: 9, date: "2026-10-14", kind: "Ahorro", description: "Apartado", category: "Gastos futuros", amount_mxn: "2500.50" }],
     };
     const { dashboard, call } = setup(() => json(200, payload));
     await expect(dashboard.get("2026-10")).resolves.toEqual(payload);

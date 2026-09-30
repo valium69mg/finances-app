@@ -1,8 +1,12 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
-import type { Dashboard, DashboardCategory, DashboardTax } from "../../api/dashboard";
+import type { Dashboard, DashboardCategory, DashboardTax, FutureExpenses, RecentMovement, UpcomingBill } from "../../api/dashboard";
 import { BudgetTable } from "./BudgetTable";
+import { CycleProgress, paceOf } from "./CycleProgress";
+import { FutureExpensesCard } from "./FutureExpensesCard";
+import { RecentMovements } from "./RecentMovements";
+import { UpcomingBills, dueText } from "./UpcomingBills";
 import { TaxCard } from "./TaxCard";
 import { TotalsCards } from "./TotalsCards";
 
@@ -64,6 +68,10 @@ describe("TotalsCards", () => {
     available: "43300",
     emergency: { accumulated: "0", goal: "0" },
     tax: null,
+    cycle: { today: "2026-10-15", day: 16, days: 31 },
+    future_expenses: { items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0" },
+    upcoming_bills: [],
+    recent_movements: [],
     ...over,
   });
 
@@ -132,5 +140,186 @@ describe("TaxCard", () => {
     const card = screen.getByRole("region", { name: "ISR RESICO estimado" });
     expect(card).toHaveTextContent("Sin estimación");
     expect(card).not.toHaveTextContent("Declaración del mes");
+  });
+});
+
+describe("BudgetTable on a phone", () => {
+  it("renders one compact card per category with percent, full-width bar, spent of budget and what is left", () => {
+    render(<BudgetTable categories={[cat({ category: "Mandado", spent: "250", remaining: "750" })]} />);
+    const card = screen.getByTestId("budget-card");
+    expect(card).toHaveTextContent("Mandado");
+    expect(card).toHaveTextContent("25%");
+    expect(card).toHaveTextContent("Gastado $250.00 de $1,000.00");
+    expect(card).toHaveTextContent("Restante $750.00");
+    expect(within(card).getByRole("progressbar", { name: "Uso del presupuesto de Mandado" })).toHaveAttribute("aria-valuenow", "25");
+  });
+
+  it("writes Excedido with the amount over when the budget is exceeded", () => {
+    render(<BudgetTable categories={[cat({ category: "Mandado", spent: "1500.50", remaining: "-500.50", over_budget: true })]} />);
+    const card = screen.getByTestId("budget-card");
+    expect(card).toHaveTextContent("Excedido $500.50");
+    expect(card).toHaveTextContent("100%");
+    expect(within(card).getByText("Excedido $500.50")).toHaveClass("text-destructive");
+  });
+
+  it("shows only the spent amount for a category without budget", () => {
+    render(<BudgetTable categories={[cat({ category: "Ocio", spent: "80", budget: null, remaining: null })]} />);
+    const card = screen.getByTestId("budget-card");
+    expect(card).toHaveTextContent("Sin presupuesto");
+    expect(card).toHaveTextContent("Gastado $80.00");
+    expect(card).not.toHaveTextContent("Restante");
+  });
+});
+
+describe("FutureExpensesCard", () => {
+  const future: FutureExpenses = {
+    items: [
+      { name: "Seguro", due_date: "2026-12-15", target: "36000", saved: "9000", remaining: "27000", suggested_monthly: "13500", cycles_left: 2 },
+      { name: "Predial", due_date: "2027-01-20", target: "10000", saved: "0", remaining: "10000", suggested_monthly: "2500", cycles_left: 4 },
+    ],
+    target: "46000",
+    saved: "9000",
+    remaining: "37000",
+    suggested_monthly: "16000",
+  };
+
+  it("lists each expense with due date, progress and the suggested monthly amount, and a total row", () => {
+    render(<FutureExpensesCard future={future} />);
+    const items = screen.getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("Seguro");
+    expect(items[0]).toHaveTextContent("15 de diciembre de 2026");
+    expect(items[0]).toHaveTextContent("$9,000.00 de $36,000.00 (25%)");
+    expect(items[0]).toHaveTextContent("Aparta $13,500.00 al mes");
+    expect(within(items[0]).getByRole("progressbar", { name: "Ahorro para Seguro" })).toHaveAttribute("aria-valuenow", "25");
+    expect(items[1]).toHaveTextContent("20 de enero de 2027");
+    expect(screen.getByText("Total").nextSibling).toHaveTextContent("$46,000.00");
+    expect(screen.getByText("Sugerido al mes").nextSibling).toHaveTextContent("$16,000.00");
+  });
+
+  it("says the goal is covered when nothing is left to save", () => {
+    const covered = { ...future, items: [{ ...future.items[0], saved: "36000", remaining: "0", suggested_monthly: "0" }] };
+    render(<FutureExpensesCard future={covered} />);
+    expect(screen.getByText("Meta cubierta.")).toBeInTheDocument();
+  });
+
+  it("explains how to add one when there are none", () => {
+    render(<FutureExpensesCard future={{ items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0" }} />);
+    expect(screen.getByText(/Aún no hay gastos futuros/)).toBeInTheDocument();
+  });
+});
+
+describe("RecentMovements", () => {
+  const mv = (over: Partial<RecentMovement>): RecentMovement => ({
+    id: 1,
+    date: "2026-10-14",
+    kind: "Gasto",
+    description: "Super",
+    category: "Mandado",
+    amount_mxn: "350.5",
+    ...over,
+  });
+
+  it("shows a kind badge, date, description, category and amount for every kind", () => {
+    render(
+      <RecentMovements
+        movements={[mv({}), mv({ id: 2, kind: "Ingreso", description: "Sueldo", category: "Sueldo", amount_mxn: "60000" }), mv({ id: 3, kind: "Ahorro", description: "", category: "Inversiones", amount_mxn: "-200" })]}
+      />,
+    );
+    const rows = screen.getAllByRole("listitem");
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent("Gasto");
+    expect(rows[0]).toHaveTextContent("14 de octubre de 2026");
+    expect(rows[0]).toHaveTextContent("Super");
+    expect(rows[0]).toHaveTextContent("Mandado");
+    expect(rows[0]).toHaveTextContent("$350.50");
+    expect(rows[1]).toHaveTextContent("Ingreso");
+    expect(rows[1]).toHaveTextContent("$60,000.00");
+    // Without a description the category is the title, and a withdrawal stays negative.
+    expect(rows[2]).toHaveTextContent("Ahorro");
+    expect(rows[2]).toHaveTextContent("Inversiones");
+    expect(rows[2]).toHaveTextContent("-$200.00");
+  });
+
+  it("has an empty state", () => {
+    render(<RecentMovements movements={[]} />);
+    expect(screen.getByText("Aún no hay movimientos registrados.")).toBeInTheDocument();
+  });
+});
+
+describe("UpcomingBills", () => {
+  const bill = (over: Partial<UpcomingBill>): UpcomingBill => ({
+    id: 1,
+    name: "Luz",
+    category: "Servicios",
+    amount: "200",
+    currency: "MXN",
+    due_date: "2026-10-17",
+    days_until_due: 2,
+    overdue: false,
+    ...over,
+  });
+
+  it("words the due state in text", () => {
+    expect(dueText({ days_until_due: 0, overdue: false })).toBe("Vence hoy");
+    expect(dueText({ days_until_due: 1, overdue: false })).toBe("Vence mañana");
+    expect(dueText({ days_until_due: 9, overdue: false })).toBe("Vence en 9 días");
+    expect(dueText({ days_until_due: -1, overdue: true })).toBe("Vencida hace 1 día");
+  });
+
+  it("lists the bills with amount, variable amounts and the overdue ones in red", () => {
+    render(
+      <MemoryRouter>
+        <UpcomingBills bills={[bill({ id: 1, days_until_due: -3, overdue: true, due_date: "2026-10-12" }), bill({ id: 2, name: "Agua", amount: null })]} />
+      </MemoryRouter>,
+    );
+    const rows = screen.getAllByRole("listitem");
+    expect(rows[0]).toHaveTextContent("Vencida hace 3 días");
+    expect(rows[0]).toHaveTextContent("$200.00");
+    expect(rows[1]).toHaveTextContent("Monto variable");
+    expect(screen.getByRole("link", { name: "Ver pagos recurrentes" })).toHaveAttribute("href", "/pagos-recurrentes");
+  });
+
+  it("has an empty state", () => {
+    render(
+      <MemoryRouter>
+        <UpcomingBills bills={[]} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/No tienes cuentas por vencer/)).toBeInTheDocument();
+  });
+});
+
+describe("CycleProgress", () => {
+  const base = (over: Partial<Dashboard>) => ({
+    cycle: { today: "2026-10-10", day: 10, days: 30 },
+    expenses: "1000",
+    categories: [cat({ budget: "2000" }), cat({ category: "Mandado", budget: "1000" }), cat({ category: "Ocio", budget: null })],
+    ...over,
+  });
+
+  it("compares the pace by cross-multiplying", () => {
+    expect(paceOf("1000", 300000n, 10, 30)).toBe("within"); // 1000 of 3000 is 33%, exactly day 10 of 30
+    expect(paceOf("1000.01", 300000n, 10, 30)).toBe("above");
+    expect(paceOf("0", 0n, 10, 30)).toBeNull();
+  });
+
+  it("shows the day of the cycle and spending within the pace", () => {
+    render(<CycleProgress dashboard={base({})} />);
+    expect(screen.getByText("Día 10 de 30")).toBeInTheDocument();
+    expect(screen.getByText("Gastado $1,000.00 de $3,000.00 (33%)")).toBeInTheDocument();
+    expect(screen.getByText("Vas dentro del ritmo de gasto del ciclo.")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Avance del ciclo" })).toHaveAttribute("aria-valuenow", "33");
+  });
+
+  it("warns, in text, when spending is ahead of the cycle", () => {
+    render(<CycleProgress dashboard={base({ expenses: "2500" })} />);
+    expect(screen.getByText("Vas por encima del ritmo de gasto del ciclo.")).toHaveClass("text-destructive");
+  });
+
+  it("handles a cycle that has not started and a missing budget", () => {
+    render(<CycleProgress dashboard={base({ cycle: { today: "2026-08-01", day: 0, days: 30 }, categories: [cat({ budget: null })] })} />);
+    expect(screen.getByText("El periodo aún no empieza")).toBeInTheDocument();
+    expect(screen.getByText("Sin presupuesto de gasto para comparar el ritmo.")).toBeInTheDocument();
   });
 });

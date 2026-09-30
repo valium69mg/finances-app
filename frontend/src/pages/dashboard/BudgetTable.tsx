@@ -33,10 +33,68 @@ function UsageBar({ row }: { row: DashboardCategory }) {
   );
 }
 
-/** Budget versus actual per Gasto category for the selected month; exceeded budgets are flagged in text and color. */
+/** Usage bar across the full card width, or the "no budget" note. */
+function CardBar({ row }: { row: DashboardCategory }) {
+  if (row.budget === null) return <p className="mt-2 text-sm text-muted">Sin presupuesto</p>;
+  const pct = usage(row);
+  return (
+    <div
+      role="progressbar"
+      aria-label={`Uso del presupuesto de ${row.category}`}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={Math.round(pct)}
+      className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border"
+    >
+      <div className={`h-full rounded-full ${row.over_budget ? "bg-destructive" : "bg-accent"}`} style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+/** Phone layout: one compact card per category (name and percent, bar, spent of budget and what is left). */
+function BudgetCards({ categories }: { categories: DashboardCategory[] }) {
+  return (
+    <ul aria-label="Presupuesto contra gasto real por categoría" className="space-y-3 md:hidden">
+      {categories.map((c) => (
+        <li key={c.category} data-testid="budget-card" className={`rounded-xl border p-3 ${c.over_budget ? "border-destructive/40 bg-destructive/5" : "border-border"}`}>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="min-w-0 break-words font-medium">{c.category}</span>
+            {c.budget !== null && <span className="shrink-0 text-sm tabular-nums">{Math.round(usage(c))}%</span>}
+          </div>
+          <CardBar row={c} />
+          <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+            <span className="min-w-0 tabular-nums">
+              Gastado {formatMoney(c.spent)}
+              {c.budget !== null && <> de {formatMoney(c.budget)}</>}
+            </span>
+            {c.remaining !== null && (
+              <span className={`tabular-nums ${c.over_budget ? "font-medium text-destructive" : "text-muted"}`}>
+                {c.over_budget ? "Excedido" : "Restante"} {formatMoney(c.over_budget ? c.remaining.replace(/^-/, "") : c.remaining)}
+              </span>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * Budget versus actual per Gasto category for the selected month; exceeded budgets are flagged in text and
+ * color. Compact cards below the md breakpoint (no horizontal scroll on a phone), a table from md up.
+ */
 export function BudgetTable({ categories }: { categories: DashboardCategory[] }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
+    <>
+      <BudgetCards categories={categories} />
+      <BudgetGrid categories={categories} />
+    </>
+  );
+}
+
+function BudgetGrid({ categories }: { categories: DashboardCategory[] }) {
+  return (
+    <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
       <table className="w-full min-w-[40rem] border-collapse text-sm">
         <caption className="sr-only">Presupuesto contra gasto real por categoría</caption>
         <thead>

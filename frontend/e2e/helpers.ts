@@ -194,7 +194,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server" } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string }; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server" } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -320,7 +320,7 @@ export async function mockApi(
       if (opts.dashboardFail === "incomplete") return json(route, 422, { error: "settings_incomplete", message: "missing required config: emergency_months" });
       const dashboardMonth = searchParams.get("month") ?? "";
       const filing = opts.dashboardFiling ?? taxMock.monthStatus(dashboardMonth);
-      return json(route, 200, buildDashboard(dashboardMonth, { expenses, income, savings }, settings, !opts.dashboardNoTax, filing));
+      return json(route, 200, buildDashboard(dashboardMonth, { expenses, income, savings, bills: billsMock.bills }, settings, !opts.dashboardNoTax, filing, opts.dashboardFuture, todayLocal()));
     }
     if (pathname === "/savings/portfolio" && request.method() === "GET") {
       if (opts.portfolioFail) return json(route, 500, { error: "internal_error" });
@@ -484,11 +484,13 @@ function inCycle(date: string, month: string, settings: any): boolean {
 /** Dashboard computed from the in-memory movements; Gasto categories are the mock's fixed/variable ones. */
 function buildDashboard(
   month: string,
-  data: { expenses: MockExpense[]; income: MockIncome[]; savings: MockSaving[] },
+  data: { expenses: MockExpense[]; income: MockIncome[]; savings: MockSaving[]; bills: { id: number; name: string; category: string; amount: string | null; currency: string; active: boolean; pending: { due_date: string } }[] },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   settings: any,
   withTax: boolean,
   filing: { filing_status: string; previous_period_pending: boolean },
+  future: { items: unknown[]; target: string; saved: string; remaining: string; suggested_monthly: string } | undefined,
+  today: string,
 ) {
   const inMonth = <T extends { date: string }>(rows: T[]) => rows.filter((r) => inCycle(r.date, month, settings));
   const sum = (rows: { amount_mxn: string }[]) => rows.reduce((total, r) => total + Number(r.amount_mxn), 0);
@@ -511,6 +513,25 @@ function buildDashboard(
     });
   const rate = resicoRate(income);
   const range = cycleRange(month, settings.general.cycle_start_day ?? 0);
+  const dayMs = 86_400_000;
+  const utc = (d: string) => Date.parse(`${d}T00:00:00Z`);
+  const days = range ? Math.round((utc(range.to) - utc(range.from)) / dayMs) + 1 : 0;
+  const day = range ? Math.min(days, Math.max(0, Math.round((utc(today) - utc(range.from)) / dayMs) + 1)) : 0;
+  const upcoming = data.bills
+    .filter((b) => b.active && Math.round((utc(b.pending.due_date) - utc(today)) / dayMs) <= 14)
+    .map((b) => {
+      const untilDue = Math.round((utc(b.pending.due_date) - utc(today)) / dayMs);
+      return { id: b.id, name: b.name, category: b.category, amount: b.amount, currency: b.currency, due_date: b.pending.due_date, days_until_due: untilDue, overdue: untilDue < 0 };
+    })
+    .sort((a, b) => (a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : a.id - b.id));
+  const recent = [
+    ...data.income.map((m) => ({ ...m, kind: "Ingreso" })),
+    ...data.expenses.map((m) => ({ ...m, kind: "Gasto" })),
+    ...data.savings.map((m) => ({ ...m, kind: "Ahorro" })),
+  ]
+    .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1))
+    .slice(0, 8)
+    .map((m) => ({ id: m.id, date: m.date, kind: m.kind, description: m.description, category: m.category, amount_mxn: m.amount_mxn }));
   return {
     month,
     period_start: range?.from ?? "",
@@ -524,6 +545,10 @@ function buildDashboard(
       accumulated: sum(data.savings.filter((s) => s.category === "Fondo de emergencia")).toFixed(2),
       goal: "60000.00",
     },
+    cycle: { today, day, days },
+    future_expenses: future ?? { items: [], target: "0.00", saved: "0.00", remaining: "0.00", suggested_monthly: "0.00" },
+    upcoming_bills: upcoming,
+    recent_movements: recent,
     tax: withTax
       ? {
           rate,
