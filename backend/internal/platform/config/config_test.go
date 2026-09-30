@@ -35,6 +35,7 @@ func TestLoad(t *testing.T) {
 				Endpoint: "localhost:9100", AccessKey: "minio-user", SecretKey: "minio-password",
 				Bucket: "finances-invoices", Region: "us-east-1",
 			},
+			RemindersEnabled: true, TZName: "America/Mexico_City", DiskAlertPct: 80, DiskProbePath: "/probe",
 		}
 		mod(&c)
 		return c
@@ -76,6 +77,40 @@ func TestLoad(t *testing.T) {
 			name:    "malformed storage endpoint is still an error",
 			vars:    base(map[string]string{"S3_ENDPOINT": "http://localhost:9100"}),
 			wantErr: []string{"S3_ENDPOINT is invalid"},
+		},
+		{
+			name: "reminder settings",
+			vars: base(map[string]string{
+				"REMINDERS_ENABLED": "false", "TZ_NAME": "UTC", "DISK_ALERT_PCT": "90", "DISK_PROBE_PATH": "/data",
+			}),
+			want: want(func(c *config.Config) {
+				c.RemindersEnabled, c.TZName, c.DiskAlertPct, c.DiskProbePath = false, "UTC", 90, "/data"
+			}),
+		},
+		{
+			name:    "invalid timezone",
+			vars:    base(map[string]string{"TZ_NAME": "Mars/Olympus"}),
+			wantErr: []string{"TZ_NAME is invalid"},
+		},
+		{
+			name:    "invalid reminders flag",
+			vars:    base(map[string]string{"REMINDERS_ENABLED": "maybe"}),
+			wantErr: []string{"REMINDERS_ENABLED is invalid"},
+		},
+		{
+			name:    "disk alert percentage below range",
+			vars:    base(map[string]string{"DISK_ALERT_PCT": "0"}),
+			wantErr: []string{"DISK_ALERT_PCT is invalid"},
+		},
+		{
+			name:    "disk alert percentage above range",
+			vars:    base(map[string]string{"DISK_ALERT_PCT": "100"}),
+			wantErr: []string{"DISK_ALERT_PCT is invalid"},
+		},
+		{
+			name:    "disk alert percentage not a number",
+			vars:    base(map[string]string{"DISK_ALERT_PCT": "eighty"}),
+			wantErr: []string{"DISK_ALERT_PCT is invalid"},
 		},
 		{
 			name:    "missing database url",

@@ -205,6 +205,31 @@ func TestCreateValidatesAndCanonicalizesTheCategory(t *testing.T) {
 	}
 }
 
+// At 20:00 in Mexico City (UTC-6) it is already the next day in UTC: the flags
+// must follow the injected local clock, not the UTC calendar day.
+func TestFlagsFollowTheInjectedLocalDay(t *testing.T) {
+	mexico := time.FixedZone("CST", -6*60*60)
+	local := time.Date(2026, 10, 10, 20, 0, 0, 0, mexico) // 2026-10-11 02:00 UTC
+	if local.UTC().Format(bills.DateLayout) != "2026-10-11" {
+		t.Fatal("the fixture must straddle midnight UTC")
+	}
+	fx := newFixture()
+	fx.svc = app.NewService(fx.repo, fx.expenses, fx.settings, func() time.Time { return local }, nil)
+
+	in := megacable()
+	in.NextDueDate = "2026-10-10"
+	st := fx.create(t, in)
+	if st.Overdue || !st.DueSoon || st.DaysUntilDue != 0 {
+		t.Errorf("due today locally: overdue=%v dueSoon=%v days=%d, want false/true/0", st.Overdue, st.DueSoon, st.DaysUntilDue)
+	}
+
+	in.NextDueDate = "2026-10-09"
+	st = fx.create(t, in)
+	if !st.Overdue || st.DaysUntilDue != -1 {
+		t.Errorf("due yesterday locally: overdue=%v days=%d, want true/-1", st.Overdue, st.DaysUntilDue)
+	}
+}
+
 func TestCreatePropagatesSettingsErrors(t *testing.T) {
 	fx := newFixture()
 	fx.settings.err = settings.ErrMissingConfig

@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
+	_ "time/tzdata" // embed the zone database: the distroless image ships none
 
 	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
 )
@@ -21,6 +23,10 @@ const (
 	defaultS3Bucket    = "finances-invoices"
 	defaultS3Region    = "us-east-1"
 	minJWTSecretLength = 32
+
+	defaultTZName        = "America/Mexico_City"
+	defaultDiskAlertPct  = 80
+	defaultDiskProbePath = "/probe"
 )
 
 // Config holds the runtime configuration of the API.
@@ -42,6 +48,17 @@ type Config struct {
 	Production bool
 	// LogJSON selects JSON log lines (LOG_FORMAT=json) instead of text.
 	LogJSON bool
+	// RemindersEnabled turns the in-process email reminders on (REMINDERS_ENABLED,
+	// default true).
+	RemindersEnabled bool
+	// TZName is the IANA zone (TZ_NAME) that defines "today" for due dates and
+	// reminders. It is validated at load time.
+	TZName string
+	// DiskAlertPct is the used-space percentage (1..99) of the probed volume that
+	// triggers the disk alert email.
+	DiskAlertPct int
+	// DiskProbePath is the directory whose filesystem is measured for the alert.
+	DiskProbePath string
 }
 
 // S3 configures the object storage. Endpoint is host:port without a scheme.
@@ -144,10 +161,51 @@ func Load(getenv func(string) string) (Config, error) {
 	cfg.S3 = s3
 	errs = append(errs, s3Errs...)
 
+	errs = append(errs, loadReminders(getenv, &cfg)...)
+
 	if err := errors.Join(errs...); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// loadReminders reads the timezone and reminder settings into cfg. The timezone
+// applies even with the reminders off: it defines "today" for the bill flags.
+func loadReminders(getenv func(string) string, cfg *Config) []error {
+	var errs []error
+	get := func(key string) string { return strings.TrimSpace(getenv(key)) }
+
+	cfg.RemindersEnabled = true
+	if raw := get("REMINDERS_ENABLED"); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, errors.New("REMINDERS_ENABLED is invalid: use true or false"))
+		}
+		cfg.RemindersEnabled = enabled
+	}
+
+	cfg.TZName = get("TZ_NAME")
+	if cfg.TZName == "" {
+		cfg.TZName = defaultTZName
+	} else if _, err := time.LoadLocation(cfg.TZName); err != nil {
+		errs = append(errs, errors.New("TZ_NAME is invalid: use an IANA zone such as America/Mexico_City"))
+	}
+
+	cfg.DiskAlertPct = defaultDiskAlertPct
+	if raw := get("DISK_ALERT_PCT"); raw != "" {
+		pct, err := strconv.Atoi(raw)
+		if err != nil || pct < 1 || pct > 99 {
+			errs = append(errs, errors.New("DISK_ALERT_PCT is invalid: use a whole number from 1 to 99"))
+		} else {
+			cfg.DiskAlertPct = pct
+		}
+	}
+
+	cfg.DiskProbePath = get("DISK_PROBE_PATH")
+	if cfg.DiskProbePath == "" {
+		cfg.DiskProbePath = defaultDiskProbePath
+	}
+	return errs
 }
 
 // loadS3 reads the storage settings. The credentials default to the MinIO root
