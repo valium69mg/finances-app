@@ -188,6 +188,30 @@ func TestUpdateAndDelete(t *testing.T) {
 	}
 }
 
+func TestUpdateIsGuardedByKind(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	exp, _ := repo.Create(ctx, expense("2026-10-01", "Mandado", "100"))
+
+	// A savings-shaped update aimed at an expense row must not touch it.
+	hijack := saving("2026-10-02", "Inversiones", "5")
+	hijack.ID = exp.ID
+	if err := repo.Update(ctx, hijack); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Update with another kind: err = %v, want ErrNotFound", err)
+	}
+	got, _ := repo.GetByID(ctx, exp.ID)
+	if got.Kind != domain.KindExpense || got.Category != "Mandado" || !got.Amount.Equal(dec("100")) {
+		t.Errorf("expense was overwritten: %+v", got)
+	}
+
+	// The same kind still updates.
+	sav, _ := repo.Create(ctx, saving("2026-10-01", "Inversiones", "10"))
+	sav.Amount, sav.AmountMXN = dec("20"), dec("20")
+	if err := repo.Update(ctx, sav); err != nil {
+		t.Fatalf("Update same kind: %v", err)
+	}
+}
+
 func TestListByMonth(t *testing.T) {
 	repo, _ := newRepo(t)
 	ctx := context.Background()

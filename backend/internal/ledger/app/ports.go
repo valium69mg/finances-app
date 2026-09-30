@@ -12,8 +12,9 @@ import (
 type MovementRepo interface {
 	// Create stores a new movement and returns it with its generated ID.
 	Create(ctx context.Context, m domain.Movement) (domain.Movement, error)
-	// Update replaces every field of the movement with m.ID. It returns
-	// domain.ErrNotFound when it does not exist.
+	// Update replaces the fields of the movement with m.ID, provided it has
+	// kind m.Kind (the kind itself is never changed). It returns
+	// domain.ErrNotFound when it does not exist or has another kind.
 	Update(ctx context.Context, m domain.Movement) error
 	// Delete removes a movement. It returns domain.ErrNotFound when it does not exist.
 	Delete(ctx context.Context, id int) error

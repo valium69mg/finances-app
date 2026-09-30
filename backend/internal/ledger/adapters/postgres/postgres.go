@@ -162,14 +162,17 @@ func (r *Repo) ImportMovements(ctx context.Context, rows []ImportedMovement, for
 	return len(rows), nil
 }
 
-// Update replaces every field of the movement with m.ID.
+// Update replaces the fields of the movement with m.ID. The kind is a guard,
+// not a value: a movement is only updated while it still has kind m.Kind, so a
+// module can never overwrite (or change the kind of) a movement of another
+// kind. A missing row and a kind mismatch both return domain.ErrNotFound.
 func (r *Repo) Update(ctx context.Context, m domain.Movement) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE movements
-		SET date = $2::date, description = $3, category = $4, instrument = $5, kind = $6, payment_method = $7,
+		SET date = $2::date, description = $3, category = $4, instrument = $5, payment_method = $7,
 		    currency = $8, amount = $9::text::numeric, exchange_rate = $10::text::numeric,
 		    amount_mxn = $11::text::numeric
-		WHERE id = $1`,
+		WHERE id = $1 AND kind = $6`,
 		int64(m.ID), m.Date, m.Description, m.Category, nullString(m.Instrument), string(m.Kind), m.PaymentMethod,
 		m.Currency, m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String())
 	if err != nil {
