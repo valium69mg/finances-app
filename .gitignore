@@ -3,6 +3,10 @@
 .env.*
 !.env.example
 
+# Production stack: TLS material and per-host nginx extras never enter git.
+deploy/certs/
+deploy/nginx/optional/*.conf
+
 # Go
 backend/bin/
 *.test

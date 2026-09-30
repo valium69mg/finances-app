@@ -1,0 +1,12 @@
+# Cloudflare Authenticated Origin Pulls: nginx only completes TLS handshakes from clients
+# that present Cloudflare's client certificate, so nothing but Cloudflare can talk to the
+# origin even if its IP leaks.
+#
+# To enable:
+#   1. curl -fsSo "$TLS_CERT_DIR/authenticated_origin_pull_ca.pem" \
+#        https://developers.cloudflare.com/ssl/static/authenticated_origin_pull_ca.pem
+#   2. cp authenticated-origin-pulls.conf.example authenticated-origin-pulls.conf
+#   3. restart nginx
+#   4. enable SSL/TLS > Origin Server > Authenticated Origin Pulls in the Cloudflare dashboard.
+ssl_client_certificate /etc/nginx/certs/authenticated_origin_pull_ca.pem;
+ssl_verify_client on;
