@@ -14,8 +14,10 @@ import (
 
 	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
 	bills "github.com/valium69mg/finances-app/backend/internal/bills/domain"
+	invoices "github.com/valium69mg/finances-app/backend/internal/invoices/domain"
 	"github.com/valium69mg/finances-app/backend/internal/reminders/app"
 	"github.com/valium69mg/finances-app/backend/internal/reminders/domain"
+	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
 )
 
 var mexico = time.FixedZone("CST", -6*60*60)
@@ -107,9 +109,30 @@ type fakeOwner struct {
 
 func (f fakeOwner) OwnerEmail(context.Context) (string, error) { return f.email, f.err }
 
+type fakeTax struct {
+	list []taxfiling.PendingPeriod
+	err  error
+}
+
+func (f *fakeTax) Pending(context.Context) ([]taxfiling.PendingPeriod, error) { return f.list, f.err }
+
+type fakeInvoices struct {
+	issued map[string][]invoices.Invoice // by period
+	err    error
+}
+
+func (f *fakeInvoices) List(_ context.Context, period string, status invoices.Status) ([]invoices.Invoice, error) {
+	if status != invoices.StatusIssued {
+		panic("the salary reminder must look at issued invoices only")
+	}
+	return f.issued[period], f.err
+}
+
 // rig wires a Runner with fakes and a clock the test moves.
 type rig struct {
 	now    time.Time
+	tax    *fakeTax
+	invs   *fakeInvoices
 	bills  *fakeBills
 	mailer *fakeMailer
 	log    *fakeLog
@@ -125,6 +148,8 @@ func newRig(t *testing.T) *rig {
 	r := &rig{
 		now:    time.Date(2026, 10, 5, 9, 0, 0, 0, mexico),
 		bills:  &fakeBills{},
+		tax:    &fakeTax{},
+		invs:   &fakeInvoices{issued: map[string][]invoices.Invoice{}},
 		mailer: &fakeMailer{},
 		disk:   &fakeDisk{used: 10},
 		owner:  fakeOwner{email: "owner@example.com"},
@@ -137,7 +162,7 @@ func newRig(t *testing.T) *rig {
 
 func (r *rig) build() {
 	r.runner = app.NewRunner(app.Deps{
-		Bills: r.bills, Mailer: r.mailer, Log: r.log, Disk: r.disk, Owner: r.owner,
+		Bills: r.bills, Tax: r.tax, Invoices: r.invs, Mailer: r.mailer, Log: r.log, Disk: r.disk, Owner: r.owner,
 		AppBaseURL: "https://app.example.com", DiskAlertPct: 80,
 		Now:    func() time.Time { return r.now },
 		Logger: slog.New(slog.NewTextHandler(r.logs, nil)),
@@ -447,6 +472,188 @@ func TestBillsFailureStillChecksTheDisk(t *testing.T) {
 	r.tick()
 	if n := r.mailer.count(); n != 1 || !strings.Contains(r.mailer.sent[0].subject, "disco") {
 		t.Fatalf("sent %+v, want only the disk alert", r.mailer.sent)
+	}
+}
+
+func pendingSep() []taxfiling.PendingPeriod {
+	return []taxfiling.PendingPeriod{{Period: "2026-09", DueDate: "2026-10-17"}}
+}
+
+func subjects(r *rig) []string {
+	var out []string
+	for _, m := range r.mailer.sent {
+		out = append(out, m.subject)
+	}
+	return out
+}
+
+func TestTaxReminderSentOnceAndDeduped(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 12, 9, 0, 0, 0, mexico) // 5 days before the due date
+	r.tax.list = pendingSep()
+
+	r.tick()
+	r.tick()
+	r.advance(24 * time.Hour) // 4 days left: same key, no new email
+	r.tick()
+	if n := r.mailer.count(); n != 1 {
+		t.Fatalf("sent %d emails, want 1: %v", n, subjects(r))
+	}
+	m := r.mailer.sent[0]
+	if !strings.Contains(m.subject, "Septiembre 2026") || !strings.Contains(m.text, "17/10/2026") || !strings.Contains(m.text, "https://app.example.com") {
+		t.Errorf("unexpected email %+v", m)
+	}
+	if _, ok := r.log.keys["tax_due_soon:2026-09"]; !ok {
+		t.Errorf("key not recorded: %v", r.log.keys)
+	}
+
+	r.now = time.Date(2026, 10, 17, 9, 0, 0, 0, mexico)
+	r.tick()
+	if _, ok := r.log.keys["tax_due_today:2026-09"]; !ok || r.mailer.count() != 2 {
+		t.Fatalf("due-day email missing: %v", subjects(r))
+	}
+}
+
+func TestTaxOverdueRepeatsEveryThreeDaysUntilFiled(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 18, 9, 0, 0, 0, mexico) // first overdue day, a Sunday
+	r.tax.list = pendingSep()
+
+	want := map[int]int{1: 1, 2: 1, 3: 1, 4: 2, 5: 2, 6: 2, 7: 3}
+	for day := 1; day <= 7; day++ {
+		r.tick()
+		n := 0
+		for _, s := range subjects(r) {
+			if strings.Contains(s, "Declaración vencida") {
+				n++
+			}
+		}
+		if n != want[day] {
+			t.Fatalf("overdue day %d: %d emails, want %d", day, n, want[day])
+		}
+		r.advance(24 * time.Hour)
+	}
+
+	r.tax.list = nil // filed: nothing pending any more
+	before := r.mailer.count()
+	r.advance(72 * time.Hour)
+	r.tick()
+	if r.mailer.count() != before {
+		t.Fatal("a filed period kept being reminded")
+	}
+}
+
+func TestTaxSendFailureIsRetried(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 17, 9, 0, 0, 0, mexico)
+	r.tax.list = pendingSep()
+	failing := true
+	r.mailer.failOn = func(string) bool { return failing }
+
+	r.tick()
+	if r.mailer.count() != 0 || len(r.log.keys) != 0 {
+		t.Fatalf("a failed send was recorded: %v", r.log.keys)
+	}
+	failing = false
+	r.advance(30 * time.Minute)
+	r.tick()
+	r.tick()
+	if r.mailer.count() != 1 {
+		t.Fatalf("sent %d emails after the retry, want 1", r.mailer.count())
+	}
+}
+
+func TestTaxListerFailureDoesNotBlockBills(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 6, 9, 0, 0, 0, mexico)
+	r.tax.err = errors.New("db down")
+	r.bills.list = []billsapp.Status{status(1, "Luz", "2026-10-07", 1, 3, "550")}
+	r.disk.used = 90
+
+	r.tick()
+	if n := r.mailer.count(); n != 2 {
+		t.Fatalf("sent %v, want the bill and the disk email", subjects(r))
+	}
+	if !strings.Contains(r.logs.String(), "could not list the pending tax filings") {
+		t.Errorf("failure not logged: %s", r.logs.String())
+	}
+}
+
+func TestSalaryReminderOnLastDayOnly(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 9, 29, 9, 0, 0, 0, mexico) // a Tuesday, not the last day
+	r.tick()
+	if r.mailer.count() != 0 {
+		t.Fatalf("sent on the 29th: %v", subjects(r))
+	}
+
+	r.now = time.Date(2026, 9, 30, 7, 59, 0, 0, mexico) // last day, before 08:00
+	r.tick()
+	if r.mailer.count() != 0 {
+		t.Fatal("sent before 08:00")
+	}
+
+	r.now = time.Date(2026, 9, 30, 8, 0, 0, 0, mexico)
+	r.tick()
+	r.tick()
+	if r.mailer.count() != 1 || r.mailer.sent[0].subject != "Emite la factura de tu sueldo de Septiembre 2026" {
+		t.Fatalf("got %v", subjects(r))
+	}
+	if _, ok := r.log.keys["salary_invoice:2026-09"]; !ok {
+		t.Errorf("key missing: %v", r.log.keys)
+	}
+}
+
+func TestSalaryReminderLeapYearFebruary(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2028, 2, 28, 9, 0, 0, 0, mexico)
+	r.tick()
+	if r.mailer.count() != 0 {
+		t.Fatalf("sent on Feb 28 of a leap year: %v", subjects(r))
+	}
+	r.now = time.Date(2028, 2, 29, 9, 0, 0, 0, mexico)
+	r.tick()
+	if r.mailer.count() != 1 || !strings.Contains(r.mailer.sent[0].subject, "Febrero 2028") {
+		t.Fatalf("got %v", subjects(r))
+	}
+}
+
+func TestSalaryReminderSkippedWhenIssued(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 31, 9, 0, 0, 0, mexico)
+	r.invs.issued["2026-10"] = []invoices.Invoice{{ID: 1, Period: "2026-10", Status: invoices.StatusIssued}}
+	r.tick()
+	if r.mailer.count() != 0 || len(r.log.keys) != 0 {
+		t.Fatalf("reminded although the invoice is issued: %v", subjects(r))
+	}
+}
+
+func TestSalaryInvoiceLookupFailureSendsNothingThenRetries(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 31, 9, 0, 0, 0, mexico)
+	r.invs.err = errors.New("db down")
+	r.tick()
+	if r.mailer.count() != 0 {
+		t.Fatal("sent without knowing whether the invoice exists")
+	}
+	r.invs.err = nil
+	r.advance(30 * time.Minute)
+	r.tick()
+	if r.mailer.count() != 1 {
+		t.Fatalf("not retried: %v", subjects(r))
+	}
+}
+
+func TestNilTaxAndInvoicesTurnTheirRemindersOff(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 9, 30, 9, 0, 0, 0, mexico)
+	r.runner = app.NewRunner(app.Deps{
+		Bills: r.bills, Mailer: r.mailer, Log: r.log, Owner: r.owner, DiskAlertPct: 80,
+		Now: func() time.Time { return r.now }, Logger: slog.New(slog.NewTextHandler(r.logs, nil)),
+	})
+	r.tick()
+	if r.mailer.count() != 0 {
+		t.Fatalf("sent %v without the ports", subjects(r))
 	}
 }
 

@@ -42,6 +42,122 @@ func TestBillEmailsSkipsItemsOutsideTheWindow(t *testing.T) {
 	}
 }
 
+func TestTaxEmails(t *testing.T) {
+	const due = "2026-10-17"
+	tests := []struct {
+		name     string
+		today    string
+		wantKey  string // empty: no email
+		wantKind domain.Kind
+		wantDays int
+	}{
+		{"6 days before sends nothing", "2026-10-11", "", "", 0},
+		{"exactly 5 days before", "2026-10-12", "tax_due_soon:2026-09", domain.KindTaxDueSoon, 5},
+		{"1 day before", "2026-10-16", "tax_due_soon:2026-09", domain.KindTaxDueSoon, 1},
+		{"due day", "2026-10-17", "tax_due_today:2026-09", domain.KindTaxDueToday, 0},
+		{"day after due is bucket 0", "2026-10-18", "tax_overdue:2026-09:0", domain.KindTaxOverdue, -1},
+		{"third overdue day still bucket 0", "2026-10-20", "tax_overdue:2026-09:0", domain.KindTaxOverdue, -3},
+		{"fourth overdue day is bucket 1", "2026-10-21", "tax_overdue:2026-09:1", domain.KindTaxOverdue, -4},
+		{"10th overdue day is bucket 3", "2026-10-27", "tax_overdue:2026-09:3", domain.KindTaxOverdue, -10},
+		{"month boundary before the due date", "2026-09-30", "", "", 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := domain.TaxEmails([]domain.TaxPeriod{{Period: "2026-09", DueDate: due}}, tt.today)
+			if tt.wantKey == "" {
+				if len(got) != 0 {
+					t.Fatalf("got %+v, want no email", got)
+				}
+				return
+			}
+			if len(got) != 1 || got[0].Key != tt.wantKey || got[0].Kind != tt.wantKind || got[0].Tax.DaysUntilDue != tt.wantDays {
+				t.Fatalf("got %+v, want one %s email with key %s and %d days", got, tt.wantKind, tt.wantKey, tt.wantDays)
+			}
+		})
+	}
+}
+
+func TestTaxEmailsSkipsBadDatesAndHandlesManyPeriods(t *testing.T) {
+	got := domain.TaxEmails([]domain.TaxPeriod{
+		{Period: "2026-07", DueDate: "2026-08-17"},
+		{Period: "bad", DueDate: "nope"},
+		{Period: "2026-09", DueDate: "2026-10-17"},
+	}, "2026-10-17")
+	if len(got) != 2 || got[0].Key != "tax_overdue:2026-07:20" || got[1].Key != "tax_due_today:2026-09" {
+		t.Fatalf("got %+v", got)
+	}
+	if len(domain.TaxEmails(nil, "2026-10-17")) != 0 || len(domain.TaxEmails([]domain.TaxPeriod{{Period: "2026-09", DueDate: "2026-10-17"}}, "garbage")) != 0 {
+		t.Error("nothing pending or an invalid today must not send")
+	}
+}
+
+func TestSalaryMonth(t *testing.T) {
+	tests := []struct {
+		today, want string
+	}{
+		{"2026-09-30", "2026-09"}, // 30-day month
+		{"2026-09-29", ""},        //
+		{"2026-10-30", ""},        // 31-day month: the 30th is not the last day
+		{"2026-10-31", "2026-10"}, //
+		{"2026-02-28", "2026-02"}, // common year
+		{"2028-02-28", ""},        // leap year: the 28th is not the last day
+		{"2028-02-29", "2028-02"}, //
+		{"2026-12-31", "2026-12"}, // year end
+		{"garbage", ""},
+	}
+	for _, tt := range tests {
+		got, ok := domain.SalaryMonth(tt.today)
+		if got != tt.want || ok != (tt.want != "") {
+			t.Errorf("SalaryMonth(%q) = %q, %v; want %q", tt.today, got, ok, tt.want)
+		}
+	}
+}
+
+func TestSalaryEmail(t *testing.T) {
+	e, ok := domain.SalaryEmail("2026-09", false)
+	if !ok || e.Key != "salary_invoice:2026-09" || e.Kind != domain.KindSalaryInvoice || e.Month != "2026-09" {
+		t.Fatalf("got %+v, %v", e, ok)
+	}
+	if _, ok := domain.SalaryEmail("2026-09", true); ok {
+		t.Error("an already issued month must not be reminded")
+	}
+}
+
+func TestComposeTax(t *testing.T) {
+	tests := []struct {
+		kind    domain.Kind
+		days    int
+		subject string
+		want    []string
+	}{
+		{domain.KindTaxDueSoon, 5, "Declaración próxima a vencer: Septiembre 2026", []string{"17/10/2026", "en 5 días"}},
+		{domain.KindTaxDueToday, 0, "Declaración vence hoy: Septiembre 2026", []string{"17/10/2026", "hoy"}},
+		{domain.KindTaxOverdue, -4, "Declaración vencida: Septiembre 2026", []string{"17/10/2026", "venció hace 4 días"}},
+	}
+	for _, tt := range tests {
+		e := domain.Email{Kind: tt.kind, Tax: &domain.TaxItem{Period: "2026-09", DueDate: "2026-10-17", DaysUntilDue: tt.days}}
+		m := domain.Compose(e, "https://app.example.com")
+		if m.Subject != tt.subject {
+			t.Errorf("subject = %q, want %q", m.Subject, tt.subject)
+		}
+		for _, w := range append(tt.want, "Septiembre 2026", "https://app.example.com") {
+			if !strings.Contains(m.Text, w) || !strings.Contains(m.HTML, w) {
+				t.Errorf("%s: missing %q in %q / %q", tt.kind, w, m.Text, m.HTML)
+			}
+		}
+	}
+}
+
+func TestComposeSalaryEscapesLink(t *testing.T) {
+	m := domain.Compose(domain.Email{Kind: domain.KindSalaryInvoice, Month: "2028-02"}, `https://app/?a=1&b="2"`)
+	if m.Subject != "Emite la factura de tu sueldo de Febrero 2028" {
+		t.Errorf("subject = %q", m.Subject)
+	}
+	if !strings.Contains(m.Text, "Febrero 2028") || !strings.Contains(m.HTML, "&amp;b=&#34;2&#34;") {
+		t.Errorf("text %q html %q", m.Text, m.HTML)
+	}
+}
+
 func TestWeeklyEmail(t *testing.T) {
 	const monday, tuesday = "2026-10-05", "2026-10-06"
 	items := []domain.Item{

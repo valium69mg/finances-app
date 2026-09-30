@@ -17,6 +17,10 @@ type Message struct {
 // Compose builds the message of a bill email. appURL is the link to the app.
 func Compose(e Email, appURL string) Message {
 	switch e.Kind {
+	case KindTaxDueSoon, KindTaxDueToday, KindTaxOverdue:
+		return taxMessage(e, appURL)
+	case KindSalaryInvoice:
+		return salaryMessage(e.Month, appURL)
 	case KindWeekly:
 		return weeklyMessage(e.Items, appURL)
 	case KindBillOverdue:
@@ -36,6 +40,59 @@ func DiskMessage(usedPct float64, thresholdPct int) Message {
 		HTML: "<p>Hola,</p><p>" + html.EscapeString(text) + "</p>" +
 			"<p>Conviene ampliar el volumen antes de que se llene. " +
 			"Si sigue por encima del umbral, este aviso se repite cada 7 días.</p>",
+	}
+}
+
+var monthNames = [...]string{
+	"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+	"Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+}
+
+// monthLabel renders a YYYY-MM month as "Septiembre 2026"; an unparsable value
+// is kept.
+func monthLabel(month string) string {
+	t, err := time.Parse("2006-01", month)
+	if err != nil {
+		return month
+	}
+	return monthNames[t.Month()-1] + " " + t.Format("2006")
+}
+
+// taxMessage builds the email of a pending tax filing: which period, the
+// deadline and how many days are left or have passed.
+func taxMessage(e Email, appURL string) Message {
+	t := e.Tax
+	label := monthLabel(t.Period)
+	var subject, lead string
+	switch e.Kind {
+	case KindTaxOverdue:
+		subject = "Declaración vencida: " + label
+		lead = "Tu declaración mensual de " + label + " está vencida y aún no la has registrado."
+	case KindTaxDueToday:
+		subject = "Declaración vence hoy: " + label
+		lead = "Tu declaración mensual de " + label + " vence hoy."
+	default:
+		subject = "Declaración próxima a vencer: " + label
+		lead = "Tu declaración mensual de " + label + " está próxima a vencer."
+	}
+	detail := "Fecha límite: " + dateText(t.DueDate) + " (" + whenText(t.DaysUntilDue) + ")."
+	hint := "Presenta la declaración en el portal del SAT y regístrala en la app."
+	return Message{
+		Subject: subject,
+		Text:    "Hola,\n\n" + lead + "\n" + detail + "\n" + hint + "\n\nAbre la app: " + appURL + "\n",
+		HTML: "<p>Hola,</p><p>" + html.EscapeString(lead) + "</p><p>" + html.EscapeString(detail) + "</p><p>" +
+			html.EscapeString(hint) + "</p>" + linkHTML(appURL),
+	}
+}
+
+// salaryMessage builds the end-of-month reminder to issue the salary invoice.
+func salaryMessage(month, appURL string) Message {
+	label := monthLabel(month)
+	lead := "Hoy es el último día del mes: emite la factura de tu sueldo de " + label + "."
+	return Message{
+		Subject: "Emite la factura de tu sueldo de " + label,
+		Text:    "Hola,\n\n" + lead + "\n\nAbre la app: " + appURL + "\n",
+		HTML:    "<p>Hola,</p><p>" + html.EscapeString(lead) + "</p>" + linkHTML(appURL),
 	}
 }
 

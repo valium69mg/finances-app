@@ -114,10 +114,10 @@ func invoiceStore(ctx context.Context, cfg config.S3) invoicesapp.ObjectStore {
 // reminderRunner wires the email reminders. The disk alert is left out, with a
 // warning, when the probe directory cannot be measured (for example in local
 // development, where /probe does not exist).
-func reminderRunner(cfg config.Config, pool *pgxpool.Pool, lister remindersapp.BillLister, mailer remindersapp.Mailer, now func() time.Time) *remindersapp.Runner {
+func reminderRunner(cfg config.Config, pool *pgxpool.Pool, lister remindersapp.BillLister, tax remindersapp.TaxPending, invs remindersapp.InvoiceLister, mailer remindersapp.Mailer, now func() time.Time) *remindersapp.Runner {
 	repo := reminderspg.NewRepo(pool)
 	deps := remindersapp.Deps{
-		Bills: lister, Mailer: mailer, Log: repo, Owner: repo,
+		Bills: lister, Tax: tax, Invoices: invs, Mailer: mailer, Log: repo, Owner: repo,
 		AppBaseURL: cfg.AppBaseURL, DiskAlertPct: cfg.DiskAlertPct, Now: now, Logger: slog.Default(),
 	}
 	probe := remindersdisk.NewProbe(cfg.DiskProbePath)
@@ -204,7 +204,7 @@ func run() error {
 		reminders.Wait()
 	}()
 	if cfg.RemindersEnabled {
-		runner := reminderRunner(cfg, pool, billsSvc, resendMailer, now)
+		runner := reminderRunner(cfg, pool, billsSvc, taxfilingSvc, invoicesSvc, resendMailer, now)
 		reminders.Add(1)
 		go func() {
 			defer reminders.Done()

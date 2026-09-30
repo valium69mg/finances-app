@@ -13,7 +13,9 @@ import (
 	"time"
 
 	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
+	invoices "github.com/valium69mg/finances-app/backend/internal/invoices/domain"
 	"github.com/valium69mg/finances-app/backend/internal/reminders/domain"
+	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
 )
 
 // Default cadence of the runner.
@@ -26,6 +28,18 @@ const (
 // bills service.
 type BillLister interface {
 	List(ctx context.Context, includeInactive bool) ([]billsapp.Status, error)
+}
+
+// TaxPending lists the periods with issued invoices and no registered filing,
+// each with its deadline. Implemented by the taxfiling service.
+type TaxPending interface {
+	Pending(ctx context.Context) ([]taxfiling.PendingPeriod, error)
+}
+
+// InvoiceLister lists invoices of a YYYY-MM period and status. Implemented by
+// the invoices service.
+type InvoiceLister interface {
+	List(ctx context.Context, period string, status invoices.Status) ([]invoices.Invoice, error)
 }
 
 // Mailer sends one email.
@@ -54,14 +68,17 @@ type OwnerEmail interface {
 	OwnerEmail(ctx context.Context) (string, error)
 }
 
-// Deps are the collaborators and settings of a Runner. Disk may be nil to turn
-// the disk alert off. Now must return the time in the zone that defines
+// Deps are the collaborators and settings of a Runner. Disk, Tax and Invoices
+// may be nil to turn the disk alert, the tax filing reminders and the salary
+// invoice reminder off. Now must return the time in the zone that defines
 // "today" (and the 08:00 gate); nil selects time.Now.
 type Deps struct {
 	Bills        BillLister
 	Mailer       Mailer
 	Log          SentLog
 	Disk         DiskProbe
+	Tax          TaxPending
+	Invoices     InvoiceLister
 	Owner        OwnerEmail
 	AppBaseURL   string
 	DiskAlertPct int
@@ -126,7 +143,50 @@ func (r *Runner) Tick(ctx context.Context) {
 	today := now.Format("2006-01-02")
 
 	r.billReminders(ctx, today)
+	r.taxReminders(ctx, today)
+	r.salaryReminder(ctx, today)
 	r.diskAlert(ctx, now, today)
+}
+
+// taxReminders emails about the periods still to file. A lister failure is
+// logged and leaves the other reminders untouched.
+func (r *Runner) taxReminders(ctx context.Context, today string) {
+	if r.Tax == nil || ctx.Err() != nil {
+		return
+	}
+	pending, err := r.Tax.Pending(ctx)
+	if err != nil {
+		r.Logger.Error("reminders: could not list the pending tax filings", "error", err)
+		return
+	}
+	periods := make([]domain.TaxPeriod, 0, len(pending))
+	for _, p := range pending {
+		periods = append(periods, domain.TaxPeriod{Period: p.Period, DueDate: p.DueDate})
+	}
+	for _, e := range domain.TaxEmails(periods, today) {
+		if ctx.Err() != nil {
+			return
+		}
+		r.sendOnce(ctx, e.Key, func() domain.Message { return domain.Compose(e, r.AppBaseURL) })
+	}
+}
+
+// salaryReminder emails on the last day of the month unless an invoice of that
+// month is already issued. When that cannot be checked nothing is sent, and the
+// next tick tries again.
+func (r *Runner) salaryReminder(ctx context.Context, today string) {
+	month, ok := domain.SalaryMonth(today)
+	if !ok || r.Invoices == nil || ctx.Err() != nil {
+		return
+	}
+	issued, err := r.Invoices.List(ctx, month, invoices.StatusIssued)
+	if err != nil {
+		r.Logger.Error("reminders: could not list the issued invoices", "month", month, "error", err)
+		return
+	}
+	if e, ok := domain.SalaryEmail(month, len(issued) > 0); ok {
+		r.sendOnce(ctx, e.Key, func() domain.Message { return domain.Compose(e, r.AppBaseURL) })
+	}
 }
 
 func (r *Runner) billReminders(ctx context.Context, today string) {
