@@ -1,0 +1,7 @@
+.git
+bin/
+**/*_test.go
+*.test
+*.out
+.env
+.env.*

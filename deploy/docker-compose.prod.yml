@@ -1,0 +1,215 @@
+# Production stack for a single 2 GB VM: nginx (edge) + api + postgres + minio, plus a
+# one-shot migration job. Separate from the development ../docker-compose.yml, which is
+# untouched. Runbook: deploy/README.md.
+#
+#   docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml up -d --build
+#
+# Only nginx publishes ports (80 and 443). Postgres, MinIO and the API are reachable only
+# from inside the `backend` network, which has no route to the internet.
+
+name: ${COMPOSE_PROJECT_NAME:-finances-prod}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  nginx:
+    build:
+      context: ../frontend
+      dockerfile: ../deploy/frontend.Dockerfile
+    image: finances-prod-nginx:local
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:8080"
+      - "${HTTPS_PORT:-443}:8443"
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env.prod (the public host name, no scheme)}
+      NGINX_ENVSUBST_FILTER: ^DOMAIN$$
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/cloudflare-ips.conf:/etc/nginx/cloudflare-ips.conf:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./nginx/optional:/etc/nginx/optional:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      # Cloudflare Origin CA certificate: origin.pem and origin.key (see deploy/README.md).
+      - ${TLS_CERT_DIR:-/etc/finances/certs}:/etc/nginx/certs:ro
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /etc/nginx/conf.d:size=1m,uid=101,gid=101   # rendered site config
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    pids_limit: 128
+    networks:
+      backend:
+        ipv4_address: 172.29.42.10   # the one address the API trusts (TRUSTED_PROXIES)
+      edge: {}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/nginx-health || exit 1"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  api:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/backend.Dockerfile
+    image: finances-prod-api:local
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      LOG_FORMAT: json
+      HTTP_ADDR: ":8080"
+      DATABASE_URL: postgres://${POSTGRES_USER:-finances}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finances}?sslmode=disable&pool_max_conns=10
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (openssl rand -hex 32)}
+      RESEND_API_KEY: ${RESEND_API_KEY:?set RESEND_API_KEY}
+      RESEND_FROM: ${RESEND_FROM:-onboarding@resend.dev}
+      APP_BASE_URL: ${APP_BASE_URL:-https://${DOMAIN:?set DOMAIN}}
+      # Trust X-Real-IP only from the nginx container (fixed address below). Empty would
+      # make every client share nginx's IP in the per-IP login limiter.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.29.42.10}
+      S3_ENDPOINT: minio:9000
+      S3_USE_SSL: "false"
+      S3_BUCKET: ${S3_BUCKET:-finances-invoices}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      GOMEMLIMIT: 150MiB
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 192m
+    pids_limit: 256
+    stop_grace_period: 20s
+    networks:
+      backend:
+        aliases: [api-backend]   # what nginx proxies to: resolves to the backend address only
+      edge: {}   # outbound HTTPS to Resend (the backend network has no internet route)
+    logging: *logging
+    # The image defines its own HEALTHCHECK (/healthcheck against /healthz).
+
+  migrate:
+    # One-shot job: applies ../migrations with golang-migrate before the API starts.
+    # Re-run it by hand after adding migrations (see deploy/README.md).
+    image: migrate/migrate:v4.19.1
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - -path=/migrations
+      - -database=postgres://${POSTGRES_USER:-finances}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-finances}?sslmode=disable
+      - up
+    volumes:
+      - ../migrations:/migrations:ro
+    mem_limit: 64m
+    networks:
+      - backend
+    logging: *logging
+
+  postgres:
+    image: postgres:18.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finances}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-finances}
+    # Tuned for a 512 MB container on a 2 GB VM shared with the rest of the stack.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=128MB
+      - -c
+      - effective_cache_size=320MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=30
+      - -c
+      - wal_buffers=4MB
+      - -c
+      - max_wal_size=512MB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - log_min_duration_statement=1000
+    shm_size: 128mb
+    volumes:
+      # PostgreSQL 18+ images declare VOLUME /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    mem_limit: 512m
+    pids_limit: 200
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    logging: *logging
+
+  minio:
+    # Same pinned Chainguard build as the development compose (MinIO no longer publishes
+    # pullable official images).
+    image: cgr.dev/chainguard/minio:latest@sha256:71674988a1c7ddd5724928633199152b11e4ddefd6c6ce2d60772ff4a8f22ca9
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER: "off"            # no web console: nothing to expose or attack
+      MINIO_API_REQUESTS_MAX: "32"    # bound concurrent S3 requests (memory)
+      GOMEMLIMIT: 192MiB
+    volumes:
+      - minio-data:/data
+    mem_limit: 256m
+    pids_limit: 200
+    networks:
+      - backend
+    healthcheck:
+      # The image has bash but no curl/wget: probe the liveness endpoint over /dev/tcp.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /minio/health/live HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          read -r status <&3 &&
+          [[ $$status == *200* ]]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    logging: *logging
+
+networks:
+  # No route to the internet: postgres and minio can neither be reached from outside nor
+  # call out.
+  backend:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.29.42.0/24
+  # Published ports and the API's outbound HTTPS (Resend).
+  edge: {}
+
+volumes:
+  postgres-data:
+  minio-data:
