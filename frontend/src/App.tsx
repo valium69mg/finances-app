@@ -3,6 +3,7 @@ import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { Layout } from "./components/Layout";
 import { modules } from "./modules";
 import { Expenses } from "./pages/Expenses";
+import { Income } from "./pages/Income";
 import { Login } from "./pages/Login";
 import { Placeholder } from "./pages/Placeholder";
 import { Settings } from "./pages/Settings";
@@ -11,6 +12,7 @@ import { VerifyEmail } from "./pages/VerifyEmail";
 function pageFor(path: string) {
   if (path === "/configuracion") return <Settings />;
   if (path === "/gastos") return <Expenses />;
+  if (path === "/ingresos") return <Income />;
   return null;
 }
 

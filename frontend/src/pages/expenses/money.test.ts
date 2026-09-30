@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMoney, isPositiveDecimal, todayISO } from "./money";
+import { formatMoney, formatRatePercent, isPositiveDecimal, todayISO } from "./money";
 
 describe("formatMoney", () => {
   it("pads, groups and rounds decimal strings without floats", () => {
@@ -14,6 +14,18 @@ describe("formatMoney", () => {
     expect(formatMoney("-100")).toBe("-$100.00");
     expect(formatMoney("-0.001")).toBe("$0.00");
     expect(formatMoney("abc")).toBe("abc");
+  });
+});
+
+describe("formatRatePercent", () => {
+  it("shifts the decimal point without floats", () => {
+    expect(formatRatePercent("0.015")).toBe("1.5%");
+    expect(formatRatePercent("0.01")).toBe("1%");
+    expect(formatRatePercent("0.0125")).toBe("1.25%");
+    expect(formatRatePercent("0.0110")).toBe("1.1%");
+    expect(formatRatePercent("0")).toBe("0%");
+    expect(formatRatePercent("1")).toBe("100%");
+    expect(formatRatePercent("x")).toBe("x");
   });
 });
 

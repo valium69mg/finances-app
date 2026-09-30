@@ -71,6 +71,8 @@ export const SETTINGS_FIXTURE = {
     { name: "Renta", kind: "fixed", budget: "12000.50", includes: "Renta y mantenimiento", keywords: ["renta", "alquiler"] },
     { name: "Comida", kind: "variable", budget: "6000", includes: "", keywords: [] },
     { name: "Inversiones", kind: "savings", budget: null, includes: "", keywords: [] },
+    { name: "Sueldo", kind: "Ingreso", budget: null, includes: "", keywords: ["sueldo"] },
+    { name: "Contrato extra", kind: "Ingreso", budget: null, includes: "", keywords: ["contrato"] },
   ],
   clients: [
     {
@@ -101,7 +103,7 @@ export const SETTINGS_FIXTURE = {
     { upper: "25000.00", rate: "0.0100" },
     { upper: "50000.00", rate: "0.0110" },
   ],
-  payment_methods: ["Efectivo", "Tarjeta"],
+  payment_methods: ["Efectivo", "Tarjeta", "Transferencia"],
   issuer: null,
   investment_pause: {
     months: ["2026-10", "2026-11"],
@@ -123,7 +125,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[] } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[] } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -132,6 +134,9 @@ export async function mockApi(
   // In-memory expenses so writes are served back on the next GET.
   const expenses: MockExpense[] = structuredClone(opts.expenses ?? []);
   let nextExpenseId = expenses.reduce((max, e) => Math.max(max, e.id), 0) + 1;
+  const incomeFail = opts.incomeFail;
+  const income: MockIncome[] = structuredClone(opts.income ?? []);
+  let nextIncomeId = income.reduce((max, e) => Math.max(max, e.id), 0) + 1;
   const requests: RecordedRequest[] = [];
   const writes: RecordedWrite[] = [];
   // In-memory settings so a saved change is served back on the next GET.
@@ -143,6 +148,43 @@ export async function mockApi(
       return route.fulfill({ status: 204, headers: CORS });
     }
     const { pathname, searchParams } = new URL(request.url());
+
+    if (pathname === "/income/infer-category") {
+      const d = (searchParams.get("description") ?? "").toLowerCase();
+      const hit = Object.entries(INCOME_KEYWORDS).find(([k]) => d.includes(k));
+      return json(route, 200, { category: hit ? hit[1] : null });
+    }
+    if (pathname === "/income" && request.method() === "GET") {
+      const month = searchParams.get("month") ?? "";
+      const rows = income
+        .filter((e) => e.date.startsWith(month))
+        .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
+      return json(route, 200, rows);
+    }
+    if (pathname === "/income" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      requests.push({ path: pathname, body });
+      if (incomeFail) return json(route, 400, { error: "invalid_income", message: incomeFail });
+      const row = buildIncome(nextIncomeId++, body, settings);
+      income.push(row);
+      return json(route, 201, incomeResult(row, income, true));
+    }
+    const incomeMatch = /^\/income\/(\d+)$/.exec(pathname);
+    if (incomeMatch && (request.method() === "PUT" || request.method() === "DELETE")) {
+      const id = Number(incomeMatch[1]);
+      const body = request.method() === "PUT" ? request.postDataJSON() : undefined;
+      writes.push({ method: request.method(), path: pathname, body });
+      const index = income.findIndex((e) => e.id === id);
+      if (index < 0) return json(route, 404, { error: "not_found" });
+      if (request.method() === "DELETE") {
+        income.splice(index, 1);
+        return json(route, 204);
+      }
+      if (incomeFail) return json(route, 400, { error: "invalid_income", message: incomeFail });
+      const row = buildIncome(id, body, settings);
+      income[index] = row;
+      return json(route, 200, incomeResult(row, income, false));
+    }
 
     if (pathname === "/expenses/infer-category") {
       const d = (searchParams.get("description") ?? "").toLowerCase();
@@ -224,7 +266,79 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes, expenses };
+  return { requests, writes, expenses, income };
+}
+
+export interface MockIncome {
+  id: number;
+  date: string;
+  description: string;
+  category: string;
+  payment_method: string;
+  currency: string;
+  amount: string;
+  exchange_rate: string | null;
+  amount_mxn: string;
+}
+
+/** Description keyword -> income category, standing in for the backend's keyword inference. */
+const INCOME_KEYWORDS: Record<string, string> = { sueldo: "Sueldo", salario: "Sueldo", contrato: "Contrato extra" };
+
+/** Illustrative RESICO brackets for the mock: up to 25,000 MXN a month pays 1%, above that 1.5%. */
+function resicoRate(monthTotal: number) {
+  return monthTotal <= 25000 ? "0.01" : "0.015";
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildIncome(id: number, body: any, settings: any): MockIncome {
+  const currency = body.currency ?? "MXN";
+  const rate: string | null = currency === "USD" ? (body.exchange_rate ?? settings.general.fx_rate_applied) : null;
+  const amountMxn = rate ? (Number(body.amount) * Number(rate)).toFixed(2) : body.amount;
+  const d = String(body.description ?? "").toLowerCase();
+  const inferred = Object.entries(INCOME_KEYWORDS).find(([k]) => d.includes(k))?.[1];
+  return {
+    id,
+    date: body.date ?? todayLocal(),
+    description: body.description ?? "",
+    category: body.category || inferred || "Sueldo",
+    payment_method: body.payment_method ?? "Transferencia",
+    currency,
+    amount: body.amount,
+    exchange_rate: rate,
+    amount_mxn: amountMxn,
+  };
+}
+
+function incomeResult(row: MockIncome, all: MockIncome[], withSplit: boolean) {
+  const month = row.date.slice(0, 7);
+  const total = all.filter((e) => e.date.startsWith(month)).reduce((sum, e) => sum + Number(e.amount_mxn), 0);
+  const previousTotal = total - Number(row.amount_mxn);
+  const rate = resicoRate(total);
+  const previous = resicoRate(previousTotal);
+  return {
+    income: row,
+    summary: {
+      month,
+      month_total_mxn: total.toFixed(2),
+      resico: {
+        rate,
+        estimated_isr: (total * Number(rate)).toFixed(5),
+        rate_increased: previousTotal > 0 && Number(rate) > Number(previous),
+        previous_rate: previousTotal > 0 ? previous : null,
+      },
+    },
+    split:
+      withSplit && row.category === "Contrato extra"
+        ? {
+            sat_reserve: "165",
+            emergency_fund: "418",
+            investments: "292",
+            aguinaldo_vacation: "125",
+            goal_reached: false,
+            investment_breakdown: [{ instrument: "voo", amount: "292" }],
+          }
+        : null,
+  };
 }
 
 export interface MockExpense {
