@@ -401,6 +401,17 @@ func TestAddAndListValuations(t *testing.T) {
 	}
 }
 
+func TestAddValuationRoundsToCents(t *testing.T) {
+	svc, _, vals, _ := newService(t)
+	v, err := svc.AddValuation(context.Background(), app.ValuationInput{Instrument: "voo", ValueMXN: d("100.555")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !v.ValueMXN.Equal(d("100.56")) || !vals.rows[0].ValueMXN.Equal(d("100.56")) || v.ValueMXN.Exponent() != -2 {
+		t.Errorf("returned %s, stored %s, want 100.56", v.ValueMXN, vals.rows[0].ValueMXN)
+	}
+}
+
 func TestAddValuationRejectsInvalid(t *testing.T) {
 	svc, _, vals, _ := newService(t)
 	bad := map[string]app.ValuationInput{
@@ -409,6 +420,9 @@ func TestAddValuationRejectsInvalid(t *testing.T) {
 		"bad date":           {Date: "nope", Instrument: "voo", ValueMXN: d("1")},
 		"missing instrument": {ValueMXN: d("1")},
 		"unknown instrument": {Instrument: "ghost", ValueMXN: d("1")},
+		"rounds to zero":     {Instrument: "voo", ValueMXN: d("0.004")},
+		"at the cap":         {Instrument: "voo", ValueMXN: d("1e12")},
+		"absurd exponent":    {Instrument: "voo", ValueMXN: d("1e999999999")},
 	}
 	for name, in := range bad {
 		if _, err := svc.AddValuation(context.Background(), in); !errors.Is(err, savings.ErrInvalidValuation) {

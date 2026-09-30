@@ -320,6 +320,8 @@ func (s *Service) AddValuation(ctx context.Context, in ValuationInput) (ledger.V
 	if err := savings.ValidateValuation(v); err != nil {
 		return ledger.Valuation{}, err
 	}
+	// The table keeps cents: store (and answer with) the rounded value.
+	v.ValueMXN = savings.RoundValuation(v.ValueMXN)
 	if _, ok := cfg.FindInstrument(v.Instrument); !ok {
 		return ledger.Valuation{}, fmt.Errorf("%w: instrument %q does not exist", savings.ErrInvalidValuation, v.Instrument)
 	}

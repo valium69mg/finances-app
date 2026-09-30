@@ -178,6 +178,21 @@ func TestErrorMapping(t *testing.T) {
 	}
 }
 
+func TestAddValuationAbsurdValueIs400(t *testing.T) {
+	// The huge exponent must survive JSON decoding and come back as a 400,
+	// never a 500 from the database.
+	svc := &fakeService{}
+	rec := do(newServer(svc), "POST", "/savings/valuations", `{"instrument":"voo","value_mxn":"1e999999999"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("decode: %d %s", rec.Code, rec.Body)
+	}
+	bad := savings.ValidateValuation(ledger.Valuation{Date: "2026-10-01", Instrument: "voo", ValueMXN: svc.gotValuation.ValueMXN})
+	rec = do(newServer(&fakeService{err: bad}), "POST", "/savings/valuations", `{"instrument":"voo","value_mxn":"1e999999999"}`)
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "invalid_valuation") {
+		t.Errorf("%d %s", rec.Code, rec.Body)
+	}
+}
+
 func TestUpdate(t *testing.T) {
 	svc := &fakeService{movement: vooSaving()}
 	rec := do(newServer(svc), "PUT", "/savings/7", `{"category":"Inversiones","amount":"10"}`)
