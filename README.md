@@ -76,9 +76,19 @@ is logged) instead of stopping the API.
 The S3 adapter integration test is skipped unless `TEST_S3_ENDPOINT`, `TEST_S3_ACCESS_KEY` and
 `TEST_S3_SECRET_KEY` are set (for example to the MinIO root credentials).
 
+## Production deployment
+
+The public deployment (one VM, Docker Compose, nginx, Cloudflare proxy with an Origin CA
+certificate) is described step by step in [deploy/README.md](deploy/README.md). It is a
+separate stack: the `docker-compose.yml` above stays the development setup. Production
+backend variables (`APP_ENV`, `LOG_FORMAT`, `TRUSTED_PROXIES`) are documented there and in
+`backend/internal/platform/config`.
+
 ## Layout
 
 ```
 backend/     Go API (hexagonal, one module per bounded context)
+frontend/    React + TypeScript + Vite
 migrations/  SQL migrations (golang-migrate)
+deploy/      production stack: Dockerfiles, compose, nginx, Cloudflare scripts
 ```
