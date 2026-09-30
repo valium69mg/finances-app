@@ -5,6 +5,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/shopspring/decimal"
 
@@ -27,12 +28,48 @@ func (s Status) IsActive() bool {
 	return s == StatusPrepared || s == StatusIssued
 }
 
+// MaxAmount is the exclusive upper bound of any stored invoice amount (the
+// NUMERIC(14,2) columns hold up to 999,999,999,999.99).
+var MaxAmount = decimal.New(1, 12)
+
 // Errors returned by the invoice rules.
 var (
 	ErrUnknownClient = errors.New("unknown client")
 	ErrInvalidInput  = errors.New("invalid invoice input")
 	ErrCancelled     = errors.New("invoice is cancelled")
 )
+
+// Rounded returns the amounts rounded to cents, the precision that is stored
+// (as for movements, amount_mxn is rounded to cents). When the invoice carries
+// IVA the IVA is total minus the rounded subtotal, so subtotal + IVA always
+// equals the total to the cent.
+func (a Amounts) Rounded() Amounts {
+	a.Subtotal = a.Subtotal.Round(2)
+	a.SubtotalMXN = a.SubtotalMXN.Round(2)
+	a.Total = a.Total.Round(2)
+	a.ExpectedDepositMXN = a.ExpectedDepositMXN.Round(2)
+	a.ISRWithheld = a.ISRWithheld.Round(2)
+	a.IVAWithheld = a.IVAWithheld.Round(2)
+	if a.IVA.IsZero() {
+		return a
+	}
+	a.IVA = a.Total.Sub(a.Subtotal)
+	return a
+}
+
+// Validate reports ErrInvalidInput unless the total and subtotals are
+// positive and every amount is below MaxAmount. Call it on rounded amounts.
+func (a Amounts) Validate() error {
+	if !a.Total.IsPositive() || !a.Subtotal.IsPositive() || !a.SubtotalMXN.IsPositive() {
+		return fmt.Errorf("%w: amounts must be greater than zero", ErrInvalidInput)
+	}
+	for _, v := range []decimal.Decimal{a.Total, a.Subtotal, a.SubtotalMXN, a.ExpectedDepositMXN, a.IVA} {
+		if v.GreaterThanOrEqual(MaxAmount) {
+			return fmt.Errorf("%w: amount is too large", ErrInvalidInput)
+		}
+	}
+	return nil
+}
 
 // Amounts are the computed money fields of an invoice. Subtotal and Total are
 // in the invoice currency; the other fields are in pesos.
@@ -58,6 +95,7 @@ type Invoice struct {
 	UUID              string
 	MovementID        *int
 	DeclarationPeriod string
+	CreatedAt         time.Time
 	Amounts
 }
 
@@ -134,6 +172,12 @@ func Prepare(cfg settings.Config, existing []Invoice, in PrepareInput) (Prepared
 		if err != nil {
 			return Prepared{}, err
 		}
+		if !subtotal.IsPositive() {
+			return Prepared{}, fmt.Errorf("%w: subtotal must be greater than zero", ErrInvalidInput)
+		}
+		if rate.IsNegative() {
+			return Prepared{}, fmt.Errorf("%w: exchange rate must be greater than zero", ErrInvalidInput)
+		}
 		inv.Currency = ledger.CurrencyUSD
 		inv.ExchangeRate = &rate
 		inv.Amounts = ComputeUSAInvoice(subtotal, rate)
@@ -143,6 +187,9 @@ func Prepare(cfg settings.Config, existing []Invoice, in PrepareInput) (Prepared
 		}
 		if in.Amount == nil {
 			return Prepared{}, fmt.Errorf("%w: client %s requires the total received (IVA included)", ErrInvalidInput, in.ClientID)
+		}
+		if !in.Amount.IsPositive() {
+			return Prepared{}, fmt.Errorf("%w: amount must be greater than zero", ErrInvalidInput)
 		}
 		inv.Currency = ledger.CurrencyMXN
 		inv.Amounts = ComputeClientBInvoice(*in.Amount, client.IVARate)
