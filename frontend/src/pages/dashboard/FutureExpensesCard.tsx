@@ -1,11 +1,15 @@
 import { useId } from "react";
+import { Link } from "react-router-dom";
 import type { FutureExpenses } from "../../api/dashboard";
 import { formatMoney, percentOf } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
 
+const isZero = (v: string) => /^0(\.0+)?$/.test(v);
+
 /**
- * Expenses known in advance (yearly bills): due date, target, saved so far with a progress bar and the amount
- * to put aside each cycle to have each one on time, plus a total row.
+ * The active future expenses the owner registered (Configuración > Gastos futuros): due date, target, saved so
+ * far with a progress bar and the amount to put aside each cycle to have each one on time, a total row and the
+ * free balance (savings in Gastos futuros not assigned to any item yet).
  */
 export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
   const titleId = useId();
@@ -16,7 +20,7 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
       </h3>
       {future.items.length === 0 ? (
         <p className="mt-1 text-sm text-muted">
-          Aún no hay gastos futuros. Agrega un pago recurrente anual (predial, seguro) con su monto y vencimiento para planear su ahorro.
+          Aún no hay gastos futuros. Regístralos en Configuración, con su monto y fecha de vencimiento, para planear cuánto apartar cada mes.
         </p>
       ) : (
         <>
@@ -24,7 +28,7 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
             {future.items.map((f) => {
               const pct = percentOf(f.saved, f.target);
               return (
-                <li key={`${f.name}-${f.due_date}`}>
+                <li key={f.id}>
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
                     <span className="min-w-0 break-words font-medium">{f.name}</span>
                     <span className="text-sm text-muted">Vence el {dateLabel(f.due_date)}</span>
@@ -43,7 +47,7 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
                     {formatMoney(f.saved)} de {formatMoney(f.target)} ({Math.round(pct)}%)
                   </p>
                   <p className="text-sm tabular-nums text-muted">
-                    {/^0(\.0+)?$/.test(f.remaining) ? "Meta cubierta." : `Aparta ${formatMoney(f.suggested_monthly)} al mes`}
+                    {isZero(f.remaining) ? "Meta cubierta." : `Aparta ${formatMoney(f.suggested_monthly)} al mes`}
                   </p>
                 </li>
               );
@@ -59,6 +63,14 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
           </dl>
         </>
       )}
+      {!isZero(future.free_balance) && (
+        <p className="mt-3 text-sm tabular-nums text-muted">
+          Saldo libre: <span className="font-medium text-foreground">{formatMoney(future.free_balance)}</span>, ahorro en Gastos futuros sin asignar a un gasto.
+        </p>
+      )}
+      <Link to="/configuracion" className="mt-3 inline-block text-sm font-medium underline">
+        Administrar gastos futuros
+      </Link>
     </section>
   );
 }

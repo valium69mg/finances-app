@@ -43,8 +43,9 @@ export interface DashboardCycle {
   days: number;
 }
 
-/** An expense known in advance (a yearly bill) with what is saved towards it. */
+/** An active future expense with what is saved towards it (the savings linked to it). */
 export interface FutureExpense {
+  id: number;
   name: string;
   /** YYYY-MM-DD */
   due_date: string;
@@ -62,6 +63,8 @@ export interface FutureExpenses {
   saved: string;
   remaining: string;
   suggested_monthly: string;
+  /** Gastos futuros savings linked to no item yet, to be assigned from Configuración. */
+  free_balance: string;
 }
 
 /** A bill due within the next 14 days, or already overdue. `amount` is null for a variable bill. */

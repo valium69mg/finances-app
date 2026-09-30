@@ -69,7 +69,7 @@ describe("TotalsCards", () => {
     emergency: { accumulated: "0", goal: "0" },
     tax: null,
     cycle: { today: "2026-10-15", day: 16, days: 31 },
-    future_expenses: { items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0" },
+    future_expenses: { items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0", free_balance: "0" },
     upcoming_bills: [],
     recent_movements: [],
     ...over,
@@ -174,38 +174,57 @@ describe("BudgetTable on a phone", () => {
 describe("FutureExpensesCard", () => {
   const future: FutureExpenses = {
     items: [
-      { name: "Seguro", due_date: "2026-12-15", target: "36000", saved: "9000", remaining: "27000", suggested_monthly: "13500", cycles_left: 2 },
-      { name: "Predial", due_date: "2027-01-20", target: "10000", saved: "0", remaining: "10000", suggested_monthly: "2500", cycles_left: 4 },
+      { id: 2, name: "Viaje", due_date: "2026-12-15", target: "24000", saved: "6000", remaining: "18000", suggested_monthly: "9000", cycles_left: 2 },
+      { id: 1, name: "Laptop", due_date: "2027-01-20", target: "8000", saved: "0", remaining: "8000", suggested_monthly: "2000", cycles_left: 4 },
     ],
-    target: "46000",
-    saved: "9000",
-    remaining: "37000",
-    suggested_monthly: "16000",
+    target: "32000",
+    saved: "6000",
+    remaining: "26000",
+    suggested_monthly: "11000",
+    free_balance: "0",
   };
+  const renderCard = (f: FutureExpenses) =>
+    render(
+      <MemoryRouter>
+        <FutureExpensesCard future={f} />
+      </MemoryRouter>,
+    );
 
   it("lists each expense with due date, progress and the suggested monthly amount, and a total row", () => {
-    render(<FutureExpensesCard future={future} />);
+    renderCard(future);
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(items[0]).toHaveTextContent("Seguro");
+    expect(items[0]).toHaveTextContent("Viaje");
     expect(items[0]).toHaveTextContent("15 de diciembre de 2026");
-    expect(items[0]).toHaveTextContent("$9,000.00 de $36,000.00 (25%)");
-    expect(items[0]).toHaveTextContent("Aparta $13,500.00 al mes");
-    expect(within(items[0]).getByRole("progressbar", { name: "Ahorro para Seguro" })).toHaveAttribute("aria-valuenow", "25");
+    expect(items[0]).toHaveTextContent("$6,000.00 de $24,000.00 (25%)");
+    expect(items[0]).toHaveTextContent("Aparta $9,000.00 al mes");
+    expect(within(items[0]).getByRole("progressbar", { name: "Ahorro para Viaje" })).toHaveAttribute("aria-valuenow", "25");
     expect(items[1]).toHaveTextContent("20 de enero de 2027");
-    expect(screen.getByText("Total").nextSibling).toHaveTextContent("$46,000.00");
-    expect(screen.getByText("Sugerido al mes").nextSibling).toHaveTextContent("$16,000.00");
+    expect(screen.getByText("Total").nextSibling).toHaveTextContent("$32,000.00");
+    expect(screen.getByText("Sugerido al mes").nextSibling).toHaveTextContent("$11,000.00");
   });
 
   it("says the goal is covered when nothing is left to save", () => {
-    const covered = { ...future, items: [{ ...future.items[0], saved: "36000", remaining: "0", suggested_monthly: "0" }] };
-    render(<FutureExpensesCard future={covered} />);
+    renderCard({ ...future, items: [{ ...future.items[0], saved: "24000", remaining: "0", suggested_monthly: "0" }] });
     expect(screen.getByText("Meta cubierta.")).toBeInTheDocument();
   });
 
-  it("explains how to add one when there are none", () => {
-    render(<FutureExpensesCard future={{ items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0" }} />);
-    expect(screen.getByText(/Aún no hay gastos futuros/)).toBeInTheDocument();
+  it("shows the free balance only when there is one", () => {
+    const { unmount } = renderCard(future);
+    expect(screen.queryByText(/Saldo libre/)).not.toBeInTheDocument();
+    unmount();
+    renderCard({ ...future, free_balance: "1250.50" });
+    expect(screen.getByText(/Saldo libre/)).toHaveTextContent("$1,250.50");
+  });
+
+  it("links to the configuration where the items are managed", () => {
+    renderCard(future);
+    expect(screen.getByRole("link", { name: "Administrar gastos futuros" })).toHaveAttribute("href", "/configuracion");
+  });
+
+  it("explains where to add one when there are none", () => {
+    renderCard({ items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0", free_balance: "0" });
+    expect(screen.getByText(/Aún no hay gastos futuros/)).toHaveTextContent("Configuración");
   });
 });
 
