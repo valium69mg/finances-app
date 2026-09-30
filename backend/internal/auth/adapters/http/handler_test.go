@@ -15,6 +15,7 @@ import (
 	authhttp "github.com/valium69mg/finances-app/backend/internal/auth/adapters/http"
 	"github.com/valium69mg/finances-app/backend/internal/auth/app"
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
 )
 
 type fakeService struct {
@@ -270,6 +271,33 @@ func TestRefreshAndVerifyRateLimitedSetRetryAfter(t *testing.T) {
 		if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "900" || decodeMap(t, rec)["error"] != "rate_limited" {
 			t.Errorf("%s: status=%d Retry-After=%q body=%s", path, rec.Code, rec.Header().Get("Retry-After"), rec.Body)
 		}
+	}
+}
+
+func TestClientIPBehindTrustedProxy(t *testing.T) {
+	trusted, err := clientip.ParseTrusted("172.18.0.0/16")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func(remote, realIP string) string {
+		svc := &fakeService{identifyStatus: app.IdentifyPasswordRequired}
+		h := clientip.NewResolver(trusted).Middleware(newServer(svc))
+		req := httptest.NewRequest("POST", "/auth/identify", strings.NewReader(`{"email":"a@b.co"}`))
+		req.RemoteAddr = remote
+		if realIP != "" {
+			req.Header.Set("X-Real-IP", realIP)
+		}
+		h.ServeHTTP(httptest.NewRecorder(), req)
+		return svc.gotIP
+	}
+	if got := call("172.18.0.4:4000", "198.51.100.7"); got != "198.51.100.7" {
+		t.Errorf("trusted proxy: ip = %q, want the forwarded client", got)
+	}
+	if got := call("203.0.113.9:5555", "198.51.100.7"); got != "203.0.113.9" {
+		t.Errorf("untrusted peer spoofing X-Real-IP: ip = %q, want the peer", got)
+	}
+	if got := call("[fd00::4]:4000", "2001:db8::1"); got != "fd00::4" {
+		t.Errorf("IPv6 peer outside the list: ip = %q", got)
 	}
 }
 

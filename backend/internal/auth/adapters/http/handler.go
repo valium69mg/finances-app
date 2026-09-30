@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 
 	"github.com/valium69mg/finances-app/backend/internal/auth/app"
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
 )
 
 const maxBodyBytes = 1 << 20
@@ -251,12 +251,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// clientIP returns the peer address. Forwarding headers are deliberately not
-// trusted: they are client-controlled and would defeat the per-IP rate limit.
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+// clientIP returns the client address resolved by the clientip middleware: the
+// peer address, or the proxy-provided one only when the peer is a configured
+// trusted proxy. Without the middleware it is the peer address.
+func clientIP(r *http.Request) string { return clientip.FromRequest(r) }
