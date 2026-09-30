@@ -33,9 +33,11 @@ import (
 	monthclosehttp "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/http"
 	monthclosepg "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/postgres"
 	monthcloseapp "github.com/valium69mg/finances-app/backend/internal/monthclose/app"
+	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
 	"github.com/valium69mg/finances-app/backend/internal/platform/config"
 	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
+	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
 	"github.com/valium69mg/finances-app/backend/internal/platform/postgres"
 	savingshttp "github.com/valium69mg/finances-app/backend/internal/savings/adapters/http"
 	savingspg "github.com/valium69mg/finances-app/backend/internal/savings/adapters/postgres"
@@ -51,7 +53,18 @@ import (
 const (
 	shutdownTimeout       = 10 * time.Second
 	storageStartupTimeout = 10 * time.Second
+	maxHeaderBytes        = 32 << 10
 )
+
+// setupLogger installs the default logger: JSON lines for the production stack
+// (easy to ship and filter), text for local development.
+func setupLogger(json bool) {
+	var h slog.Handler = slog.NewTextHandler(os.Stderr, nil)
+	if json {
+		h = slog.NewJSONHandler(os.Stderr, nil)
+	}
+	slog.SetDefault(slog.New(h))
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -96,6 +109,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+	setupLogger(cfg.LogJSON)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -157,18 +171,32 @@ func run() error {
 		return fmt.Errorf("derive CORS origin: %w", err)
 	}
 
+	// Outermost first: resolve the client IP, then log and observe every request
+	// (including the panics Recover turns into 500s), then CORS and the routes.
+	logger := slog.Default()
+	resolver := clientip.NewResolver(cfg.TrustedProxies)
+	handler := httpmw.Chain(mux,
+		resolver.Middleware,
+		httpmw.Observe(logger),
+		httpmw.Recover(logger),
+		cors.Middleware(corsOrigin),
+	)
+
 	srv := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           cors.Middleware(corsOrigin)(mux),
+		Handler:           handler,
+		MaxHeaderBytes:    maxHeaderBytes,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Generous enough for a 12 MiB invoice upload on a slow uplink and a 10 MiB
+		// download; nginx applies its own, tighter per-route limits in front.
+		ReadTimeout:  60 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	serveErr := make(chan error, 1)
 	go func() {
-		slog.Info("api listening", "addr", cfg.HTTPAddr)
+		slog.Info("api listening", "addr", cfg.HTTPAddr, "trusted_proxies", len(cfg.TrustedProxies), "production", cfg.Production)
 		serveErr <- srv.ListenAndServe()
 	}()
 

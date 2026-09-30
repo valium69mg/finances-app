@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
 )
 
 const (
@@ -31,6 +34,14 @@ type Config struct {
 	AppBaseURL string
 	// S3 is the S3-compatible object storage of the issued CFDI files.
 	S3 S3
+	// TrustedProxies are the peers (CIDRs or IPs) whose X-Real-IP header is
+	// believed as the client address. Empty (the default) trusts nothing.
+	TrustedProxies []netip.Prefix
+	// Production is true when APP_ENV=production. It turns on the stricter startup
+	// checks (an explicit https APP_BASE_URL).
+	Production bool
+	// LogJSON selects JSON log lines (LOG_FORMAT=json) instead of text.
+	LogJSON bool
 }
 
 // S3 configures the object storage. Endpoint is host:port without a scheme.
@@ -81,14 +92,52 @@ func Load(getenv func(string) string) (Config, error) {
 		errs = append(errs, errors.New("RESEND_API_KEY is required"))
 	}
 
+	if isPlaceholder(cfg.ResendAPIKey) {
+		errs = append(errs, errors.New("RESEND_API_KEY still holds a placeholder value"))
+	}
+	if isPlaceholder(cfg.JWTSecret) {
+		errs = append(errs, errors.New("JWT_SECRET still holds a placeholder value"))
+	}
+	if isPlaceholder(cfg.DatabaseURL) {
+		errs = append(errs, errors.New("DATABASE_URL still holds a placeholder value"))
+	}
+
+	trusted, err := clientip.ParseTrusted(getenv("TRUSTED_PROXIES"))
+	if err != nil {
+		errs = append(errs, fmt.Errorf("TRUSTED_PROXIES is invalid: %w", err))
+	}
+	cfg.TrustedProxies = trusted
+
+	switch env := strings.ToLower(strings.TrimSpace(getenv("APP_ENV"))); env {
+	case "", "development":
+	case "production":
+		cfg.Production = true
+	default:
+		errs = append(errs, errors.New(`APP_ENV is invalid: use "development" or "production"`))
+	}
+	switch format := strings.ToLower(strings.TrimSpace(getenv("LOG_FORMAT"))); format {
+	case "", "text":
+	case "json":
+		cfg.LogJSON = true
+	default:
+		errs = append(errs, errors.New(`LOG_FORMAT is invalid: use "text" or "json"`))
+	}
+
 	if cfg.ResendFrom == "" {
 		cfg.ResendFrom = defaultResendFrom
 	}
 
 	if cfg.AppBaseURL == "" {
+		if cfg.Production {
+			// The default is the local dev server: in production it would put
+			// localhost links in the verification emails and in the CORS origin.
+			errs = append(errs, errors.New("APP_BASE_URL is required in production"))
+		}
 		cfg.AppBaseURL = defaultAppBaseURL
 	} else if err := validateBaseURL(cfg.AppBaseURL); err != nil {
 		errs = append(errs, fmt.Errorf("APP_BASE_URL is invalid: %w", err))
+	} else if cfg.Production && !strings.HasPrefix(cfg.AppBaseURL, "https://") {
+		errs = append(errs, errors.New("APP_BASE_URL must use https in production"))
 	}
 
 	s3, s3Errs := loadS3(getenv)
@@ -142,6 +191,9 @@ func loadS3(getenv func(string) string) (S3, []error) {
 		}
 		s3.UseSSL = ssl
 	}
+	if isPlaceholder(s3.AccessKey) || isPlaceholder(s3.SecretKey) {
+		errs = append(errs, errors.New("S3_ACCESS_KEY/S3_SECRET_KEY (or the MinIO root credentials) still hold a placeholder value"))
+	}
 	// Missing credentials are not an error: the object storage is optional at
 	// boot (see S3.Configured) so a missing or unreachable MinIO never takes the
 	// whole API down; only the invoice file routes answer 503.
@@ -152,6 +204,15 @@ func loadS3(getenv func(string) string) (S3, []error) {
 // storage are set. Without them the API still starts and the file routes
 // answer 503 storage_unavailable.
 func (s S3) Configured() bool { return s.AccessKey != "" && s.SecretKey != "" }
+
+// placeholderMarker is what .env.prod.example puts in every secret. A value that
+// still contains it was copied without being filled in, so the API refuses to
+// start instead of running with a publicly known secret.
+const placeholderMarker = "change_me"
+
+func isPlaceholder(v string) bool {
+	return strings.Contains(strings.ToLower(v), placeholderMarker)
+}
 
 func validateDatabaseURL(raw string) error {
 	u, err := url.Parse(raw)

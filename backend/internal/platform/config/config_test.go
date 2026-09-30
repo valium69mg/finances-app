@@ -1,6 +1,8 @@
 package config_test
 
 import (
+	"net/netip"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -111,6 +113,60 @@ func TestLoad(t *testing.T) {
 			wantErr: []string{"RESEND_API_KEY is required"},
 		},
 		{
+			name: "trusted proxies",
+			vars: base(map[string]string{"TRUSTED_PROXIES": "172.18.0.0/16, 10.0.0.5"}),
+			want: want(func(c *config.Config) {
+				c.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("172.18.0.0/16"), netip.MustParsePrefix("10.0.0.5/32")}
+			}),
+		},
+		{
+			name:    "invalid trusted proxies",
+			vars:    base(map[string]string{"TRUSTED_PROXIES": "nope"}),
+			wantErr: []string{"TRUSTED_PROXIES is invalid"},
+		},
+		{
+			name:    "trusting every peer is rejected",
+			vars:    base(map[string]string{"TRUSTED_PROXIES": "0.0.0.0/0"}),
+			wantErr: []string{"TRUSTED_PROXIES is invalid", "every peer"},
+		},
+		{
+			name:    "placeholder jwt secret",
+			vars:    base(map[string]string{"JWT_SECRET": "CHANGE_ME_generate_with_openssl_rand_hex_32"}),
+			wantErr: []string{"JWT_SECRET still holds a placeholder"},
+		},
+		{
+			name:    "placeholder resend key and database password",
+			vars:    base(map[string]string{"RESEND_API_KEY": "CHANGE_ME", "DATABASE_URL": "postgres://u:CHANGE_ME@db:5432/x"}),
+			wantErr: []string{"RESEND_API_KEY still holds a placeholder", "DATABASE_URL still holds a placeholder"},
+		},
+		{
+			name:    "placeholder storage credentials",
+			vars:    base(map[string]string{"S3_ACCESS_KEY": "app", "S3_SECRET_KEY": "change_me_please"}),
+			wantErr: []string{"still hold a placeholder"},
+		},
+		{
+			name: "production with an https base url",
+			vars: base(map[string]string{"APP_ENV": "production", "APP_BASE_URL": "https://app.example.com", "LOG_FORMAT": "json"}),
+			want: want(func(c *config.Config) {
+				c.Production, c.LogJSON, c.AppBaseURL = true, true, "https://app.example.com"
+			}),
+		},
+		{
+			name:    "production requires an explicit base url",
+			vars:    base(map[string]string{"APP_ENV": "production"}),
+			wantErr: []string{"APP_BASE_URL is required in production"},
+		},
+		{
+			name:    "production rejects a plain http base url",
+			vars:    base(map[string]string{"APP_ENV": "production", "APP_BASE_URL": "http://app.example.com"}),
+			wantErr: []string{"APP_BASE_URL must use https in production"},
+		},
+		{
+			name:    "unknown environment and log format",
+			vars:    base(map[string]string{"APP_ENV": "prod", "LOG_FORMAT": "xml"}),
+			wantErr: []string{"APP_ENV is invalid", "LOG_FORMAT is invalid"},
+		},
+		{
 			name:    "invalid app base url",
 			vars:    base(map[string]string{"APP_BASE_URL": "ftp://x"}),
 			wantErr: []string{"APP_BASE_URL is invalid", "scheme"},
@@ -132,7 +188,7 @@ func TestLoad(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
-				if got != tt.want {
+				if !reflect.DeepEqual(got, tt.want) {
 					t.Fatalf("got %+v, want %+v", got, tt.want)
 				}
 				return
