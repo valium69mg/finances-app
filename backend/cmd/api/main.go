@@ -16,6 +16,9 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/ratelimit"
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/resend"
 	authapp "github.com/valium69mg/finances-app/backend/internal/auth/app"
+	expenseshttp "github.com/valium69mg/finances-app/backend/internal/expenses/adapters/http"
+	expensesapp "github.com/valium69mg/finances-app/backend/internal/expenses/app"
+	ledgerpg "github.com/valium69mg/finances-app/backend/internal/ledger/adapters/postgres"
 	"github.com/valium69mg/finances-app/backend/internal/platform/config"
 	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
@@ -66,6 +69,9 @@ func run() error {
 
 	settingsSvc := settingsapp.NewService(settingspg.NewRepo(pool))
 	settingshttp.New(settingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	expensesSvc := expensesapp.NewService(ledgerpg.NewRepo(pool), settingsSvc, nil)
+	expenseshttp.New(expensesSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {
