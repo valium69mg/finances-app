@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS investment_pause_plan;
+DROP TABLE IF EXISTS investment_pause;
+DROP TABLE IF EXISTS payment_methods;
+DROP TABLE IF EXISTS resico_brackets;
+DROP TABLE IF EXISTS instrument_by_category;
+DROP TABLE IF EXISTS instruments;
+DROP TABLE IF EXISTS clients;
+DROP TABLE IF EXISTS categories;
+DROP TABLE IF EXISTS issuer;
+DROP TABLE IF EXISTS settings;

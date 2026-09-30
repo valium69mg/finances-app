@@ -21,6 +21,21 @@ func cat(name string, kind ledger.Kind, budget *decimal.Decimal, keywords ...str
 	return settings.Category{Name: name, Kind: kind, Budget: budget, Keywords: keywords}
 }
 
+// RealPause mirrors the inversiones_pausa block of the current ~/finances/config.json.
+func RealPause() settings.PausePlan {
+	return settings.PausePlan{
+		Months:       []string{"2026-10", "2026-11", "2026-12", "2027-01"},
+		NormalBudget: D("5000"),
+		ResumeMonth:  "2027-02",
+		FutureExpensesPlan: map[string]decimal.Decimal{
+			"2026-10": D("12000"),
+			"2026-11": D("12000"),
+			"2026-12": D("12000"),
+			"2027-01": D("10000"),
+		},
+	}
+}
+
 // RealConfig mirrors the values of the current ~/finances/config.json.
 func RealConfig() settings.Config {
 	return settings.Config{

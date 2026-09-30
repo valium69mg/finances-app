@@ -36,14 +36,76 @@ type Category struct {
 	Kind     ledger.Kind
 	Budget   *decimal.Decimal
 	Keywords []string
+	// Includes is a free-text note describing what the budget covers.
+	Includes string
 }
 
-// Client is a billed customer.
+// Client is a billed customer. The invoicing fields feed the CFDI checklist.
 type Client struct {
 	ID       string
 	Name     string
 	Currency string
 	IVARate  decimal.Decimal
+
+	Type          string
+	RFC           string
+	Regimen       string
+	UsoCFDI       string
+	RetISRRate    decimal.Decimal
+	RetIVARate    decimal.Decimal
+	Concepto      string
+	ClaveProdServ string
+	ClaveUnidad   string
+	Address       string
+	TaxResidence  string
+	Contract      string
+	RealPayer     string
+}
+
+// Issuer is the taxpayer that issues the invoices.
+type Issuer struct {
+	RFC        string
+	Name       string
+	Regimen    string
+	PostalCode string
+	Note       string
+}
+
+// IsZero reports whether no issuer has been configured.
+func (i Issuer) IsZero() bool { return i == Issuer{} }
+
+// General holds the scalar tax and budget parameters plus the extra-income
+// split and the investment allocation. Unlike Config, every value is required.
+type General struct {
+	SalaryUSD                 decimal.Decimal
+	FXRateApplied             decimal.Decimal
+	MorseFeeRate              decimal.Decimal
+	EmergencyMonths           decimal.Decimal
+	ExtraIncomeEstimateMXN    decimal.Decimal
+	BudgetIncludesExtraIncome bool
+	ExtraIncomeSplit          map[string]decimal.Decimal
+	InvestmentAllocation      []Weight
+}
+
+// General returns the general section of the configuration. Absent required
+// values read as zero; use Validate first when that matters.
+func (c Config) General() General {
+	zero := func(p *decimal.Decimal) decimal.Decimal {
+		if p == nil {
+			return decimal.Zero
+		}
+		return *p
+	}
+	return General{
+		SalaryUSD:                 zero(c.SalaryUSD),
+		FXRateApplied:             zero(c.FXRateApplied),
+		MorseFeeRate:              zero(c.MorseFeeRate),
+		EmergencyMonths:           zero(c.EmergencyMonths),
+		ExtraIncomeEstimateMXN:    c.ExtraIncomeEstimateMXN,
+		BudgetIncludesExtraIncome: c.BudgetIncludesExtraIncome,
+		ExtraIncomeSplit:          c.ExtraIncomeSplit,
+		InvestmentAllocation:      c.InvestmentAllocation,
+	}
 }
 
 // Instrument is an investment or savings instrument.
@@ -78,6 +140,11 @@ type Config struct {
 	Clients              []Client
 	Brackets             []Bracket
 	Categories           []Category
+
+	Issuer         Issuer
+	PaymentMethods []string
+	// Pause is the investment pause plan; nil means no pause is configured.
+	Pause *PausePlan
 }
 
 // ErrMissingConfig is wrapped by Validate when a required key is absent.
