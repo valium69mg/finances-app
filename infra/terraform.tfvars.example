@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars (gitignored) and fill in your own values. Never commit the copy.
+zone_name    = "example.com"
+hostname     = "app.example.com"
+budget_email = "you@example.com"
+
+# Optional overrides (defaults shown in README.md):
+# budget_limit_usd    = 25
+# repo_ref            = "main"               # branch, tag or commit cloned on the VM
+# ssh_public_key_path = "./.keys/finances-prod.pub"
+# admin_cidr          = "203.0.113.7/32"     # default: auto-detected; "" closes SSH
+# enable_ssh          = true                 # false closes SSH

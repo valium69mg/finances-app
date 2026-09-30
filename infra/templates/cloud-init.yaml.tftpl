@@ -1,0 +1,129 @@
+#cloud-config
+# First-boot bootstrap. NO secrets here: the origin certificate is pulled from SSM Parameter
+# Store with the instance role. Progress: /var/log/finances-bootstrap.log, success marker:
+# /var/lib/finances-bootstrap.done. It neither creates deploy/.env.prod nor starts the stack.
+write_files:
+  # Written before any package runs, so Docker starts with its data-root on the data volume.
+  - path: /etc/docker/daemon.json
+    permissions: "0644"
+    content: |
+      {
+        "data-root": "${docker_data_root}",
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        }
+      }
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  - path: /etc/sysctl.d/99-finances.conf
+    permissions: "0644"
+    content: |
+      vm.swappiness=10
+  - path: /usr/local/sbin/finances-bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      exec >>/var/log/finances-bootstrap.log 2>&1
+      trap 'echo "bootstrap FAILED at line $LINENO"' ERR
+      log() { echo "[$(date -u +%FT%TZ)] $*"; }
+
+      REGION="${region}"
+      DATA_VOLUME_ID="${data_volume_id}"
+      MOUNT_POINT="/srv/finances"
+      SSM_CERT="${ssm_cert_name}"
+      SSM_KEY="${ssm_key_name}"
+      REPO_URL="${repo_url}"
+      REPO_REF="${repo_ref}"
+
+      log "packages"
+      apt-get update -y
+      apt-get upgrade -y
+      apt-get install -y ca-certificates curl git openssl gnupg unattended-upgrades snapd
+      systemctl enable --now unattended-upgrades
+      # No awscli package on Ubuntu 24.04: use the official snap.
+      snap wait system seed.loaded
+      snap install aws-cli --classic
+      export PATH="$PATH:/snap/bin"
+
+      log "swap 2G"
+      if ! swapon --show=NAME --noheadings | grep -q '^/swapfile'; then
+        if [ ! -f /swapfile ]; then
+          fallocate -l 2G /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+        fi
+        swapon /swapfile
+      fi
+      grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+      sysctl --system >/dev/null
+
+      log "data volume $DATA_VOLUME_ID"
+      DEV="/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_$DATA_VOLUME_ID"
+      for i in $(seq 1 60); do
+        [ -e "$DEV" ] && break
+        sleep 5
+      done
+      [ -e "$DEV" ] || { echo "data volume did not appear: $DEV"; exit 1; }
+      DEV_REAL="$(readlink -f "$DEV")"
+      if ! blkid "$DEV_REAL" >/dev/null 2>&1; then
+        log "no filesystem on $DEV_REAL: formatting ext4"
+        mkfs.ext4 -L finances-data "$DEV_REAL"
+      fi
+      UUID="$(blkid -s UUID -o value "$DEV_REAL")"
+      mkdir -p "$MOUNT_POINT"
+      grep -q "UUID=$UUID" /etc/fstab || echo "UUID=$UUID $MOUNT_POINT ext4 defaults,nofail 0 2" >> /etc/fstab
+      mountpoint -q "$MOUNT_POINT" || mount "$MOUNT_POINT"
+      mountpoint -q "$MOUNT_POINT" || { echo "$MOUNT_POINT is not mounted"; exit 1; }
+      mkdir -p "${docker_data_root}"
+
+      log "docker engine"
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+      chmod a+r /etc/apt/keyrings/docker.asc
+      . /etc/os-release
+      echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
+        > /etc/apt/sources.list.d/docker.list
+      apt-get update -y
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+      systemctl enable --now docker
+      usermod -aG docker ubuntu
+      docker info --format '{{.DockerRootDir}}'
+
+      log "origin certificate from SSM"
+      install -d -m 0755 /etc/finances/certs
+      fetch_param() {
+        # Retry: the instance role can take a few seconds to become usable.
+        for i in $(seq 1 12); do
+          if aws ssm get-parameter --name "$1" --with-decryption --region "$REGION" \
+              --query Parameter.Value --output text > "$2.tmp"; then
+            return 0
+          fi
+          sleep 10
+        done
+        return 1
+      }
+      umask 077
+      fetch_param "$SSM_CERT" /etc/finances/certs/origin.pem
+      fetch_param "$SSM_KEY" /etc/finances/certs/origin.key
+      install -m 0644 -o root -g root /etc/finances/certs/origin.pem.tmp /etc/finances/certs/origin.pem
+      install -m 0400 -o 101 -g 101 /etc/finances/certs/origin.key.tmp /etc/finances/certs/origin.key
+      rm -f /etc/finances/certs/origin.pem.tmp /etc/finances/certs/origin.key.tmp
+
+      log "clone $REPO_URL at $REPO_REF"
+      if [ ! -d /home/ubuntu/finances-app/.git ]; then
+        sudo -u ubuntu git clone "$REPO_URL" /home/ubuntu/finances-app
+      fi
+      sudo -u ubuntu git -C /home/ubuntu/finances-app checkout "$REPO_REF"
+
+      log "done"
+      touch /var/lib/finances-bootstrap.done
+
+runcmd:
+  - [bash, /usr/local/sbin/finances-bootstrap.sh]
