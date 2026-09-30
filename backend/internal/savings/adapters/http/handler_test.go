@@ -138,7 +138,7 @@ func TestCreate(t *testing.T) {
 	if in.Date != "2026-10-01" || in.Category != "Inversiones" || in.Instrument != "voo" || !in.Amount.Equal(d("-1000.50")) {
 		t.Errorf("input %+v", in)
 	}
-	want := `{"id":7,"date":"2026-10-01","description":"Aporte","category":"Inversiones","instrument":"voo","payment_method":"Transferencia","currency":"MXN","amount":"1000","exchange_rate":null,"amount_mxn":"1000"}`
+	want := `{"id":7,"date":"2026-10-01","description":"Aporte","category":"Inversiones","instrument":"voo","payment_method":"Transferencia","currency":"MXN","amount":"1000","exchange_rate":null,"amount_mxn":"1000","transfer_id":null}`
 	if got := strings.TrimSpace(rec.Body.String()); got != want {
 		t.Errorf("body\n got %s\nwant %s", got, want)
 	}
@@ -167,6 +167,8 @@ func TestErrorMapping(t *testing.T) {
 		{"validation", ledgerInvalid(), http.StatusBadRequest, `{"error":"invalid_saving","message":"invalid movement: amount must not be zero"}`},
 		{"valuation", savings.ValidateValuation(ledger.Valuation{}), http.StatusBadRequest,
 			`{"error":"invalid_valuation","message":"invalid valuation: invalid date \"\", use YYYY-MM-DD"}`},
+		{"locked leg", savings.ErrTransferLegLocked, http.StatusConflict,
+			`{"error":"transfer_leg_locked","message":"transfer legs cannot be edited: delete the transfer and record it again"}`},
 		{"not found", ledger.ErrNotFound, http.StatusNotFound, `{"error":"not_found"}`},
 		{"settings", settings.ErrMissingConfig, http.StatusUnprocessableEntity, `{"error":"settings_incomplete","message":"missing required config"}`},
 	}
@@ -207,6 +209,13 @@ func TestUpdate(t *testing.T) {
 	missing := &fakeService{err: ledger.ErrNotFound}
 	if rec := do(newServer(missing), "PUT", "/savings/9", `{"amount":"1"}`); rec.Code != http.StatusNotFound {
 		t.Errorf("missing = %d, want 404", rec.Code)
+	}
+}
+
+func TestUpdateLockedLegIs409(t *testing.T) {
+	rec := do(newServer(&fakeService{err: savings.ErrTransferLegLocked}), "PUT", "/savings/7", `{"amount":"1"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), `"transfer_leg_locked"`) {
+		t.Errorf("%d %s", rec.Code, rec.Body)
 	}
 }
 
@@ -255,6 +264,7 @@ func TestTransfer(t *testing.T) {
 	out, in := vooSaving(), vooSaving()
 	out.ID, out.Instrument, out.Amount, out.AmountMXN = 1, "cetes-28", d("-500"), d("-500")
 	in.ID, in.Amount, in.AmountMXN = 2, d("500"), d("500")
+	out.TransferID, in.TransferID = "6f1c1a0e-8f5e-4a55-9d0a-3c1f0b2a7e11", "6f1c1a0e-8f5e-4a55-9d0a-3c1f0b2a7e11"
 	svc := &fakeService{transfer: app.Transfer{Out: out, In: in}}
 
 	rec := do(newServer(svc), "POST", "/savings/transfers",
@@ -275,7 +285,8 @@ func TestTransfer(t *testing.T) {
 		t.Fatal(err)
 	}
 	if body.Out["id"] != float64(1) || body.Out["amount"] != "-500" || body.Out["instrument"] != "cetes-28" ||
-		body.In["id"] != float64(2) || body.In["amount"] != "500" || body.In["instrument"] != "voo" {
+		body.In["id"] != float64(2) || body.In["amount"] != "500" || body.In["instrument"] != "voo" ||
+		body.Out["transfer_id"] != "6f1c1a0e-8f5e-4a55-9d0a-3c1f0b2a7e11" || body.In["transfer_id"] != body.Out["transfer_id"] {
 		t.Errorf("body %s", rec.Body)
 	}
 

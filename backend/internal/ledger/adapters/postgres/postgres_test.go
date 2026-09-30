@@ -57,7 +57,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000006_movements.up.sql", "000007_income_amount_positive.up.sql"} {
+	for _, name := range []string{"000006_movements.up.sql", "000007_income_amount_positive.up.sql", "000009_movements_transfer_id.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -338,6 +338,93 @@ func TestCreateMany(t *testing.T) {
 	var count int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM movements`).Scan(&count); err != nil || count != 2 {
 		t.Errorf("rows = %d, %v, want 2 (failed batch must roll back)", count, err)
+	}
+}
+
+const transferA = "6f1c1a0e-8f5e-4a55-9d0a-3c1f0b2a7e11"
+
+func TestTransferIDRoundTrip(t *testing.T) {
+	repo, pool := newRepo(t)
+	ctx := context.Background()
+
+	plain, err := repo.Create(ctx, saving("2026-10-01", "Inversiones", "5"))
+	if err != nil || plain.TransferID != "" {
+		t.Fatalf("plain movement: %+v, %v", plain, err)
+	}
+	var isNull bool
+	if err := pool.QueryRow(ctx, `SELECT transfer_id IS NULL FROM movements WHERE id = $1`, int64(plain.ID)).Scan(&isNull); err != nil || !isNull {
+		t.Errorf("transfer_id IS NULL = %v, %v", isNull, err)
+	}
+
+	out, in := saving("2026-10-02", "Inversiones", "-10"), saving("2026-10-02", "Inversiones", "10")
+	out.TransferID, in.TransferID = transferA, transferA
+	saved, err := repo.CreateMany(ctx, []domain.Movement{out, in})
+	if err != nil || saved[0].TransferID != transferA || saved[1].TransferID != transferA {
+		t.Fatalf("CreateMany: %+v, %v", saved, err)
+	}
+	got, _ := repo.GetByID(ctx, saved[1].ID)
+	if got.TransferID != transferA {
+		t.Errorf("GetByID transfer id = %q", got.TransferID)
+	}
+
+	// Updating a leg leaves its link alone.
+	saved[0].Description = "edited"
+	if err := repo.Update(ctx, saved[0]); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.GetByID(ctx, saved[0].ID); got.TransferID != transferA || got.Description != "edited" {
+		t.Errorf("after update: %+v", got)
+	}
+
+	// A malformed id is rejected by the database, not stored.
+	bad := saving("2026-10-03", "Inversiones", "1")
+	bad.TransferID = "not-a-uuid"
+	if _, err := repo.Create(ctx, bad); err == nil {
+		t.Error("expected an invalid uuid error")
+	}
+}
+
+func TestDeleteByTransfer(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	out, in := saving("2026-10-02", "Inversiones", "-10"), saving("2026-10-02", "Inversiones", "10")
+	out.TransferID, in.TransferID = transferA, transferA
+	saved, err := repo.CreateMany(ctx, []domain.Movement{out, in})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := repo.Create(ctx, saving("2026-10-02", "Inversiones", "7"))
+
+	if err := repo.DeleteByTransfer(ctx, transferA); err != nil {
+		t.Fatalf("DeleteByTransfer: %v", err)
+	}
+	for _, m := range saved {
+		if _, err := repo.GetByID(ctx, m.ID); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("leg %d survived: %v", m.ID, err)
+		}
+	}
+	if _, err := repo.GetByID(ctx, other.ID); err != nil {
+		t.Errorf("unrelated movement removed: %v", err)
+	}
+	if err := repo.DeleteByTransfer(ctx, transferA); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("second delete: %v, want ErrNotFound", err)
+	}
+}
+
+func TestTransferIDMigrationDown(t *testing.T) {
+	_, pool := newRepo(t)
+	ctx := context.Background()
+	sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", "000009_movements_transfer_id.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(sql)); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'movements' AND column_name = 'transfer_id'`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("transfer_id columns after down = %d, %v", n, err)
 	}
 }
 

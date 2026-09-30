@@ -25,7 +25,7 @@ type Repo struct{ pool *pgxpool.Pool }
 func NewRepo(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
 
 const columns = `id, date::text, description, category, instrument, kind, payment_method, currency,
-	amount::text, exchange_rate::text, amount_mxn::text`
+	amount::text, exchange_rate::text, amount_mxn::text, transfer_id::text`
 
 func nullString(s string) *string {
 	if s == "" {
@@ -47,14 +47,18 @@ func scan(row pgx.Row) (domain.Movement, error) {
 		m                    domain.Movement
 		id                   int64
 		instrument, rateText *string
+		transferID           *string
 		kind                 string
 		amount, amountMXN    string
 	)
 	if err := row.Scan(&id, &m.Date, &m.Description, &m.Category, &instrument, &kind, &m.PaymentMethod,
-		&m.Currency, &amount, &rateText, &amountMXN); err != nil {
+		&m.Currency, &amount, &rateText, &amountMXN, &transferID); err != nil {
 		return domain.Movement{}, err
 	}
 	m.ID = int(id)
+	if transferID != nil {
+		m.TransferID = *transferID
+	}
 	m.Kind = domain.Kind(kind)
 	if instrument != nil {
 		m.Instrument = *instrument
@@ -85,12 +89,12 @@ type rowQuerier interface {
 func insert(ctx context.Context, q rowQuerier, m domain.Movement, createdAt *time.Time) (domain.Movement, error) {
 	row := q.QueryRow(ctx, `
 		INSERT INTO movements (date, description, category, instrument, kind, payment_method, currency,
-		                       amount, exchange_rate, amount_mxn, created_at)
+		                       amount, exchange_rate, amount_mxn, created_at, transfer_id)
 		VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8::text::numeric, $9::text::numeric, $10::text::numeric,
-		        COALESCE($11::timestamptz, now()))
+		        COALESCE($11::timestamptz, now()), $12::text::uuid)
 		RETURNING `+columns,
 		m.Date, m.Description, m.Category, nullString(m.Instrument), string(m.Kind), m.PaymentMethod, m.Currency,
-		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt)
+		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt, nullString(m.TransferID))
 	return scan(row)
 }
 
@@ -187,6 +191,20 @@ func (r *Repo) Update(ctx context.Context, m domain.Movement) error {
 // Delete removes the movement.
 func (r *Repo) Delete(ctx context.Context, id int) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM movements WHERE id = $1`, int64(id))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
+// DeleteByTransfer removes every movement of a transfer (both legs) in a
+// single statement, so the legs never outlive each other. It returns
+// domain.ErrNotFound when no movement carries the transfer ID.
+func (r *Repo) DeleteByTransfer(ctx context.Context, transferID string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM movements WHERE transfer_id = $1::text::uuid`, transferID)
 	if err != nil {
 		return err
 	}

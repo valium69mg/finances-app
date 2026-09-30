@@ -57,6 +57,9 @@ type Movement struct {
 	Amount        decimal.Decimal
 	ExchangeRate  *decimal.Decimal
 	AmountMXN     decimal.Decimal
+	// TransferID (a UUID) links the two legs of a savings transfer; it is empty
+	// for every other movement.
+	TransferID string
 }
 
 // Valuation is a manually recorded value of an instrument on a date.

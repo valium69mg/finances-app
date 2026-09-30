@@ -106,6 +106,8 @@ type savingDTO struct {
 	Amount        decimal.Decimal  `json:"amount"`
 	ExchangeRate  *decimal.Decimal `json:"exchange_rate"`
 	AmountMXN     decimal.Decimal  `json:"amount_mxn"`
+	// TransferID is shared by the two legs of a transfer and null otherwise.
+	TransferID *string `json:"transfer_id"`
 }
 
 type transferDTO struct {
@@ -167,11 +169,16 @@ func (r savingRequest) toInput() app.Input {
 }
 
 func toSavingDTO(m ledger.Movement) savingDTO {
-	return savingDTO{
+	dto := savingDTO{
 		ID: m.ID, Date: m.Date, Description: m.Description, Category: m.Category, Instrument: m.Instrument,
 		PaymentMethod: m.PaymentMethod, Currency: m.Currency, Amount: m.Amount, ExchangeRate: m.ExchangeRate,
 		AmountMXN: m.AmountMXN,
 	}
+	if m.TransferID != "" {
+		id := m.TransferID
+		dto.TransferID = &id
+	}
+	return dto
 }
 
 func toValuationDTO(v ledger.Valuation) valuationDTO {
@@ -327,6 +334,8 @@ func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_saving", "message": err.Error()})
 	case errors.Is(err, savings.ErrInvalidValuation):
 		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_valuation", "message": err.Error()})
+	case errors.Is(err, savings.ErrTransferLegLocked):
+		httpjson.WriteJSON(w, http.StatusConflict, map[string]string{"error": "transfer_leg_locked", "message": err.Error()})
 	case errors.Is(err, ledger.ErrNotFound):
 		httpjson.WriteError(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, settings.ErrMissingConfig):

@@ -29,6 +29,13 @@ type MovementRepo interface {
 	ListAllByKind(ctx context.Context, kind domain.Kind) ([]domain.Movement, error)
 }
 
+// TransferDeleter removes the linked movements of a transfer atomically.
+type TransferDeleter interface {
+	// DeleteByTransfer removes every movement carrying the transfer ID in one
+	// statement. It returns domain.ErrNotFound when there is none.
+	DeleteByTransfer(ctx context.Context, transferID string) error
+}
+
 // BatchCreator stores several movements atomically. It is separate from
 // MovementRepo because only the modules that need all-or-nothing writes (such
 // as savings transfers) depend on it.

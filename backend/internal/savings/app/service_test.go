@@ -25,6 +25,8 @@ type fakeRepo struct {
 	listMonth string
 	batches   int
 	failBatch error
+
+	transferDeletes int
 }
 
 func newFakeRepo() *fakeRepo { return &fakeRepo{rows: map[int]ledger.Movement{}, nextID: 1} }
@@ -63,6 +65,20 @@ func (f *fakeRepo) Delete(_ context.Context, id int) error {
 		return ledger.ErrNotFound
 	}
 	delete(f.rows, id)
+	return nil
+}
+func (f *fakeRepo) DeleteByTransfer(_ context.Context, transferID string) error {
+	f.transferDeletes++
+	found := false
+	for id, m := range f.rows {
+		if m.TransferID == transferID {
+			delete(f.rows, id)
+			found = true
+		}
+	}
+	if !found {
+		return ledger.ErrNotFound
+	}
 	return nil
 }
 func (f *fakeRepo) GetByID(_ context.Context, id int) (ledger.Movement, error) {
@@ -319,6 +335,52 @@ func TestTransfer(t *testing.T) {
 	// The source instrument is cetes-28: the last category with that default wins, like fin.py.
 	if out.Category != "Aguinaldo y vacaciones" || in.Category != out.Category {
 		t.Errorf("category %q / %q", out.Category, in.Category)
+	}
+}
+
+func TestTransferLinksLegsAndLocksThem(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	res, err := svc.Transfer(ctx, app.TransferInput{From: "cetes-28", To: "voo", Amount: d("100")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.Transfer(ctx, app.TransferInput{From: "cetes-28", To: "voo", Amount: d("50")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, _ := svc.CreateSaving(ctx, app.Input{Category: "Inversiones", Amount: d("9")})
+	if res.Out.TransferID == "" || res.Out.TransferID != res.In.TransferID || res.Out.TransferID == other.Out.TransferID {
+		t.Fatalf("transfer ids: %q %q %q", res.Out.TransferID, res.In.TransferID, other.Out.TransferID)
+	}
+	if plain.TransferID != "" {
+		t.Errorf("plain saving got transfer id %q", plain.TransferID)
+	}
+
+	// A leg cannot be edited on its own.
+	before := repo.rows[res.Out.ID]
+	if _, err := svc.UpdateSaving(ctx, res.Out.ID, app.Input{Category: "Inversiones", Amount: d("-1")}); !errors.Is(err, savings.ErrTransferLegLocked) {
+		t.Errorf("update leg: err = %v, want ErrTransferLegLocked", err)
+	}
+	if repo.rows[res.Out.ID].Amount.String() != before.Amount.String() {
+		t.Error("locked leg was modified")
+	}
+
+	// Deleting either leg removes both, and only that transfer.
+	if err := svc.DeleteSaving(ctx, res.In.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := repo.rows[res.In.ID]; ok {
+		t.Error("deleted leg still there")
+	}
+	if _, ok := repo.rows[res.Out.ID]; ok {
+		t.Error("the other leg survived")
+	}
+	if _, ok := repo.rows[other.Out.ID]; !ok || len(repo.rows) != 3 || repo.transferDeletes != 1 {
+		t.Errorf("rows=%d transferDeletes=%d", len(repo.rows), repo.transferDeletes)
+	}
+	if err := svc.DeleteSaving(ctx, plain.ID); err != nil || repo.transferDeletes != 1 {
+		t.Errorf("plain delete: %v (transfer deletes %d)", err, repo.transferDeletes)
 	}
 }
 

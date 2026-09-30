@@ -5,6 +5,7 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ type Settings interface {
 type Movements interface {
 	ledgerapp.MovementRepo
 	ledgerapp.BatchCreator
+	ledgerapp.TransferDeleter
 }
 
 // Input is the data of a new or updated savings movement. Empty optional
@@ -174,6 +176,9 @@ func (s *Service) UpdateSaving(ctx context.Context, id int, in Input) (ledger.Mo
 	if err != nil {
 		return ledger.Movement{}, err
 	}
+	if cur.TransferID != "" {
+		return ledger.Movement{}, savings.ErrTransferLegLocked
+	}
 	m, err := s.build(ctx, withExisting(cur, in))
 	if err != nil {
 		return ledger.Movement{}, err
@@ -185,13 +190,29 @@ func (s *Service) UpdateSaving(ctx context.Context, id int, in Input) (ledger.Mo
 	return m, nil
 }
 
-// DeleteSaving removes a savings movement. Movements of another kind are
-// reported as not found.
+// DeleteSaving removes a savings movement. Deleting a leg of a transfer removes
+// both legs in one statement, so a transfer is never left half there.
+// Movements of another kind are reported as not found.
 func (s *Service) DeleteSaving(ctx context.Context, id int) error {
-	if _, err := s.saving(ctx, id); err != nil {
+	m, err := s.saving(ctx, id)
+	if err != nil {
 		return err
 	}
+	if m.TransferID != "" {
+		return s.movements.DeleteByTransfer(ctx, m.TransferID)
+	}
 	return s.movements.Delete(ctx, id)
+}
+
+// newTransferID returns a random (version 4) UUID linking the legs of a transfer.
+func newTransferID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate transfer id: %w", err)
+	}
+	b[6] = b[6]&0x0f | 0x40
+	b[8] = b[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 // ListSavings returns the savings of a YYYY-MM month (the current one when
@@ -285,6 +306,10 @@ func (s *Service) Transfer(ctx context.Context, in TransferInput) (Transfer, err
 			Kind: ledger.KindSavings, Amount: amount,
 		}, cfg.Catalog(), s.today())
 	}
+	transferID, err := newTransferID()
+	if err != nil {
+		return Transfer{}, err
+	}
 	out, err := leg(from, in.Amount.Neg())
 	if err != nil {
 		return Transfer{}, err
@@ -293,6 +318,7 @@ func (s *Service) Transfer(ctx context.Context, in TransferInput) (Transfer, err
 	if err != nil {
 		return Transfer{}, err
 	}
+	out.TransferID, inMovement.TransferID = transferID, transferID
 	saved, err := s.movements.CreateMany(ctx, []ledger.Movement{out, inMovement})
 	if err != nil {
 		return Transfer{}, err
