@@ -52,7 +52,7 @@ func (f *fakeRepo) CreateMany(_ context.Context, ms []ledger.Movement) ([]ledger
 	return out, nil
 }
 func (f *fakeRepo) Update(_ context.Context, m ledger.Movement) error {
-	if _, ok := f.rows[m.ID]; !ok {
+	if cur, ok := f.rows[m.ID]; !ok || cur.Kind != m.Kind {
 		return ledger.ErrNotFound
 	}
 	f.rows[m.ID] = m
@@ -208,6 +208,45 @@ func TestUpdateSaving(t *testing.T) {
 	}
 	if _, err := svc.UpdateSaving(ctx, 999, app.Input{Category: "Inversiones", Amount: d("1")}); !errors.Is(err, ledger.ErrNotFound) {
 		t.Errorf("missing id: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUpdateSavingKeepsOmittedFields(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	created, err := svc.CreateSaving(ctx, app.Input{
+		Category: "Inversiones", Amount: d("10"), Currency: "USD", ExchangeRate: ptr("20.5"),
+		PaymentMethod: "Efectivo", Date: "2026-09-03", Description: "before",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the description (and the required amount) is sent, as an edit form might.
+	if _, err := svc.UpdateSaving(ctx, created.ID, app.Input{Category: "Inversiones", Amount: d("10"), Description: "after"}); err != nil {
+		t.Fatal(err)
+	}
+	got := repo.rows[created.ID]
+	if got.Description != "after" || got.Currency != "USD" || got.ExchangeRate == nil || !got.ExchangeRate.Equal(d("20.5")) ||
+		got.PaymentMethod != "Efectivo" || got.Date != "2026-09-03" || !got.AmountMXN.Equal(d("205")) {
+		t.Errorf("omitted fields were reset: %+v", got)
+	}
+
+	// An explicit value still wins, and leaving USD drops the rate.
+	if _, err := svc.UpdateSaving(ctx, created.ID, app.Input{Category: "Inversiones", Amount: d("10"), Currency: "MXN", PaymentMethod: "Débito"}); err != nil {
+		t.Fatal(err)
+	}
+	got = repo.rows[created.ID]
+	if got.Currency != "MXN" || got.ExchangeRate != nil || got.PaymentMethod != "Débito" || !got.AmountMXN.Equal(d("10")) {
+		t.Errorf("explicit values: %+v", got)
+	}
+
+	// Switching MXN -> USD without a rate takes the configured one, not a stale rate.
+	if _, err := svc.UpdateSaving(ctx, created.ID, app.Input{Category: "Inversiones", Amount: d("10"), Currency: "USD"}); err != nil {
+		t.Fatal(err)
+	}
+	if got = repo.rows[created.ID]; got.ExchangeRate == nil || !got.ExchangeRate.Equal(d("17.74")) {
+		t.Errorf("switch to USD: %+v", got)
 	}
 }
 

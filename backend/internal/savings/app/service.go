@@ -143,13 +143,38 @@ func (s *Service) CreateSaving(ctx context.Context, in Input) (ledger.Movement, 
 	return s.movements.Create(ctx, m)
 }
 
-// UpdateSaving replaces the savings movement with the given ID. Movements of
-// another kind are reported as not found: this module only manages savings.
+// withExisting fills the fields an update left empty from the stored movement,
+// so an edit never silently resets the date, payment method, currency or
+// exchange rate to the creation defaults. The rate is only carried over while
+// the movement stays in USD; a currency change without a rate takes the
+// configured one, as on creation.
+func withExisting(cur ledger.Movement, in Input) Input {
+	if strings.TrimSpace(in.Date) == "" {
+		in.Date = cur.Date
+	}
+	if strings.TrimSpace(in.PaymentMethod) == "" {
+		in.PaymentMethod = cur.PaymentMethod
+	}
+	if strings.TrimSpace(in.Currency) == "" {
+		in.Currency = cur.Currency
+	}
+	if in.ExchangeRate == nil && strings.TrimSpace(in.Currency) == ledger.CurrencyUSD && cur.Currency == ledger.CurrencyUSD {
+		in.ExchangeRate = cur.ExchangeRate
+	}
+	return in
+}
+
+// UpdateSaving replaces the savings movement with the given ID. Fields left
+// empty in the input (date, payment method, currency, exchange rate) keep their
+// stored value; an empty category or instrument follows the creation rules.
+// Movements of another kind are reported as not found: this module only
+// manages savings.
 func (s *Service) UpdateSaving(ctx context.Context, id int, in Input) (ledger.Movement, error) {
-	if _, err := s.saving(ctx, id); err != nil {
+	cur, err := s.saving(ctx, id)
+	if err != nil {
 		return ledger.Movement{}, err
 	}
-	m, err := s.build(ctx, in)
+	m, err := s.build(ctx, withExisting(cur, in))
 	if err != nil {
 		return ledger.Movement{}, err
 	}
