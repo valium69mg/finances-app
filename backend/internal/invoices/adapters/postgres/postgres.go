@@ -216,16 +216,35 @@ func (r *Repo) Issue(ctx context.Context, id int, uuid string, docs []invoices.D
 	return replaced, nil
 }
 
-// Cancel marks a non-cancelled invoice as cancelled.
+// Cancel marks a non-cancelled invoice as cancelled, unless a tax filing
+// includes it. The declared check is part of the UPDATE itself, so it cannot
+// race with a filing being registered; the follow-up read only classifies why
+// nothing was updated.
 func (r *Repo) Cancel(ctx context.Context, id int) error {
-	tag, err := r.pool.Exec(ctx, `UPDATE invoices SET status = 'cancelada' WHERE id = $1 AND status <> 'cancelada'`, int64(id))
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE invoices SET status = 'cancelada'
+		WHERE id = $1 AND status <> 'cancelada' AND declaration_period IS NULL`, int64(id))
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
-		return invoices.ErrStateChanged
+	if tag.RowsAffected() > 0 {
+		return nil
 	}
-	return nil
+	var (
+		status      string
+		declaration *string
+	)
+	err = r.pool.QueryRow(ctx, `SELECT status, declaration_period FROM invoices WHERE id = $1`, int64(id)).Scan(&status, &declaration)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return invoices.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != string(invoices.StatusCancelled) && declaration != nil {
+		return fmt.Errorf("%w: it is part of the filing of %s", invoices.ErrDeclared, *declaration)
+	}
+	return invoices.ErrStateChanged
 }
 
 // ListDocuments returns the documents of an invoice, xml first.

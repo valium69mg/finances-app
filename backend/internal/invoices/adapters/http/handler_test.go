@@ -389,6 +389,7 @@ func TestErrorMapping(t *testing.T) {
 		{invoices.ErrUUIDMismatch, 422, "uuid_mismatch"},
 		{invoices.ErrDuplicateUUID, 409, "duplicate_uuid"},
 		{invoices.ErrCancelled, 409, "invoice_cancelled"},
+		{invoices.ErrDeclared, 409, "invoice_declared"},
 		{invoices.ErrAlreadyIssued, 409, "invoice_already_issued"},
 		{invoices.ErrNotIssued, 409, "invoice_not_issued"},
 		{invoices.ErrStateChanged, 409, "invoice_state_changed"},

@@ -45,8 +45,10 @@ type Repo interface {
 	// the invoice is no longer prepared and invoices.ErrDuplicateUUID when the
 	// UUID belongs to another invoice.
 	Issue(ctx context.Context, id int, uuid string, docs []invoices.Document) (replacedKeys []string, err error)
-	// Cancel marks a non-cancelled invoice as cancelled. It returns
-	// invoices.ErrStateChanged when it was already cancelled.
+	// Cancel marks a non-cancelled invoice as cancelled, atomically refusing an
+	// invoice that a tax filing includes (declaration_period set). It returns
+	// invoices.ErrDeclared for such an invoice, invoices.ErrStateChanged when it
+	// was already cancelled and invoices.ErrNotFound when it does not exist.
 	Cancel(ctx context.Context, id int) error
 	// ListDocuments returns the current documents of an invoice, xml first.
 	ListDocuments(ctx context.Context, invoiceID int) ([]invoices.Document, error)
@@ -56,6 +58,13 @@ type Repo interface {
 	// invoice and returns the storage key it replaced ("" when there was none).
 	// It returns invoices.ErrStateChanged when the invoice is not issued.
 	PutDocument(ctx context.Context, doc invoices.Document) (saved invoices.Document, replacedKey string, err error)
+}
+
+// Filings is the read side of the tax filing module the invoices use to warn
+// when an invoice is issued in an already filed period.
+type Filings interface {
+	// IsFiled reports whether the YYYY-MM period has a registered tax filing.
+	IsFiled(ctx context.Context, period string) (bool, error)
 }
 
 // Movements is the part of the ledger the invoices use to validate the optional

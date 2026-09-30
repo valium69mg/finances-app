@@ -31,6 +31,7 @@ type Service interface {
 	Get(ctx context.Context, period string) (app.Detail, error)
 	List(ctx context.Context, year int, status taxfiling.PaymentStatus) ([]taxfiling.Filing, error)
 	Pending(ctx context.Context) ([]taxfiling.PendingPeriod, error)
+	UnfiledInvoices(ctx context.Context) ([]invoices.Invoice, error)
 	Delete(ctx context.Context, period string) error
 }
 
@@ -55,6 +56,7 @@ func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) ht
 	}
 	route("GET /tax-filing/preview", h.preview)
 	route("GET /tax-filing/pending-periods", h.pending)
+	route("GET /tax-filing/unfiled-invoices", h.unfiled)
 	route("POST /tax-filing", h.register)
 	route("GET /tax-filing", h.list)
 	route("GET /tax-filing/{period}", h.get)
@@ -169,6 +171,13 @@ type pendingPeriodDTO struct {
 	Period  string `json:"period"`
 	DueDate string `json:"due_date"`
 	Overdue bool   `json:"overdue"`
+}
+
+// unfiledInvoiceDTO is an issued invoice that no filing includes although its
+// period was already filed.
+type unfiledInvoiceDTO struct {
+	invoiceRefDTO
+	Period string `json:"period"`
 }
 
 const timeFormat = "2006-01-02T15:04:05Z"
@@ -329,6 +338,22 @@ func (h *Handler) pending(w http.ResponseWriter, r *http.Request) {
 	out := make([]pendingPeriodDTO, len(list))
 	for i, p := range list {
 		out[i] = pendingPeriodDTO{Period: p.Period, DueDate: p.DueDate, Overdue: p.Overdue}
+	}
+	httpjson.WriteJSON(w, http.StatusOK, out)
+}
+
+// unfiled lists the issued invoices left out of an already filed period, so the
+// user can declare their income with the SAT (this app builds no complementary
+// declaration).
+func (h *Handler) unfiled(w http.ResponseWriter, r *http.Request) {
+	list, err := h.svc.UnfiledInvoices(r.Context())
+	if err != nil {
+		h.fail(w, "unfiled", err)
+		return
+	}
+	out := make([]unfiledInvoiceDTO, len(list))
+	for i, inv := range list {
+		out[i] = unfiledInvoiceDTO{invoiceRefDTO: toInvoiceRefDTO(inv), Period: inv.Period}
 	}
 	httpjson.WriteJSON(w, http.StatusOK, out)
 }

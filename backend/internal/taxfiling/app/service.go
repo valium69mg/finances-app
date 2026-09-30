@@ -373,13 +373,51 @@ func (s *Service) MonthStatus(ctx context.Context, month string) (taxfiling.Mont
 	if err := taxfiling.ValidatePeriod(month); err != nil {
 		return taxfiling.MonthStatus{}, err
 	}
-	issued, err := s.invoices.List(ctx, "", invoices.StatusIssued)
+	prev, err := ledger.PreviousMonth(month)
 	if err != nil {
 		return taxfiling.MonthStatus{}, err
+	}
+	// The dashboard calls this on every load, so read only what StatusOf uses:
+	// the filings of the month and of the previous period, and the previous
+	// period's issued invoices, and only when that period is not filed yet.
+	var filings []taxfiling.Filing
+	for _, p := range []string{month, prev} {
+		f, err := s.existing(ctx, p)
+		if err != nil {
+			return taxfiling.MonthStatus{}, err
+		}
+		if f != nil {
+			filings = append(filings, *f)
+		}
+	}
+	var issued []invoices.Invoice
+	if _, filed := taxfiling.FindFiling(filings, prev); !filed {
+		if issued, err = s.invoices.List(ctx, prev, invoices.StatusIssued); err != nil {
+			return taxfiling.MonthStatus{}, err
+		}
+	}
+	return taxfiling.StatusOf(issued, filings, month)
+}
+
+// IsFiled reports whether a YYYY-MM period has a registered filing.
+func (s *Service) IsFiled(ctx context.Context, period string) (bool, error) {
+	if err := taxfiling.ValidatePeriod(period); err != nil {
+		return false, err
+	}
+	f, err := s.existing(ctx, period)
+	return f != nil, err
+}
+
+// UnfiledInvoices lists the issued invoices that no filing includes although
+// their period is already filed (see taxfiling.UnfiledInvoices).
+func (s *Service) UnfiledInvoices(ctx context.Context) ([]invoices.Invoice, error) {
+	issued, err := s.invoices.List(ctx, "", invoices.StatusIssued)
+	if err != nil {
+		return nil, err
 	}
 	filings, err := s.repo.List(ctx)
 	if err != nil {
-		return taxfiling.MonthStatus{}, err
+		return nil, err
 	}
-	return taxfiling.StatusOf(issued, filings, month)
+	return taxfiling.UnfiledInvoices(issued, filings), nil
 }

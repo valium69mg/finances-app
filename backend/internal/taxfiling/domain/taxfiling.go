@@ -167,6 +167,31 @@ func ComputeDeclaration(cfg settings.Config, all []invoices.Invoice, period stri
 	}, nil
 }
 
+// UnfiledInvoices returns the issued invoices that no filing includes although
+// their period was already filed (declaration_period empty): typically an
+// invoice issued after the filing was registered. Their income is not part of
+// any saved declaration. Ordered by period, then ID, ascending. This app does
+// not build a complementary declaration for them; it only surfaces them.
+func UnfiledInvoices(all []invoices.Invoice, filings []Filing) []invoices.Invoice {
+	filed := map[string]bool{}
+	for _, f := range filings {
+		filed[f.Period] = true
+	}
+	var out []invoices.Invoice
+	for _, inv := range all {
+		if inv.Status == invoices.StatusIssued && inv.DeclarationPeriod == "" && filed[inv.Period] {
+			out = append(out, inv)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Period != out[j].Period {
+			return out[i].Period < out[j].Period
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
 // PendingPeriod is a period with issued invoices and no registered filing.
 type PendingPeriod struct {
 	Period  string

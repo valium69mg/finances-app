@@ -86,8 +86,16 @@ type Service struct {
 	store     ObjectStore
 	movements Movements
 	settings  Settings
+	filings   Filings
 	now       func() time.Time
 	logger    *slog.Logger
+}
+
+// WithFilings sets the tax filing lookup used to warn when an invoice is issued
+// in an already filed period. Without it the warning is never produced.
+func (s *Service) WithFilings(f Filings) *Service {
+	s.filings = f
+	return s
 }
 
 // NewService builds a Service. A nil now selects time.Now and a nil logger
@@ -288,6 +296,7 @@ func (s *Service) Issue(ctx context.Context, id int, in IssueInput) (Result, err
 		return Result{}, err
 	}
 	s.deleteKeys(ctx, replaced)
+	warnings = append(warnings, s.filedPeriodWarning(ctx, inv.Period)...)
 
 	updated, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -298,6 +307,24 @@ func (s *Service) Issue(ctx context.Context, id int, in IssueInput) (Result, err
 		return Result{}, err
 	}
 	return Result{Detail: detail, Warnings: warnings}, nil
+}
+
+// filedPeriodWarning warns when the period of a just-issued invoice already has
+// a registered filing: the invoice is never linked to it and its income stays
+// undeclared. The invoice is already issued, so a failed lookup is only logged.
+func (s *Service) filedPeriodWarning(ctx context.Context, period string) []invoices.Warning {
+	if s.filings == nil {
+		return nil
+	}
+	filed, err := s.filings.IsFiled(ctx, period)
+	if err != nil {
+		s.logger.Warn("invoice issued but its period could not be checked against the tax filings", "period", period, "error", err)
+		return nil
+	}
+	if !filed {
+		return nil
+	}
+	return []invoices.Warning{invoices.PeriodAlreadyFiledWarning(period)}
 }
 
 // AttachDocument stores (or replaces) the XML or PDF of an issued invoice. An
@@ -372,7 +399,10 @@ func (s *Service) Download(ctx context.Context, invoiceID, docID int) (invoices.
 }
 
 // Cancel marks the invoice as cancelled. Cancelled is terminal: cancelling a
-// cancelled invoice is invoices.ErrCancelled. The stored documents are kept.
+// cancelled invoice is invoices.ErrCancelled. An invoice that a tax filing
+// includes cannot be cancelled (invoices.ErrDeclared): the saved declaration
+// would silently go out of sync, so the filing must be deleted first. The
+// repository re-checks this atomically in the UPDATE. The stored documents are kept.
 func (s *Service) Cancel(ctx context.Context, id int) (invoices.Invoice, error) {
 	inv, err := s.repo.Get(ctx, id)
 	if err != nil {
@@ -380,6 +410,10 @@ func (s *Service) Cancel(ctx context.Context, id int) (invoices.Invoice, error) 
 	}
 	if inv.Status == invoices.StatusCancelled {
 		return invoices.Invoice{}, fmt.Errorf("%w: #%d", invoices.ErrCancelled, id)
+	}
+	if inv.DeclarationPeriod != "" {
+		return invoices.Invoice{}, fmt.Errorf("%w: #%d is part of the filing of %s, delete that filing first",
+			invoices.ErrDeclared, id, inv.DeclarationPeriod)
 	}
 	if err := s.repo.Cancel(ctx, id); err != nil {
 		return invoices.Invoice{}, err

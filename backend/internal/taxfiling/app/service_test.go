@@ -32,12 +32,19 @@ type fakeSettings struct {
 
 func (f *fakeSettings) Get(context.Context) (settings.Config, error) { return f.cfg, f.err }
 
+type listCall struct {
+	period string
+	status invoices.Status
+}
+
 type fakeInvoices struct {
-	rows []invoices.Invoice
-	err  error
+	rows  []invoices.Invoice
+	err   error
+	calls []listCall
 }
 
 func (f *fakeInvoices) List(_ context.Context, period string, status invoices.Status) ([]invoices.Invoice, error) {
+	f.calls = append(f.calls, listCall{period, status})
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -76,6 +83,8 @@ type fakeRepo struct {
 	filings   map[string]taxfiling.Filing
 	createErr error
 	payErr    error
+	listCalls int
+	getCalls  []string
 }
 
 func (f *fakeRepo) Create(_ context.Context, fl taxfiling.Filing) (taxfiling.Filing, error) {
@@ -90,6 +99,7 @@ func (f *fakeRepo) Create(_ context.Context, fl taxfiling.Filing) (taxfiling.Fil
 }
 
 func (f *fakeRepo) Get(_ context.Context, period string) (taxfiling.Filing, error) {
+	f.getCalls = append(f.getCalls, period)
 	fl, ok := f.filings[period]
 	if !ok {
 		return taxfiling.Filing{}, taxfiling.ErrNotFound
@@ -98,6 +108,7 @@ func (f *fakeRepo) Get(_ context.Context, period string) (taxfiling.Filing, erro
 }
 
 func (f *fakeRepo) List(context.Context) ([]taxfiling.Filing, error) {
+	f.listCalls++
 	out := make([]taxfiling.Filing, 0, len(f.filings))
 	for _, fl := range f.filings {
 		out = append(out, fl)
@@ -584,5 +595,69 @@ func TestMonthStatus(t *testing.T) {
 	}
 	if _, err := fx.svc.MonthStatus(ctx, "x"); !errors.Is(err, taxfiling.ErrInvalidInput) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// The dashboard calls MonthStatus on every load: it must read only the filing
+// of the month and of the previous period, plus the issued invoices of the
+// previous period, never every invoice and every filing.
+func TestMonthStatusQueriesOnlyWhatItNeeds(t *testing.T) {
+	fx := newFixture()
+	ctx := context.Background()
+
+	got, err := fx.svc.MonthStatus(ctx, "2026-11")
+	if err != nil || !got.PreviousPending {
+		t.Fatalf("status = %+v, %v", got, err)
+	}
+	if fx.repo.listCalls != 0 {
+		t.Errorf("repo.List called %d times, want 0", fx.repo.listCalls)
+	}
+	if len(fx.repo.getCalls) != 2 || fx.repo.getCalls[0] != "2026-11" || fx.repo.getCalls[1] != "2026-10" {
+		t.Errorf("repo.Get calls = %v, want the month and the previous period", fx.repo.getCalls)
+	}
+	if len(fx.invoices.calls) != 1 || fx.invoices.calls[0] != (listCall{"2026-10", invoices.StatusIssued}) {
+		t.Errorf("invoices.List calls = %+v, want only the issued invoices of 2026-10", fx.invoices.calls)
+	}
+
+	// A filed previous period needs no invoice lookup at all.
+	fx.repo.filings["2026-10"] = taxfiling.Filing{Period: "2026-10", Payment: &taxfiling.Payment{}}
+	fx.invoices.calls = nil
+	got, err = fx.svc.MonthStatus(ctx, "2026-11")
+	if err != nil || got.PreviousPending || len(fx.invoices.calls) != 0 {
+		t.Errorf("status = %+v, %v, invoice calls %+v", got, err, fx.invoices.calls)
+	}
+}
+
+func TestIsFiled(t *testing.T) {
+	fx := newFixture()
+	ctx := context.Background()
+	fx.repo.filings["2026-10"] = taxfiling.Filing{Period: "2026-10"}
+	if ok, err := fx.svc.IsFiled(ctx, "2026-10"); err != nil || !ok {
+		t.Errorf("filed period: %v, %v", ok, err)
+	}
+	if ok, err := fx.svc.IsFiled(ctx, "2026-09"); err != nil || ok {
+		t.Errorf("unfiled period: %v, %v", ok, err)
+	}
+	if _, err := fx.svc.IsFiled(ctx, "x"); !errors.Is(err, taxfiling.ErrInvalidInput) {
+		t.Errorf("bad period err = %v", err)
+	}
+}
+
+func TestUnfiledInvoices(t *testing.T) {
+	fx := newFixture()
+	ctx := context.Background()
+	if got, err := fx.svc.UnfiledInvoices(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("no filings: %+v, %v", got, err)
+	}
+	// 2026-10 is filed and only invoice 1 was linked; invoice 2 (issued later) was not.
+	fx.repo.filings["2026-10"] = taxfiling.Filing{Period: "2026-10", InvoiceIDs: []int{1}}
+	for i := range fx.invoices.rows {
+		if fx.invoices.rows[i].ID == 1 {
+			fx.invoices.rows[i].DeclarationPeriod = "2026-10"
+		}
+	}
+	got, err := fx.svc.UnfiledInvoices(ctx)
+	if err != nil || len(got) != 1 || got[0].ID != 2 {
+		t.Errorf("unfiled = %+v, %v; want only invoice 2 (issued, filed period, not linked)", got, err)
 	}
 }

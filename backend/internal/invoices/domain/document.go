@@ -50,7 +50,10 @@ var (
 	ErrNotIssued       = errors.New("invoice is not issued")
 	ErrAlreadyIssued   = errors.New("invoice is already issued")
 	ErrStateChanged    = errors.New("invoice state changed")
-	ErrIssueInput      = errors.New("issue requires an XML or a UUID")
+	// ErrDeclared is returned when cancelling an invoice that is included in a
+	// registered tax filing: the saved declaration would silently go out of sync.
+	ErrDeclared   = errors.New("invoice is included in a filed tax declaration")
+	ErrIssueInput = errors.New("issue requires an XML or a UUID")
 )
 
 // Document is the metadata of an issued CFDI file stored in object storage.
@@ -184,7 +187,21 @@ const (
 	WarningTotalMismatch     = "total_mismatch"
 	WarningSubtotalMismatch  = "subtotal_mismatch"
 	WarningCurrencyMismatch  = "currency_mismatch"
+	// WarningPeriodAlreadyFiled is returned when an invoice is issued in a
+	// period whose tax declaration was already filed: the invoice is not part of
+	// that declaration and its income stays undeclared.
+	WarningPeriodAlreadyFiled = "period_already_filed"
 )
+
+// PeriodAlreadyFiledWarning is the warning for an invoice issued in a period
+// that already has a registered tax filing.
+func PeriodAlreadyFiledWarning(period string) Warning {
+	return Warning{
+		Code: WarningPeriodAlreadyFiled,
+		Message: fmt.Sprintf("the tax declaration of %s was already filed: this invoice is not part of it and its income "+
+			"is not declared; declare it with the SAT outside this app", period),
+	}
+}
 
 // DuplicateWarning returns the possible-duplicate warning for the given IDs, or
 // no warning when there are none.

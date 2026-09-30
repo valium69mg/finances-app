@@ -305,6 +305,39 @@ func TestCancel(t *testing.T) {
 	}
 }
 
+// An invoice a tax filing includes cannot be cancelled: the UPDATE itself
+// refuses it, so a filing registered between a read and the write cannot slip by.
+func TestCancelRefusesADeclaredInvoice(t *testing.T) {
+	repo, pool := newRepo(t)
+	ctx := context.Background()
+	inv, _ := repo.Create(ctx, usaInvoice("2026-10-15"))
+	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE invoices SET declaration_period = '2026-10' WHERE id = $1`, int64(inv.ID)); err != nil {
+		t.Fatal(err)
+	}
+
+	err := repo.Cancel(ctx, inv.ID)
+	if !errors.Is(err, invoices.ErrDeclared) {
+		t.Fatalf("cancel declared error = %v, want ErrDeclared", err)
+	}
+	if got, _ := repo.Get(ctx, inv.ID); got.Status != invoices.StatusIssued || got.DeclarationPeriod != "2026-10" {
+		t.Errorf("invoice = %+v, want it untouched", got)
+	}
+
+	// Once the filing is deleted (the link cleared) the invoice can be cancelled.
+	if _, err := pool.Exec(ctx, `UPDATE invoices SET declaration_period = NULL WHERE id = $1`, int64(inv.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Cancel(ctx, inv.ID); err != nil {
+		t.Errorf("cancel after the filing was deleted: %v", err)
+	}
+	if err := repo.Cancel(ctx, 999999); !errors.Is(err, invoices.ErrNotFound) {
+		t.Errorf("cancel unknown invoice error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestSchemaConstraints(t *testing.T) {
 	_, pool := newRepo(t)
 	ctx := context.Background()

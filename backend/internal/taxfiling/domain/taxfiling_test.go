@@ -222,6 +222,30 @@ func TestPendingPeriods(t *testing.T) {
 	})
 }
 
+func TestUnfiledInvoices(t *testing.T) {
+	all := []invoices.Invoice{
+		{ID: 1, Period: "2026-10", Status: invoices.StatusIssued, DeclarationPeriod: "2026-10"}, // linked to its filing
+		{ID: 2, Period: "2026-10", Status: invoices.StatusIssued},                               // issued after the filing
+		{ID: 3, Period: "2026-10", Status: invoices.StatusCancelled},                            // cancelled
+		{ID: 4, Period: "2026-10", Status: invoices.StatusPrepared},                             // not issued yet
+		{ID: 5, Period: "2026-11", Status: invoices.StatusIssued},                               // period not filed: pending, not late
+		{ID: 6, Period: "2026-09", Status: invoices.StatusIssued},
+		{ID: 7, Period: "2026-10", Status: invoices.StatusIssued},
+	}
+	filings := []taxfiling.Filing{{Period: "2026-10"}, {Period: "2026-09"}}
+	got := taxfiling.UnfiledInvoices(all, filings)
+	ids := make([]int, len(got))
+	for i, inv := range got {
+		ids[i] = inv.ID
+	}
+	if len(ids) != 3 || ids[0] != 6 || ids[1] != 2 || ids[2] != 7 {
+		t.Errorf("ids = %v, want [6 2 7] (by period then id)", ids)
+	}
+	if got := taxfiling.UnfiledInvoices(all, nil); len(got) != 0 {
+		t.Errorf("without filings nothing is late: %+v", got)
+	}
+}
+
 func TestNewFiling(t *testing.T) {
 	cfg := settingstest.RealConfig()
 	in := taxfiling.FilingInput{Period: "2026-10", Date: "2026-11-10", Folio: "  ACUSE-123 "}

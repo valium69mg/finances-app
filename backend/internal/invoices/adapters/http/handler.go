@@ -496,6 +496,8 @@ func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 		reply(http.StatusConflict, "duplicate_uuid")
 	case errors.Is(err, invoices.ErrCancelled):
 		reply(http.StatusConflict, "invoice_cancelled")
+	case errors.Is(err, invoices.ErrDeclared):
+		reply(http.StatusConflict, "invoice_declared")
 	case errors.Is(err, invoices.ErrAlreadyIssued):
 		reply(http.StatusConflict, "invoice_already_issued")
 	case errors.Is(err, invoices.ErrNotIssued):

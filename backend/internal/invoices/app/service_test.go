@@ -75,6 +75,11 @@ type fakeRepo struct {
 	nextID   int
 	nextDoc  int
 	issueErr error
+	// cancelCalls counts the Cancel calls that reached the write.
+	cancelCalls int
+	// staleGet makes Get hide declaration_period, as a read taken just before
+	// a filing is registered would.
+	staleGet bool
 }
 
 func newRepo() *fakeRepo {
@@ -93,6 +98,9 @@ func (f *fakeRepo) Get(_ context.Context, id int) (invoices.Invoice, error) {
 	inv, ok := f.invoices[id]
 	if !ok {
 		return invoices.Invoice{}, invoices.ErrNotFound
+	}
+	if f.staleGet {
+		inv.DeclarationPeriod = ""
 	}
 	return inv, nil
 }
@@ -159,6 +167,10 @@ func (f *fakeRepo) Cancel(_ context.Context, id int) error {
 	inv := f.invoices[id]
 	if inv.Status == invoices.StatusCancelled {
 		return invoices.ErrStateChanged
+	}
+	f.cancelCalls++
+	if inv.DeclarationPeriod != "" {
+		return invoices.ErrDeclared
 	}
 	inv.Status = invoices.StatusCancelled
 	f.invoices[id] = inv
@@ -565,6 +577,110 @@ func TestCancel(t *testing.T) {
 	if _, err := e.svc.Cancel(ctx, 42); !errors.Is(err, invoices.ErrNotFound) {
 		t.Errorf("cancel missing: %v", err)
 	}
+}
+
+// Cancelling an invoice that a saved tax filing includes would silently desync
+// that filing: it is refused, and the invoice stays issued.
+func TestCancelRefusesADeclaredInvoice(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv()
+	id := e.prepareUSA(t)
+	if _, err := e.svc.Issue(ctx, id, app.IssueInput{UUID: uuidA}); err != nil {
+		t.Fatal(err)
+	}
+	inv := e.repo.invoices[id]
+	inv.DeclarationPeriod = "2026-10"
+	e.repo.invoices[id] = inv
+
+	_, err := e.svc.Cancel(ctx, id)
+	if !errors.Is(err, invoices.ErrDeclared) || !strings.Contains(err.Error(), "2026-10") {
+		t.Fatalf("cancel declared: %v, want ErrDeclared naming the period", err)
+	}
+	if got := e.repo.invoices[id]; got.Status != invoices.StatusIssued {
+		t.Errorf("status = %s, want it untouched", got.Status)
+	}
+	if e.repo.cancelCalls != 0 {
+		t.Error("the service must refuse before writing")
+	}
+
+	// The repository re-checks atomically: a filing registered after the
+	// service read the invoice is still refused (the fake plays the UPDATE guard).
+	e.repo.staleGet = true
+	if _, err := e.svc.Cancel(ctx, id); !errors.Is(err, invoices.ErrDeclared) || e.repo.cancelCalls != 1 {
+		t.Errorf("race: %v (write attempts %d), want the repository's ErrDeclared", err, e.repo.cancelCalls)
+	}
+	e.repo.staleGet = false
+	if got := e.repo.invoices[id]; got.Status != invoices.StatusIssued {
+		t.Errorf("status = %s, want it untouched", got.Status)
+	}
+}
+
+type filingsFake struct {
+	filed map[string]bool
+	err   error
+}
+
+func (f filingsFake) IsFiled(_ context.Context, period string) (bool, error) {
+	return f.filed[period], f.err
+}
+
+func TestIssueWarnsWhenThePeriodIsAlreadyFiled(t *testing.T) {
+	ctx := context.Background()
+	warnings := func(res app.Result) []string {
+		var codes []string
+		for _, w := range res.Warnings {
+			codes = append(codes, w.Code)
+		}
+		return codes
+	}
+
+	t.Run("filed period", func(t *testing.T) {
+		e := newEnv()
+		e.svc.WithFilings(filingsFake{filed: map[string]bool{"2026-10": true}})
+		id := e.prepareUSA(t)
+		res, err := e.svc.Issue(ctx, id, app.IssueInput{UUID: uuidA})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := warnings(res); len(got) != 1 || got[0] != invoices.WarningPeriodAlreadyFiled {
+			t.Errorf("warnings = %v, want period_already_filed", got)
+		}
+		if res.Invoice.Status != invoices.StatusIssued || res.Invoice.DeclarationPeriod != "" {
+			t.Errorf("invoice = %+v; it is issued and stays unlinked", res.Invoice)
+		}
+	})
+	t.Run("period not filed", func(t *testing.T) {
+		e := newEnv()
+		e.svc.WithFilings(filingsFake{filed: map[string]bool{"2026-09": true}})
+		res, err := e.svc.Issue(ctx, e.prepareUSA(t), app.IssueInput{UUID: uuidA})
+		if err != nil || len(res.Warnings) != 0 {
+			t.Errorf("res warnings %v, err %v", warnings(res), err)
+		}
+	})
+	t.Run("the warning combines with the XML mismatch warnings", func(t *testing.T) {
+		e := newEnv()
+		e.svc.WithFilings(filingsFake{filed: map[string]bool{"2026-10": true}})
+		res, err := e.svc.Issue(ctx, e.prepareUSA(t), app.IssueInput{XML: xmlUpload(uuidA, "1", "1", "USD")})
+		if err != nil || len(res.Warnings) < 2 || res.Warnings[len(res.Warnings)-1].Code != invoices.WarningPeriodAlreadyFiled {
+			t.Errorf("warnings = %v, err %v", warnings(res), err)
+		}
+	})
+	t.Run("a failing lookup never fails an issued invoice", func(t *testing.T) {
+		e := newEnv()
+		e.svc.WithFilings(filingsFake{err: errors.New("db down")})
+		id := e.prepareUSA(t)
+		res, err := e.svc.Issue(ctx, id, app.IssueInput{UUID: uuidA})
+		if err != nil || len(res.Warnings) != 0 || e.repo.invoices[id].Status != invoices.StatusIssued {
+			t.Errorf("warnings %v, err %v", warnings(res), err)
+		}
+	})
+	t.Run("no lookup configured", func(t *testing.T) {
+		e := newEnv()
+		res, err := e.svc.Issue(ctx, e.prepareUSA(t), app.IssueInput{UUID: uuidA})
+		if err != nil || len(res.Warnings) != 0 {
+			t.Errorf("warnings %v, err %v", warnings(res), err)
+		}
+	})
 }
 
 func TestListAndGet(t *testing.T) {

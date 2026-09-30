@@ -30,6 +30,7 @@ type fakeService struct {
 	detail  app.Detail
 	list    []taxfiling.Filing
 	pending []taxfiling.PendingPeriod
+	unfiled []invoices.Invoice
 	err     error
 
 	gotPeriod   string
@@ -63,6 +64,9 @@ func (f *fakeService) List(_ context.Context, year int, status taxfiling.Payment
 }
 func (f *fakeService) Pending(context.Context) ([]taxfiling.PendingPeriod, error) {
 	return f.pending, f.err
+}
+func (f *fakeService) UnfiledInvoices(context.Context) ([]invoices.Invoice, error) {
+	return f.unfiled, f.err
 }
 func (f *fakeService) Delete(_ context.Context, period string) error {
 	f.deleted = period
@@ -114,7 +118,7 @@ func TestRequiresAuth(t *testing.T) {
 	h := newServer(&fakeService{})
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/tax-filing/preview"}, {"POST", "/tax-filing"}, {"GET", "/tax-filing"}, {"GET", "/tax-filing/pending-periods"},
-		{"GET", "/tax-filing/2026-10"}, {"POST", "/tax-filing/2026-10/payment"}, {"DELETE", "/tax-filing/2026-10"},
+		{"GET", "/tax-filing/unfiled-invoices"}, {"GET", "/tax-filing/2026-10"}, {"POST", "/tax-filing/2026-10/payment"}, {"DELETE", "/tax-filing/2026-10"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		rec := httptest.NewRecorder()
@@ -309,6 +313,26 @@ func TestPending(t *testing.T) {
 	rec = do(newServer(&fakeService{}), "GET", "/tax-filing/pending-periods", "")
 	if strings.TrimSpace(rec.Body.String()) != "[]" {
 		t.Errorf("empty pending body = %q, want []", rec.Body)
+	}
+}
+
+func TestUnfiledInvoices(t *testing.T) {
+	svc := &fakeService{unfiled: []invoices.Invoice{{
+		ID: 9, ClientID: "b", CollectionDate: "2026-10-31", Period: "2026-10", Currency: "MXN", Status: invoices.StatusIssued, UUID: "AAAAAAAA-0000-0000-0000-000000000000",
+		Amounts: invoices.Amounts{SubtotalMXN: d("100")},
+	}}}
+	rec := do(newServer(svc), "GET", "/tax-filing/unfiled-invoices", "")
+	var out []map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out) != 1 || out[0]["id"] != float64(9) || out[0]["period"] != "2026-10" ||
+		out[0]["subtotal_mxn"] != "100" || out[0]["state"] != "emitida" {
+		t.Errorf("body = %s, %v", rec.Body, err)
+	}
+	if svc.gotPeriod != "" {
+		t.Errorf("unfiled-invoices was routed to the period handler (%q)", svc.gotPeriod)
+	}
+	rec = do(newServer(&fakeService{}), "GET", "/tax-filing/unfiled-invoices", "")
+	if strings.TrimSpace(rec.Body.String()) != "[]" {
+		t.Errorf("empty body = %q, want []", rec.Body)
 	}
 }
 
