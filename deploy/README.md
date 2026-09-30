@@ -185,6 +185,12 @@ dcp restart api
   size, duration, client IP and request id (`X-Request-ID`, shared with nginx's `id=`).
   Tokens, passwords and bodies are never logged. `/healthz` probes log at debug level.
 - Stopping the API (`docker stop`) drains in-flight requests for up to 10 s.
+- **Docker cleanup:** every deploy rebuilds images on the VM, so the build cache and old
+  images pile up on the data volume. Install the weekly cleanup once, from the checkout on
+  the VM: `sudo deploy/scripts/install-docker-prune.sh` (Sundays 04:00 server time; it removes
+  build cache and unused images older than a week, never volumes). Check it with
+  `systemctl list-timers finances-docker-prune.timer` and `journalctl -u finances-docker-prune`.
+  Run it by hand with `sudo systemctl start finances-docker-prune.service`.
 
 ## 8. Edge behavior
 
