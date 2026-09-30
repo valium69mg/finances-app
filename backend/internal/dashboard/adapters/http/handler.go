@@ -71,6 +71,56 @@ type taxDTO struct {
 	PreviousPeriodPending bool            `json:"previous_period_pending"`
 }
 
+// cycleDTO places today in the displayed cycle: day is 1 on its first day, 0
+// before it starts and days once it is over.
+type cycleDTO struct {
+	Today string `json:"today"`
+	Day   int    `json:"day"`
+	Days  int    `json:"days"`
+}
+
+// futureExpenseDTO is one expense known in advance: what is saved towards it
+// and the amount to put aside each cycle (suggested_monthly) to have it on time.
+type futureExpenseDTO struct {
+	Name             string          `json:"name"`
+	DueDate          string          `json:"due_date"`
+	Target           decimal.Decimal `json:"target"`
+	Saved            decimal.Decimal `json:"saved"`
+	Remaining        decimal.Decimal `json:"remaining"`
+	SuggestedMonthly decimal.Decimal `json:"suggested_monthly"`
+	CyclesLeft       int             `json:"cycles_left"`
+}
+
+type futureExpensesDTO struct {
+	Items            []futureExpenseDTO `json:"items"`
+	Target           decimal.Decimal    `json:"target"`
+	Saved            decimal.Decimal    `json:"saved"`
+	Remaining        decimal.Decimal    `json:"remaining"`
+	SuggestedMonthly decimal.Decimal    `json:"suggested_monthly"`
+}
+
+// upcomingBillDTO is a bill due soon; amount is null for a variable bill.
+type upcomingBillDTO struct {
+	ID           int              `json:"id"`
+	Name         string           `json:"name"`
+	Category     string           `json:"category"`
+	Amount       *decimal.Decimal `json:"amount"`
+	Currency     string           `json:"currency"`
+	DueDate      string           `json:"due_date"`
+	DaysUntilDue int              `json:"days_until_due"`
+	Overdue      bool             `json:"overdue"`
+}
+
+// recentMovementDTO is one line of the mixed recent movements list.
+type recentMovementDTO struct {
+	ID          int             `json:"id"`
+	Date        string          `json:"date"`
+	Kind        string          `json:"kind"`
+	Description string          `json:"description"`
+	Category    string          `json:"category"`
+	AmountMXN   decimal.Decimal `json:"amount_mxn"`
+}
+
 // dashboardDTO is the body of GET /dashboard. Tax is null when the tax
 // settings are incomplete.
 type dashboardDTO struct {
@@ -84,6 +134,11 @@ type dashboardDTO struct {
 	Available   decimal.Decimal `json:"available"`
 	Emergency   emergencyDTO    `json:"emergency"`
 	Tax         *taxDTO         `json:"tax"`
+
+	Cycle          cycleDTO            `json:"cycle"`
+	FutureExpenses futureExpensesDTO   `json:"future_expenses"`
+	UpcomingBills  []upcomingBillDTO   `json:"upcoming_bills"`
+	Recent         []recentMovementDTO `json:"recent_movements"`
 }
 
 func toDTO(d dashboard.Overview) dashboardDTO {
@@ -97,6 +152,30 @@ func toDTO(d dashboard.Overview) dashboardDTO {
 		Savings:     d.Totals.Savings,
 		Available:   d.Available,
 		Emergency:   emergencyDTO{Accumulated: d.Emergency.Accumulated, Goal: d.Emergency.Goal},
+		Cycle:       cycleDTO{Today: d.Cycle.Today, Day: d.Cycle.Day, Days: d.Cycle.Days},
+		FutureExpenses: futureExpensesDTO{
+			Items:  make([]futureExpenseDTO, len(d.Future.Items)),
+			Target: d.Future.Target, Saved: d.Future.Saved, Remaining: d.Future.Remaining, SuggestedMonthly: d.Future.Suggested,
+		},
+		UpcomingBills: make([]upcomingBillDTO, len(d.Upcoming)),
+		Recent:        make([]recentMovementDTO, len(d.Recent)),
+	}
+	for i, f := range d.Future.Items {
+		out.FutureExpenses.Items[i] = futureExpenseDTO{
+			Name: f.Name, DueDate: f.DueDate, Target: f.Target, Saved: f.Saved, Remaining: f.Remaining,
+			SuggestedMonthly: f.Suggested, CyclesLeft: f.CyclesLeft,
+		}
+	}
+	for i, b := range d.Upcoming {
+		out.UpcomingBills[i] = upcomingBillDTO{
+			ID: b.ID, Name: b.Name, Category: b.Category, Amount: b.Amount, Currency: b.Currency,
+			DueDate: b.DueDate, DaysUntilDue: b.DaysUntilDue, Overdue: b.Overdue,
+		}
+	}
+	for i, m := range d.Recent {
+		out.Recent[i] = recentMovementDTO{
+			ID: m.ID, Date: m.Date, Kind: string(m.Kind), Description: m.Description, Category: m.Category, AmountMXN: m.AmountMXN,
+		}
 	}
 	for i, r := range d.Rows {
 		out.Categories[i] = categoryDTO{Category: r.Name, Spent: r.Real, Budget: r.Budget, Remaining: r.Diff, OverBudget: r.OverBudget()}

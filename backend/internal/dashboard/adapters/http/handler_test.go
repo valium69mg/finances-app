@@ -74,6 +74,21 @@ func sample() dashboard.Overview {
 			Rate: d("0.011"), EstimatedISR: d("550"),
 			Filing: taxfiling.MonthStatus{Payment: taxfiling.PaymentPending, PreviousPeriod: "2026-09", PreviousPending: true},
 		},
+		Cycle: dashboard.CycleProgress{Today: "2026-10-15", Day: 16, Days: 31},
+		Future: dashboard.FutureExpenses{
+			Items: []dashboard.FutureExpense{{
+				Name: "Predial", DueDate: "2027-01-20", Target: d("10000"), Saved: d("2500"), Remaining: d("7500"),
+				Suggested: d("2500"), CyclesLeft: 3,
+			}},
+			Target: d("10000"), Saved: d("2500"), Remaining: d("7500"), Suggested: d("2500"),
+		},
+		Upcoming: []dashboard.UpcomingBill{
+			{ID: 7, Name: "Luz", Category: "Servicios", Amount: p("200"), Currency: "MXN", DueDate: "2026-10-17", DaysUntilDue: 2},
+			{ID: 8, Name: "Agua", Category: "Servicios", Currency: "MXN", DueDate: "2026-10-14", DaysUntilDue: -1, Overdue: true},
+		},
+		Recent: []ledger.Movement{
+			{ID: 3, Date: "2026-10-14", Kind: ledger.KindSavings, Description: "Apartado", Category: "Gastos futuros", AmountMXN: d("2500")},
+		},
 	}
 }
 
@@ -104,7 +119,13 @@ func TestGet(t *testing.T) {
 		`{"category":"Ocio","spent":"200","budget":null,"remaining":null,"over_budget":false}],` +
 		`"income":"50000","expenses":"1700","savings":"5000","available":"43300",` +
 		`"emergency":{"accumulated":"10000","goal":"120000"},` +
-		`"tax":{"rate":"0.011","estimated_isr":"550","filing_status":"pendiente","previous_period":"2026-09","previous_period_pending":true}}`
+		`"tax":{"rate":"0.011","estimated_isr":"550","filing_status":"pendiente","previous_period":"2026-09","previous_period_pending":true},` +
+		`"cycle":{"today":"2026-10-15","day":16,"days":31},` +
+		`"future_expenses":{"items":[{"name":"Predial","due_date":"2027-01-20","target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500","cycles_left":3}],` +
+		`"target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500"},` +
+		`"upcoming_bills":[{"id":7,"name":"Luz","category":"Servicios","amount":"200","currency":"MXN","due_date":"2026-10-17","days_until_due":2,"overdue":false},` +
+		`{"id":8,"name":"Agua","category":"Servicios","amount":null,"currency":"MXN","due_date":"2026-10-14","days_until_due":-1,"overdue":true}],` +
+		`"recent_movements":[{"id":3,"date":"2026-10-14","kind":"Ahorro","description":"Apartado","category":"Gastos futuros","amount_mxn":"2500"}]}`
 	if got := strings.TrimSpace(rec.Body.String()); got != want {
 		t.Errorf("body\n got %s\nwant %s", got, want)
 	}
