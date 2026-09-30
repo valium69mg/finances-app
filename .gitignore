@@ -10,6 +10,7 @@ deploy/nginx/optional/*.conf
 # Terraform: state, variables and SSH keys never enter git (the repo is public).
 # The provider lock file (.terraform.lock.hcl) IS committed on purpose.
 infra/.keys/
+infra/backend.hcl
 **/.terraform/
 *.tfstate
 *.tfstate.*
