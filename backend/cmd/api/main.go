@@ -16,6 +16,9 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/ratelimit"
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/resend"
 	authapp "github.com/valium69mg/finances-app/backend/internal/auth/app"
+	billshttp "github.com/valium69mg/finances-app/backend/internal/bills/adapters/http"
+	billspg "github.com/valium69mg/finances-app/backend/internal/bills/adapters/postgres"
+	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
 	dashboardhttp "github.com/valium69mg/finances-app/backend/internal/dashboard/adapters/http"
 	dashboardapp "github.com/valium69mg/finances-app/backend/internal/dashboard/app"
 	expenseshttp "github.com/valium69mg/finances-app/backend/internal/expenses/adapters/http"
@@ -115,6 +118,9 @@ func run() error {
 
 	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, nil, slog.Default())
 	taxfilinghttp.New(taxfilingSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	billsSvc := billsapp.NewService(billspg.NewRepo(pool), expensesSvc, settingsSvc, nil, slog.Default())
+	billshttp.New(billsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, nil)
 	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
