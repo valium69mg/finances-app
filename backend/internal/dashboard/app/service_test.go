@@ -408,7 +408,7 @@ func TestMonthUpcomingBillsWindow(t *testing.T) {
 	svc, _ := newServiceWithBills(
 		billStatus(1, "Luz", "monthly", "MXN", "200", "2026-10-13", -2), // overdue stays
 		billStatus(2, "Agua", "monthly", "MXN", "", "2026-10-29", 14),   // last day of the window
-		billStatus(3, "Seguro", "yearly", "MXN", "36000", "2026-12-15", 61),
+		billStatus(3, "Membresía", "yearly", "MXN", "1200", "2026-12-15", 61),
 		billStatus(4, "Gas", "monthly", "MXN", "500", "2026-10-30", 15), // one day out
 		inactive,
 	)
