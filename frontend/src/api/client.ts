@@ -32,6 +32,8 @@ export interface RequestOptions {
   body?: unknown;
   /** Skip the Authorization header and the refresh-on-401 logic. */
   anonymous?: boolean;
+  /** Read a successful response as a Blob (file download) instead of JSON. */
+  blob?: boolean;
 }
 
 export function createApiClient(opts: ApiClientOptions) {
@@ -41,13 +43,15 @@ export function createApiClient(opts: ApiClientOptions) {
 
   async function send(path: string, o: RequestOptions): Promise<Response> {
     const headers: Record<string, string> = {};
-    if (o.body !== undefined) headers["Content-Type"] = "application/json";
+    // A FormData body (file upload) is sent as is: the browser adds the multipart boundary itself.
+    const isForm = typeof FormData !== "undefined" && o.body instanceof FormData;
+    if (o.body !== undefined && !isForm) headers["Content-Type"] = "application/json";
     const access = store.getAccess();
     if (!o.anonymous && access) headers["Authorization"] = `Bearer ${access}`;
     return fetchFn(`${opts.baseUrl}${path}`, {
       method: o.method ?? (o.body !== undefined ? "POST" : "GET"),
       headers,
-      body: o.body !== undefined ? JSON.stringify(o.body) : undefined,
+      body: o.body === undefined ? undefined : isForm ? (o.body as FormData) : JSON.stringify(o.body),
     });
   }
 
@@ -75,7 +79,7 @@ export function createApiClient(opts: ApiClientOptions) {
     return refreshing;
   }
 
-  async function parse<T>(res: Response): Promise<T> {
+  async function parse<T>(res: Response, blob = false): Promise<T> {
     if (!res.ok) {
       let code = "unknown_error";
       let message: string | undefined;
@@ -89,6 +93,7 @@ export function createApiClient(opts: ApiClientOptions) {
       throw new ApiError(res.status, code, message);
     }
     if (res.status === 204) return undefined as T;
+    if (blob) return (await res.blob()) as T;
     return (await res.json()) as T;
   }
 
@@ -103,7 +108,7 @@ export function createApiClient(opts: ApiClientOptions) {
         opts.onSessionExpired?.();
       }
     }
-    return parse<T>(res);
+    return parse<T>(res, o.blob);
   }
 
   return { request, refresh };
