@@ -52,6 +52,9 @@ import (
 	settingshttp "github.com/valium69mg/finances-app/backend/internal/settings/adapters/http"
 	settingspg "github.com/valium69mg/finances-app/backend/internal/settings/adapters/postgres"
 	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
+	systemhttp "github.com/valium69mg/finances-app/backend/internal/system/adapters/http"
+	systemprocfs "github.com/valium69mg/finances-app/backend/internal/system/adapters/procfs"
+	systemapp "github.com/valium69mg/finances-app/backend/internal/system/app"
 	taxfilinghttp "github.com/valium69mg/finances-app/backend/internal/taxfiling/adapters/http"
 	taxfilingpg "github.com/valium69mg/finances-app/backend/internal/taxfiling/adapters/postgres"
 	taxfilingapp "github.com/valium69mg/finances-app/backend/internal/taxfiling/app"
@@ -219,6 +222,13 @@ func run() error {
 
 	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, nil, slog.Default())
 	monthclosehttp.New(monthcloseSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	// View-only server status. The disk comes from the same probe path as the
+	// e-mail alert (nil-safe: an unmeasurable path just yields disk: null).
+	systemSvc := systemapp.NewService(systemprocfs.New(""), remindersdisk.NewProbe(cfg.DiskProbePath), systemapp.Options{
+		DiskAlertPercent: cfg.DiskAlertPct, RemindersEnabled: cfg.RemindersEnabled, Logger: slog.Default(),
+	})
+	systemhttp.New(systemSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {
