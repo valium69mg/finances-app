@@ -1,0 +1,428 @@
+package app_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/shopspring/decimal"
+
+	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
+	"github.com/valium69mg/finances-app/backend/internal/savings/app"
+	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
+	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
+	"github.com/valium69mg/finances-app/backend/internal/settings/domain/settingstest"
+)
+
+var d = settingstest.D
+
+type fakeRepo struct {
+	rows      map[int]ledger.Movement
+	nextID    int
+	listLimit int
+	listKind  ledger.Kind
+	listMonth string
+	batches   int
+	failBatch error
+}
+
+func newFakeRepo() *fakeRepo { return &fakeRepo{rows: map[int]ledger.Movement{}, nextID: 1} }
+
+func (f *fakeRepo) Create(_ context.Context, m ledger.Movement) (ledger.Movement, error) {
+	m.ID = f.nextID
+	f.nextID++
+	f.rows[m.ID] = m
+	return m, nil
+}
+
+// CreateMany is all or nothing, like the transactional adapter.
+func (f *fakeRepo) CreateMany(_ context.Context, ms []ledger.Movement) ([]ledger.Movement, error) {
+	f.batches++
+	if f.failBatch != nil {
+		return nil, f.failBatch
+	}
+	out := make([]ledger.Movement, len(ms))
+	for i, m := range ms {
+		m.ID = f.nextID
+		f.nextID++
+		f.rows[m.ID] = m
+		out[i] = m
+	}
+	return out, nil
+}
+func (f *fakeRepo) Update(_ context.Context, m ledger.Movement) error {
+	if _, ok := f.rows[m.ID]; !ok {
+		return ledger.ErrNotFound
+	}
+	f.rows[m.ID] = m
+	return nil
+}
+func (f *fakeRepo) Delete(_ context.Context, id int) error {
+	if _, ok := f.rows[id]; !ok {
+		return ledger.ErrNotFound
+	}
+	delete(f.rows, id)
+	return nil
+}
+func (f *fakeRepo) GetByID(_ context.Context, id int) (ledger.Movement, error) {
+	m, ok := f.rows[id]
+	if !ok {
+		return ledger.Movement{}, ledger.ErrNotFound
+	}
+	return m, nil
+}
+func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
+	f.listMonth, f.listKind, f.listLimit = month, kind, limit
+	var out []ledger.Movement
+	for _, m := range f.rows {
+		if ledger.MonthOf(m.Date) == month && (kind == "" || m.Kind == kind) {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+func (f *fakeRepo) ListAllByKind(_ context.Context, kind ledger.Kind) ([]ledger.Movement, error) {
+	var out []ledger.Movement
+	for id := 1; id < f.nextID; id++ {
+		if m, ok := f.rows[id]; ok && m.Kind == kind {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
+type fakeValuations struct{ rows []ledger.Valuation }
+
+func (f *fakeValuations) Add(_ context.Context, v ledger.Valuation) error {
+	f.rows = append(f.rows, v)
+	return nil
+}
+func (f *fakeValuations) List(context.Context) ([]ledger.Valuation, error) { return f.rows, nil }
+
+type fakeSettings struct{ cfg settings.Config }
+
+func (f *fakeSettings) Get(context.Context) (settings.Config, error) { return f.cfg, nil }
+
+func newService(t *testing.T) (*app.Service, *fakeRepo, *fakeValuations, *fakeSettings) {
+	t.Helper()
+	cfg := settingstest.RealConfig()
+	cfg.PaymentMethods = []string{"Efectivo", "Débito", "Crédito", "Transferencia"}
+	repo, vals, st := newFakeRepo(), &fakeValuations{}, &fakeSettings{cfg: cfg}
+	now := func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }
+	return app.NewService(repo, vals, st, now), repo, vals, st
+}
+
+func TestCreateSavingDefaults(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	m, err := svc.CreateSaving(context.Background(), app.Input{Category: "Inversiones", Amount: d("1000")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The instrument comes from instrumento_por_categoria; everything else from ledger defaults.
+	if m.ID != 1 || m.Kind != ledger.KindSavings || m.Instrument != "voo" || m.PaymentMethod != "Transferencia" ||
+		m.Currency != "MXN" || m.Date != "2026-10-15" || !m.AmountMXN.Equal(d("1000")) {
+		t.Errorf("unexpected movement %+v", m)
+	}
+	if _, ok := repo.rows[1]; !ok {
+		t.Error("movement was not stored")
+	}
+
+	// Explicit instrument, USD rate from fx_rate_applied, canonical category from a sloppy name.
+	m, err = svc.CreateSaving(context.Background(), app.Input{Category: "fondo de emergencia", Instrument: "cetes-91", Currency: "USD", Amount: d("10")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Category != "Fondo de emergencia" || m.Instrument != "cetes-91" || !m.ExchangeRate.Equal(d("17.74")) || !m.AmountMXN.Equal(d("177.40")) {
+		t.Errorf("explicit %+v", m)
+	}
+}
+
+func TestCreateSavingInfersCategoryAndAllowsWithdrawals(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	m, err := svc.CreateSaving(context.Background(), app.Input{Description: "Viaje a Oaxaca", Amount: d("-500")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Category != "Aguinaldo y vacaciones" || m.Instrument != "cetes-28" || !m.Amount.Equal(d("-500")) || !m.AmountMXN.Equal(d("-500")) {
+		t.Errorf("withdrawal %+v", m)
+	}
+	if _, err := svc.CreateSaving(context.Background(), app.Input{Description: "xyzzy", Amount: d("1")}); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("uninferable: err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestCreateSavingWithoutDefaultInstrument(t *testing.T) {
+	svc, _, _, st := newService(t)
+	delete(st.cfg.InstrumentByCategory, "Inversiones")
+	m, err := svc.CreateSaving(context.Background(), app.Input{Category: "Inversiones", Amount: d("1")})
+	if err != nil || m.Instrument != "" {
+		t.Errorf("no default instrument: %+v, %v", m, err)
+	}
+}
+
+func TestCreateSavingRejectsInvalid(t *testing.T) {
+	svc, repo, _, st := newService(t)
+	bad := map[string]app.Input{
+		"expense category":   {Category: "Vivienda", Amount: d("10")},
+		"income category":    {Category: "Sueldo", Amount: d("10")},
+		"unknown instrument": {Category: "Inversiones", Instrument: "nope", Amount: d("10")},
+		"zero":               {Category: "Inversiones", Amount: d("0")},
+		"payment method":     {Category: "Inversiones", Amount: d("5"), PaymentMethod: "X"},
+		"currency":           {Category: "Inversiones", Amount: d("5"), Currency: "EUR"},
+		"date":               {Category: "Inversiones", Amount: d("5"), Date: "2026-13-01"},
+		"usd rate":           {Category: "Inversiones", Currency: "USD", Amount: d("5"), ExchangeRate: ptr("0")},
+	}
+	for name, in := range bad {
+		if _, err := svc.CreateSaving(context.Background(), in); !errors.Is(err, ledger.ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	st.cfg.InstrumentByCategory["Inversiones"] = "ghost"
+	if _, err := svc.CreateSaving(context.Background(), app.Input{Category: "Inversiones", Amount: d("1")}); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("dangling default instrument: err = %v, want ErrInvalid", err)
+	}
+	if len(repo.rows) != 0 {
+		t.Error("invalid input must not be stored")
+	}
+}
+
+func ptr(s string) *decimal.Decimal { v := d(s); return &v }
+
+func TestUpdateSaving(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	created, _ := svc.CreateSaving(ctx, app.Input{Category: "Inversiones", Amount: d("1000")})
+
+	got, err := svc.UpdateSaving(ctx, created.ID, app.Input{Category: "Gastos futuros", Amount: d("-200"), Date: "2026-10-20"})
+	if err != nil {
+		t.Fatalf("UpdateSaving: %v", err)
+	}
+	stored := repo.rows[created.ID]
+	if got.ID != created.ID || stored.Category != "Gastos futuros" || stored.Instrument != "liquidez-gbm" ||
+		!stored.Amount.Equal(d("-200")) || stored.Date != "2026-10-20" {
+		t.Errorf("stored %+v", stored)
+	}
+	if _, err := svc.UpdateSaving(ctx, created.ID, app.Input{Category: "Inversiones", Amount: d("0")}); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("zero amount: err = %v, want ErrInvalid", err)
+	}
+	if _, err := svc.UpdateSaving(ctx, 999, app.Input{Category: "Inversiones", Amount: d("1")}); !errors.Is(err, ledger.ErrNotFound) {
+		t.Errorf("missing id: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestUpdateAndDeleteIgnoreOtherKinds(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	expense, _ := repo.Create(ctx, ledger.Movement{Date: "2026-10-01", Category: "Ocio", Kind: ledger.KindExpense, Amount: decimal.NewFromInt(1)})
+
+	if _, err := svc.UpdateSaving(ctx, expense.ID, app.Input{Category: "Inversiones", Amount: d("1")}); !errors.Is(err, ledger.ErrNotFound) {
+		t.Errorf("Update expense: err = %v, want ErrNotFound", err)
+	}
+	if err := svc.DeleteSaving(ctx, expense.ID); !errors.Is(err, ledger.ErrNotFound) {
+		t.Errorf("Delete expense: err = %v, want ErrNotFound", err)
+	}
+	if _, ok := repo.rows[expense.ID]; !ok {
+		t.Error("expense must not be deleted through savings")
+	}
+}
+
+func TestDeleteSaving(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	m, _ := svc.CreateSaving(ctx, app.Input{Category: "Inversiones", Amount: d("100")})
+	if err := svc.DeleteSaving(ctx, m.ID); err != nil || len(repo.rows) != 0 {
+		t.Errorf("DeleteSaving: %v rows=%d", err, len(repo.rows))
+	}
+	if err := svc.DeleteSaving(ctx, m.ID); !errors.Is(err, ledger.ErrNotFound) {
+		t.Errorf("second delete: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestListSavings(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	if _, err := svc.ListSavings(ctx, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if repo.listMonth != "2026-10" || repo.listLimit != app.DefaultListLimit || repo.listKind != ledger.KindSavings {
+		t.Errorf("defaults: month=%q limit=%d kind=%q", repo.listMonth, repo.listLimit, repo.listKind)
+	}
+	if _, err := svc.ListSavings(ctx, "2026-09", 5); err != nil || repo.listMonth != "2026-09" || repo.listLimit != 5 {
+		t.Errorf("explicit: month=%q limit=%d err=%v", repo.listMonth, repo.listLimit, err)
+	}
+	if _, err := svc.ListSavings(ctx, "2026-9", 5); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("bad month: err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestTransfer(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	res, err := svc.Transfer(context.Background(), app.TransferInput{From: "cetes-28", To: "voo", Amount: d("1500"), Date: "2026-10-03"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One atomic batch with the two legs.
+	if repo.batches != 1 || len(repo.rows) != 2 {
+		t.Fatalf("batches=%d rows=%d", repo.batches, len(repo.rows))
+	}
+	out, in := res.Out, res.In
+	if out.Instrument != "cetes-28" || !out.Amount.Equal(d("-1500")) || !out.AmountMXN.Equal(d("-1500")) ||
+		in.Instrument != "voo" || !in.Amount.Equal(d("1500")) || !in.AmountMXN.Equal(d("1500")) {
+		t.Errorf("legs out=%+v in=%+v", out, in)
+	}
+	for _, m := range []ledger.Movement{out, in} {
+		if m.Kind != ledger.KindSavings || m.PaymentMethod != "Transferencia" || m.Currency != "MXN" || m.Date != "2026-10-03" ||
+			m.Description != "Traspaso cetes-28 -> voo" {
+			t.Errorf("leg %+v", m)
+		}
+	}
+	// The source instrument is cetes-28: the last category with that default wins, like fin.py.
+	if out.Category != "Aguinaldo y vacaciones" || in.Category != out.Category {
+		t.Errorf("category %q / %q", out.Category, in.Category)
+	}
+}
+
+func TestTransferCategoryInference(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	ctx := context.Background()
+
+	// Source has no default category: the target's is used.
+	res, err := svc.Transfer(ctx, app.TransferInput{From: "vxus", To: "voo", Amount: d("10")})
+	if err != nil || res.Out.Category != "Inversiones" {
+		t.Errorf("target fallback: %+v, %v", res, err)
+	}
+	// Neither instrument maps to a category.
+	if _, err := svc.Transfer(ctx, app.TransferInput{From: "vxus", To: "cetes-91", Amount: d("10")}); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("no category: err = %v, want ErrInvalid", err)
+	}
+	// An explicit category overrides the inference and a description is kept.
+	res, err = svc.Transfer(ctx, app.TransferInput{From: "vxus", To: "cetes-91", Amount: d("10"), Category: "gastos futuros", Description: "Apartado"})
+	if err != nil || res.Out.Category != "Gastos futuros" || res.In.Description != "Apartado" {
+		t.Errorf("explicit category: %+v, %v", res, err)
+	}
+	// The category must be an Ahorro category.
+	if _, err := svc.Transfer(ctx, app.TransferInput{From: "voo", To: "vxus", Amount: d("10"), Category: "Vivienda"}); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("expense category: err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestTransferRejectsInvalidAndStoresNothing(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	bad := map[string]app.TransferInput{
+		"same instrument":    {From: "voo", To: "voo", Amount: d("1")},
+		"unknown source":     {From: "nope", To: "voo", Amount: d("1")},
+		"unknown target":     {From: "voo", To: "nope", Amount: d("1")},
+		"empty source":       {To: "voo", Amount: d("1")},
+		"zero amount":        {From: "cetes-28", To: "voo", Amount: d("0")},
+		"negative amount":    {From: "cetes-28", To: "voo", Amount: d("-5")},
+		"bad date":           {From: "cetes-28", To: "voo", Amount: d("5"), Date: "2026-02-30"},
+		"unknown category":   {From: "cetes-28", To: "voo", Amount: d("5"), Category: "Nada"},
+		"no inferable label": {From: "vxus", To: "cetes-91", Amount: d("5")},
+	}
+	for name, in := range bad {
+		if _, err := svc.Transfer(context.Background(), in); !errors.Is(err, ledger.ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	if len(repo.rows) != 0 || repo.batches != 0 {
+		t.Errorf("rows=%d batches=%d, want nothing stored", len(repo.rows), repo.batches)
+	}
+}
+
+func TestTransferStorageFailureIsPropagated(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	boom := errors.New("db down")
+	repo.failBatch = boom
+	if _, err := svc.Transfer(context.Background(), app.TransferInput{From: "cetes-28", To: "voo", Amount: d("1")}); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want %v", err, boom)
+	}
+	if len(repo.rows) != 0 {
+		t.Error("a failed batch must store nothing")
+	}
+}
+
+func TestAddAndListValuations(t *testing.T) {
+	svc, _, vals, _ := newService(t)
+	ctx := context.Background()
+	v, err := svc.AddValuation(ctx, app.ValuationInput{Instrument: "voo", ValueMXN: d("12345.67"), Note: " statement "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v.Date != "2026-10-15" || v.Instrument != "voo" || !v.ValueMXN.Equal(d("12345.67")) || v.Note != "statement" {
+		t.Errorf("valuation %+v", v)
+	}
+	if _, err := svc.AddValuation(ctx, app.ValuationInput{Date: "2026-10-01", Instrument: "voo", ValueMXN: d("100")}); err != nil {
+		t.Fatal(err)
+	}
+	// Append-only: both valuations are kept, in insertion order.
+	got, err := svc.ListValuations(ctx)
+	if err != nil || len(got) != 2 || len(vals.rows) != 2 || got[1].Date != "2026-10-01" {
+		t.Errorf("list %+v, %v", got, err)
+	}
+}
+
+func TestAddValuationRejectsInvalid(t *testing.T) {
+	svc, _, vals, _ := newService(t)
+	bad := map[string]app.ValuationInput{
+		"zero":               {Instrument: "voo", ValueMXN: d("0")},
+		"negative":           {Instrument: "voo", ValueMXN: d("-1")},
+		"bad date":           {Date: "nope", Instrument: "voo", ValueMXN: d("1")},
+		"missing instrument": {ValueMXN: d("1")},
+		"unknown instrument": {Instrument: "ghost", ValueMXN: d("1")},
+	}
+	for name, in := range bad {
+		if _, err := svc.AddValuation(context.Background(), in); !errors.Is(err, savings.ErrInvalidValuation) {
+			t.Errorf("%s: err = %v, want ErrInvalidValuation", name, err)
+		}
+	}
+	if len(vals.rows) != 0 {
+		t.Error("invalid valuations must not be stored")
+	}
+}
+
+func TestPortfolio(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	ctx := context.Background()
+	if _, err := svc.CreateSaving(ctx, app.Input{Category: "Inversiones", Amount: d("1000")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Transfer(ctx, app.TransferInput{From: "voo", To: "cetes-28", Amount: d("400"), Category: "Inversiones"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddValuation(ctx, app.ValuationInput{Instrument: "voo", ValueMXN: d("900")}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, err := svc.Portfolio(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]savings.PortfolioRow{}
+	for _, r := range p.Rows {
+		rows[r.ID] = r
+	}
+	voo, cetes := rows["voo"], rows["cetes-28"]
+	if !voo.Contributed.Equal(d("600")) || !voo.Value.Equal(d("900")) || voo.Unvalued || !voo.Gain.Equal(d("300")) ||
+		!cetes.Contributed.Equal(d("400")) || !cetes.Unvalued {
+		t.Errorf("rows voo=%+v cetes=%+v", voo, cetes)
+	}
+	if !p.TotalContributed.Equal(d("1000")) || !p.TotalValue.Equal(d("1300")) {
+		t.Errorf("totals %s / %s", p.TotalContributed, p.TotalValue)
+	}
+	// 6 x 27,820.44 goal; nothing accumulated in the emergency fund.
+	if !p.Emergency.Goal.Equal(d("166922.64")) || !p.Emergency.Accumulated.IsZero() {
+		t.Errorf("emergency %+v", p.Emergency)
+	}
+	if len(p.ByDestination) != len(savings.DestinationCategories) {
+		t.Errorf("by destination %+v", p.ByDestination)
+	}
+}
+
+func TestPortfolioNeedsEmergencyMonths(t *testing.T) {
+	svc, _, _, st := newService(t)
+	st.cfg.EmergencyMonths = nil
+	if _, err := svc.Portfolio(context.Background()); !errors.Is(err, settings.ErrMissingConfig) {
+		t.Errorf("err = %v, want ErrMissingConfig", err)
+	}
+}
