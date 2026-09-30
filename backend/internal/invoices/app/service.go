@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"regexp"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -186,12 +185,10 @@ func (s *Service) checklist(cfg settings.Config, inv invoices.Invoice, periodici
 	return invoices.BuildChecklist(cfg, inv, periodicity, due)
 }
 
-var periodPattern = regexp.MustCompile(`^[0-9]{4}-(0[1-9]|1[0-2])$`)
-
 // List returns the invoices, newest first, optionally filtered by period
 // (YYYY-MM) and status.
 func (s *Service) List(ctx context.Context, period string, status invoices.Status) ([]invoices.Invoice, error) {
-	if period != "" && !periodPattern.MatchString(period) {
+	if period != "" && !ledger.IsMonth(period) {
 		return nil, invalid("invalid period %q, use YYYY-MM", period)
 	}
 	switch status {

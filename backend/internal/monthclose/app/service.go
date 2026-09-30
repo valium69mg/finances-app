@@ -46,13 +46,6 @@ type Preview struct {
 	Existing *monthclose.Close
 }
 
-// previousMonth is the month before the current one, the default period.
-func (s *Service) previousMonth() string {
-	first := s.now().UTC()
-	first = time.Date(first.Year(), first.Month(), 1, 0, 0, 0, 0, time.UTC)
-	return ledger.CurrentMonth(first.AddDate(0, -1, 0))
-}
-
 // compute builds the close of a YYYY-MM period from the current data. It wraps
 // settings.ErrMissingConfig when the budgets or the emergency fund goal cannot
 // be computed.
@@ -108,7 +101,13 @@ func (s *Service) compute(ctx context.Context, period string) (monthclose.Close,
 // without storing anything, and returns the stored close of that period if any.
 func (s *Service) Preview(ctx context.Context, period string) (Preview, error) {
 	if period == "" {
-		period = s.previousMonth()
+		// The month of the service clock, in the clock's own zone, like the tax
+		// filing preview and the closable check.
+		prev, err := ledger.PreviousMonth(ledger.CurrentMonth(s.now()))
+		if err != nil {
+			return Preview{}, err
+		}
+		period = prev
 	}
 	if err := monthclose.ValidatePeriod(period); err != nil {
 		return Preview{}, err

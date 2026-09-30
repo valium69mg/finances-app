@@ -6,7 +6,6 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"sort"
 
 	"github.com/shopspring/decimal"
@@ -33,11 +32,10 @@ var (
 	ErrInvoicesChanged = errors.New("the invoices of the period changed, compute the declaration again")
 )
 
-var periodPattern = regexp.MustCompile(`^[0-9]{4}-(0[1-9]|1[0-2])$`)
-
-// ValidatePeriod reports ErrInvalidInput unless period is a YYYY-MM month.
+// ValidatePeriod reports ErrInvalidInput unless period is a YYYY-MM month
+// (the format is defined once, by ledger.IsMonth).
 func ValidatePeriod(period string) error {
-	if !periodPattern.MatchString(period) {
+	if !ledger.IsMonth(period) {
 		return fmt.Errorf("%w: invalid period %q, use YYYY-MM", ErrInvalidInput, period)
 	}
 	return nil

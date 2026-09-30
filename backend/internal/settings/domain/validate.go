@@ -3,7 +3,6 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/shopspring/decimal"
@@ -16,8 +15,6 @@ var ErrNotFound = errors.New("not found")
 
 // ErrInvalid is wrapped by the section validators; the message says what is wrong.
 var ErrInvalid = errors.New("invalid settings")
-
-var monthRE = regexp.MustCompile(`^\d{4}-(0[1-9]|1[0-2])$`)
 
 func invalid(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, args...))
@@ -39,7 +36,7 @@ func checkMoney(name string, v decimal.Decimal) error {
 
 // ValidateMonth requires the YYYY-MM format.
 func ValidateMonth(month string) error {
-	if !monthRE.MatchString(month) {
+	if !ledger.IsMonth(month) {
 		return invalid("month %q must be YYYY-MM", month)
 	}
 	return nil
@@ -221,7 +218,7 @@ func (p PausePlan) Validate() error {
 	}
 	prev := ""
 	for _, m := range p.Months {
-		if !monthRE.MatchString(m) {
+		if !ledger.IsMonth(m) {
 			return invalid("pause month %q must be YYYY-MM", m)
 		}
 		if m <= prev {
@@ -229,7 +226,7 @@ func (p PausePlan) Validate() error {
 		}
 		prev = m
 	}
-	if !monthRE.MatchString(p.ResumeMonth) {
+	if !ledger.IsMonth(p.ResumeMonth) {
 		return invalid("resume month %q must be YYYY-MM", p.ResumeMonth)
 	}
 	if p.ResumeMonth <= prev {

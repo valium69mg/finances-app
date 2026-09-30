@@ -9,6 +9,19 @@ import (
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 )
 
+func TestIsMonth(t *testing.T) {
+	for _, s := range []string{"2026-01", "2026-12", "0001-09", "9999-10"} {
+		if !ledger.IsMonth(s) {
+			t.Errorf("IsMonth(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"", "2026-00", "2026-13", "2026-1", "26-10", "2026-10-01", " 2026-10", "2026-10\n", "2026/10", "abcd-ef", "２０２６-10"} {
+		if ledger.IsMonth(s) {
+			t.Errorf("IsMonth(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestCheckAmount(t *testing.T) {
 	for _, tc := range []struct {
 		in string

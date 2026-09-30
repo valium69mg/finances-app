@@ -22,12 +22,6 @@ const (
 	StatusCancelled Status = "cancelada"
 )
 
-// IsActive reports whether the invoice counts toward the tax declaration
-// (prepared or issued; cancelled invoices never do).
-func (s Status) IsActive() bool {
-	return s == StatusPrepared || s == StatusIssued
-}
-
 // MaxAmount is the exclusive upper bound of any stored invoice amount (the
 // NUMERIC(14,2) columns hold up to 999,999,999,999.99).
 var MaxAmount = ledger.MaxAmount
@@ -233,35 +227,4 @@ func usaDefaults(cfg settings.Config, in PrepareInput) (subtotal, rate decimal.D
 		rate = *cfg.FXRateApplied
 	}
 	return subtotal, rate, nil
-}
-
-// MarkIssued returns the invoice as issued with its fiscal UUID. A cancelled
-// invoice cannot be issued; issuing an already issued one replaces the UUID.
-func (i Invoice) MarkIssued(uuid string) (Invoice, error) {
-	if i.Status == StatusCancelled {
-		return i, fmt.Errorf("%w: #%d", ErrCancelled, i.ID)
-	}
-	i.Status = StatusIssued
-	i.UUID = uuid
-	return i, nil
-}
-
-// Cancel returns the invoice as cancelled. Like the original CLI it is
-// allowed from any state, including issued and already cancelled.
-func (i Invoice) Cancel() Invoice {
-	i.Status = StatusCancelled
-	return i
-}
-
-// MarkDeclared returns a copy of the invoices where every active invoice of
-// the period records the declaration that included it.
-func MarkDeclared(invoices []Invoice, period string) []Invoice {
-	out := make([]Invoice, len(invoices))
-	copy(out, invoices)
-	for i := range out {
-		if out[i].Period == period && out[i].Status.IsActive() {
-			out[i].DeclarationPeriod = period
-		}
-	}
-	return out
 }

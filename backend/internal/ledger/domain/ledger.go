@@ -4,6 +4,7 @@ package domain
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -91,6 +92,14 @@ func ParseDate(s string) (string, error) {
 	}
 	return s, nil
 }
+
+var monthPattern = regexp.MustCompile(`^[0-9]{4}-(0[1-9]|1[0-2])$`)
+
+// IsMonth reports whether s is a YYYY-MM month (month 01 to 12, zero padded).
+// It is the single definition of the month/period format: every module that
+// validates a period wraps it in its own invalid-input error, and the SQL CHECK
+// constraints stay as the last line of defence.
+func IsMonth(s string) bool { return monthPattern.MatchString(s) }
 
 // CurrentMonth returns the YYYY-MM of the given instant.
 func CurrentMonth(now time.Time) string {

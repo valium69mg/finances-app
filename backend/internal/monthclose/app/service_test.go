@@ -188,6 +188,38 @@ func TestPreviewDefaultsToThePreviousMonthAndComposesTheClose(t *testing.T) {
 	}
 }
 
+// The default period follows the service clock in the clock's own zone, like
+// the tax filing preview and the closable check, not UTC: around a month
+// boundary the two disagree.
+func TestPreviewDefaultPeriodUsesTheClockZoneAtAMonthBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		now  time.Time
+		want string
+	}{
+		// 20:00 on Oct 31 in UTC-6 is already Nov 1 in UTC: local October, so previous is September.
+		{"west of UTC, late on the last day", time.Date(2026, 10, 31, 20, 0, 0, 0, time.FixedZone("UTC-6", -6*3600)), "2026-09"},
+		// 01:00 on Oct 1 in UTC+13 is still Sep 30 in UTC: local October, so previous is September.
+		{"east of UTC, early on the first day", time.Date(2026, 10, 1, 1, 0, 0, 0, time.FixedZone("UTC+13", 13*3600)), "2026-09"},
+		// 21:00 on Sep 30 in UTC-6 is Oct 1 in UTC: local September, so previous is August.
+		{"west of UTC, evening before the new month", time.Date(2026, 9, 30, 21, 0, 0, 0, time.FixedZone("UTC-6", -6*3600)), "2026-08"},
+		{"year boundary", time.Date(2027, 1, 1, 0, 30, 0, 0, time.FixedZone("UTC+13", 13*3600)), "2026-12"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := newFixture()
+			now := tc.now
+			svc := app.NewService(fx.repo, fx.mvs, fx.settings, fx.filings, func() time.Time { return now }, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			res, err := svc.Preview(context.Background(), "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Close.Period != tc.want {
+				t.Errorf("default period = %s, want %s (clock %s)", res.Close.Period, tc.want, tc.now)
+			}
+		})
+	}
+}
+
 func TestPreviewOfAPausedMonthSuggestsFutureExpenses(t *testing.T) {
 	fx := newFixture()
 	pause := settingstest.RealPause()
