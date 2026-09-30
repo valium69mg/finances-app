@@ -4,12 +4,14 @@ import { Layout } from "./components/Layout";
 import { modules } from "./modules";
 import { Dashboard } from "./pages/Dashboard";
 import { Expenses } from "./pages/Expenses";
+import { FiledRecords } from "./pages/FiledRecords";
 import { Income } from "./pages/Income";
 import { Invoices } from "./pages/Invoices";
 import { Login } from "./pages/Login";
 import { Placeholder } from "./pages/Placeholder";
 import { Savings } from "./pages/Savings";
 import { Settings } from "./pages/Settings";
+import { TaxFiling } from "./pages/TaxFiling";
 import { VerifyEmail } from "./pages/VerifyEmail";
 
 function pageFor(path: string) {
@@ -19,6 +21,8 @@ function pageFor(path: string) {
   if (path === "/ingresos") return <Income />;
   if (path === "/ahorros") return <Savings />;
   if (path === "/facturas") return <Invoices />;
+  if (path === "/declaracion") return <TaxFiling />;
+  if (path === "/declaraciones-presentadas") return <FiledRecords />;
   return null;
 }
 

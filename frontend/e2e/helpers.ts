@@ -1,7 +1,9 @@
 import type { Page, Route } from "@playwright/test";
 import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
+import { createTaxFilingMock, previousMonthOf, type MockFiling, type TaxFilingFail } from "./taxFilingMock";
 
 export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
+export type { MockFiling, TaxFilingFail } from "./taxFilingMock";
 
 export const API_ORIGIN = "http://localhost:8080";
 
@@ -152,7 +154,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string } } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -177,6 +179,17 @@ export async function mockApi(
   const settings: any = structuredClone(SETTINGS_FIXTURE);
   if (opts.issuer) settings.issuer = opts.issuer;
   const invoiceMock = createInvoicesMock(opts.invoices ?? [], opts.invoicesFail, json);
+  const taxMock = createTaxFilingMock(opts.filings ?? [], opts.taxFilingFail, {
+    invoices: () => invoiceMock.invoices,
+    recordExpense: (date, description, amount) => {
+      const expense = buildExpense(nextExpenseId++, { date, description, category: "Impuestos", payment_method: "Transferencia", currency: "MXN", amount }, settings);
+      expenses.push(expense);
+      return expense.id;
+    },
+    today: todayLocal,
+    settings: () => settings,
+    json,
+  });
   await page.route(`${API_ORIGIN}/**`, async (route) => {
     const request = route.request();
     if (request.method() === "OPTIONS") {
@@ -185,6 +198,7 @@ export async function mockApi(
     const { pathname, searchParams } = new URL(request.url());
 
     if (await invoiceMock.handle(route, request, pathname, searchParams, settings)) return;
+    if (await taxMock.handle(route, request, pathname, searchParams)) return;
 
     if (pathname === "/income/infer-category") {
       const d = (searchParams.get("description") ?? "").toLowerCase();
@@ -228,7 +242,7 @@ export async function mockApi(
       if (opts.dashboardFail === "server") return json(route, 500, { error: "internal_error" });
       if (opts.dashboardFail === "incomplete") return json(route, 422, { error: "settings_incomplete", message: "missing required config: emergency_months" });
       const dashboardMonth = searchParams.get("month") ?? "";
-      const filing = opts.dashboardFiling ?? { filing_status: "ninguna", previous_period_pending: false };
+      const filing = opts.dashboardFiling ?? taxMock.monthStatus(dashboardMonth);
       return json(route, 200, buildDashboard(dashboardMonth, { expenses, income, savings }, settings, !opts.dashboardNoTax, filing));
     }
     if (pathname === "/savings/portfolio" && request.method() === "GET") {
@@ -381,7 +395,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads };
+  return { requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes };
 }
 
 /** Dashboard computed from the in-memory movements; Gasto categories are the mock's fixed/variable ones. */
@@ -450,12 +464,6 @@ export interface MockIncome {
 
 /** Description keyword -> income category, standing in for the backend's keyword inference. */
 const INCOME_KEYWORDS: Record<string, string> = { sueldo: "Sueldo", salario: "Sueldo", contrato: "Contrato extra" };
-
-/** Month before a YYYY-MM month. */
-function previousMonthOf(month: string) {
-  const [y, m] = month.split("-").map(Number);
-  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, "0")}`;
-}
 
 /** Illustrative RESICO brackets for the mock: up to 25,000 MXN a month pays 1%, above that 1.5%. */
 function resicoRate(monthTotal: number) {
