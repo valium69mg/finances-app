@@ -1,4 +1,5 @@
 import {
+  Activity,
   CalendarCheck,
   Calculator,
   FileCheck,
@@ -36,5 +37,6 @@ export const modules: ModuleTab[] = [
   },
   { path: "/cierre-de-mes", label: "Cierre de mes", icon: CalendarCheck, description: "Aquí generarás el cierre de cada mes." },
   { path: "/pagos-recurrentes", label: "Pagos recurrentes", icon: Repeat, description: "Aquí administrarás tus pagos recurrentes." },
+  { path: "/sistema", label: "Sistema", icon: Activity, description: "Aquí verás el uso actual del servidor: procesador, memoria y disco." },
   { path: "/configuracion", label: "Configuración", icon: Settings, description: "Aquí ajustarás las preferencias de tu cuenta." },
 ];

@@ -22,8 +22,40 @@ export const MODULE_ROUTES = [
   "/declaraciones-presentadas",
   "/cierre-de-mes",
   "/pagos-recurrentes",
+  "/sistema",
   "/configuracion",
 ];
+
+/** Body of GET /system/status, as the backend sends it. */
+export interface MockSystemStatus {
+  cpu_percent: number;
+  memory: { total_bytes: number; used_bytes: number; available_bytes: number; used_percent: number };
+  swap: { total_bytes: number; used_bytes: number } | null;
+  disk: { total_bytes: number; used_bytes: number; used_percent: number; path_monitored: boolean } | null;
+  uptime_seconds: number;
+  load_average: { one: number; five: number; fifteen: number };
+  disk_alert_percent: number;
+  reminders_enabled: boolean;
+  sampled_at: string;
+}
+
+const GB = 1024 ** 3;
+
+/** A healthy 2 GB VM with a 50 GB data volume; override any field per test. */
+export function systemStatus(over: Partial<MockSystemStatus> = {}): MockSystemStatus {
+  return {
+    cpu_percent: 12.5,
+    memory: { total_bytes: 2 * GB, used_bytes: 0.5 * GB, available_bytes: 1.5 * GB, used_percent: 25 },
+    swap: { total_bytes: 1 * GB, used_bytes: 0.1 * GB },
+    disk: { total_bytes: 50 * GB, used_bytes: 10 * GB, used_percent: 20, path_monitored: true },
+    uptime_seconds: 90061,
+    load_average: { one: 0.52, five: 0.58, fifteen: 0.59 },
+    disk_alert_percent: 80,
+    reminders_enabled: true,
+    sampled_at: "2026-09-30T18:00:05Z",
+    ...over,
+  };
+}
 
 export type IdentifyMode =
   | "password_required"
@@ -162,7 +194,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server" } = {},
 ) {
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
@@ -182,6 +214,12 @@ export async function mockApi(
   const writes: RecordedWrite[] = [];
   /** Months asked of GET /dashboard, in order. */
   const dashboardMonths: string[] = [];
+  /** GET /system/status: change `current` or `fail` between requests to drive a test. */
+  const system: { current: MockSystemStatus; fail: "unavailable" | "server" | undefined; calls: number } = {
+    current: structuredClone(opts.system ?? systemStatus()),
+    fail: opts.systemFail,
+    calls: 0,
+  };
   // In-memory settings so a saved change is served back on the next GET.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const settings: any = structuredClone(SETTINGS_FIXTURE);
@@ -267,6 +305,13 @@ export async function mockApi(
       const row = buildIncome(id, body, settings);
       income[index] = row;
       return json(route, 200, incomeResult(row, income, false));
+    }
+
+    if (pathname === "/system/status" && request.method() === "GET") {
+      system.calls += 1;
+      if (system.fail === "unavailable") return json(route, 503, { error: "system_unavailable" });
+      if (system.fail === "server") return json(route, 500, { error: "internal_error" });
+      return json(route, 200, system.current);
     }
 
     if (pathname === "/dashboard" && request.method() === "GET") {
@@ -427,7 +472,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes };
+  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes };
 }
 
 /** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */

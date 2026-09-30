@@ -16,6 +16,7 @@ export default {
         secondary: token("secondary"),
         accent: token("accent"),
         destructive: token("destructive"),
+        warning: token("warning"),
         ring: token("ring"),
       },
       fontFamily: {
