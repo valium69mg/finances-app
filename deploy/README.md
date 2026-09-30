@@ -60,7 +60,8 @@ Files:
    (see "Authenticated Origin Pulls" below) so nothing but Cloudflare can complete a TLS
    handshake with the origin.
 6. **Caching**: leave the defaults. The API and the HTML shell answer `no-store`; hashed
-   `/assets/*` are cached for a year by the browser and Cloudflare. Do not add a
+   `/assets/*` are cached for a year by the browser and Cloudflare. `/manifest.webmanifest`
+   answers `no-store` and the home-screen icon PNGs cache for one day. Do not add a
    "cache everything" rule.
 7. **Optional**: Security > Bots / WAF rules on top; they do not replace the limits below.
 

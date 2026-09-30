@@ -84,6 +84,28 @@ server {
         add_header Cache-Control "public, max-age=31536000, immutable" always;
     }
 
+    # PWA manifest: not hashed, so never cached. The stock mime.types has no .webmanifest
+    # entry (it would be sent as octet-stream), hence the explicit type. A missing file is
+    # a 404, never the SPA shell.
+    location = /manifest.webmanifest {
+        limit_req zone=web burst=60 nodelay;
+        types { application/manifest+json webmanifest; }
+        try_files $uri =404;
+        include /etc/nginx/snippets/security-headers.conf;
+        include /etc/nginx/snippets/csp.conf;
+        add_header Cache-Control "no-store" always;
+    }
+
+    # Home-screen icons: not hashed, so a short cache (never immutable) lets a new icon
+    # show up within a day. A missing icon is a 404, never the SPA shell.
+    location ~ ^/(apple-touch-icon|icon-[a-z0-9-]+)\.png$ {
+        limit_req zone=web burst=60 nodelay;
+        try_files $uri =404;
+        include /etc/nginx/snippets/security-headers.conf;
+        include /etc/nginx/snippets/csp.conf;
+        add_header Cache-Control "public, max-age=86400" always;
+    }
+
     # The SPA shell and any client-side route: never cached, so a new build is picked up
     # at once (its asset names change on every build).
     location / {
