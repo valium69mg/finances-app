@@ -6,6 +6,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
+    /** Human-readable detail some endpoints add next to the code (e.g. invalid_settings). */
+    public message: string = code,
   ) {
     super(code);
     this.name = "ApiError";
@@ -76,12 +78,15 @@ export function createApiClient(opts: ApiClientOptions) {
   async function parse<T>(res: Response): Promise<T> {
     if (!res.ok) {
       let code = "unknown_error";
+      let message: string | undefined;
       try {
-        code = ((await res.json()) as { error?: string }).error ?? code;
+        const body = (await res.json()) as { error?: string; message?: string };
+        code = body.error ?? code;
+        message = typeof body.message === "string" ? body.message : undefined;
       } catch {
         // Non-JSON error body.
       }
-      throw new ApiError(res.status, code);
+      throw new ApiError(res.status, code, message);
     }
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;

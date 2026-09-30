@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import { modules } from "./modules";
 import { Login } from "./pages/Login";
 import { Placeholder } from "./pages/Placeholder";
+import { Settings } from "./pages/Settings";
 import { VerifyEmail } from "./pages/VerifyEmail";
 
 export function App() {
@@ -14,7 +15,7 @@ export function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           {modules.map((m) => (
-            <Route key={m.path} path={m.path} element={<Placeholder module={m} />} />
+            <Route key={m.path} path={m.path} element={m.path === "/configuracion" ? <Settings /> : <Placeholder module={m} />} />
           ))}
         </Route>
       </Route>
