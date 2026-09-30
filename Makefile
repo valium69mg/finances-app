@@ -3,7 +3,7 @@ export
 
 MIGRATIONS_DIR := migrations
 
-.PHONY: db-up db-down migrate-up migrate-down seed run test fe-dev fe-test fe-e2e
+.PHONY: db-up db-down migrate-up migrate-down seed run test test-integration import-config fe-dev fe-test fe-e2e
 
 db-up: ## Start PostgreSQL and MinIO and wait until they are healthy
 	docker compose up -d --wait
@@ -28,6 +28,14 @@ run: ## Start the API
 
 test: ## Run backend tests
 	cd backend && go test ./...
+
+test-integration: ## Run backend tests including the database integration tests (needs db-up)
+	@test -n "$$DATABASE_URL" || { echo "DATABASE_URL is not set (see README)"; exit 1; }
+	cd backend && TEST_DATABASE_URL="$$DATABASE_URL" go test -count=1 ./...
+
+import-config: ## One-time import of ~/finances/config.json (FORCE=1 to overwrite existing settings)
+	@test -n "$$DATABASE_URL" || { echo "DATABASE_URL is not set (see README)"; exit 1; }
+	cd backend && go run ./cmd/import-config $(if $(FORCE),--force,) $(if $(CONFIG),--file $(CONFIG),)
 
 fe-dev: ## Start the frontend dev server
 	cd frontend && npm run dev
