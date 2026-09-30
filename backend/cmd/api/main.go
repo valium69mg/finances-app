@@ -37,6 +37,9 @@ import (
 	settingshttp "github.com/valium69mg/finances-app/backend/internal/settings/adapters/http"
 	settingspg "github.com/valium69mg/finances-app/backend/internal/settings/adapters/postgres"
 	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
+	taxfilinghttp "github.com/valium69mg/finances-app/backend/internal/taxfiling/adapters/http"
+	taxfilingpg "github.com/valium69mg/finances-app/backend/internal/taxfiling/adapters/postgres"
+	taxfilingapp "github.com/valium69mg/finances-app/backend/internal/taxfiling/app"
 )
 
 const (
@@ -112,6 +115,9 @@ func run() error {
 	}
 	invoicesSvc := invoicesapp.NewService(invoicespg.NewRepo(pool), store, movements, settingsSvc, nil, slog.Default())
 	invoiceshttp.New(invoicesSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, nil, slog.Default())
+	taxfilinghttp.New(taxfilingSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {
