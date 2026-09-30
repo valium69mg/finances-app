@@ -25,13 +25,21 @@ type Repo struct{ pool *pgxpool.Pool }
 func NewRepo(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
 
 const columns = `id, date::text, description, category, instrument, kind, payment_method, currency,
-	amount::text, exchange_rate::text, amount_mxn::text, transfer_id::text`
+	amount::text, exchange_rate::text, amount_mxn::text, transfer_id::text, future_expense_id`
 
 func nullString(s string) *string {
 	if s == "" {
 		return nil
 	}
 	return &s
+}
+
+func nullInt(n int) *int64 {
+	if n == 0 {
+		return nil
+	}
+	v := int64(n)
+	return &v
 }
 
 func ratePtr(d *decimal.Decimal) *string {
@@ -48,16 +56,20 @@ func scan(row pgx.Row) (domain.Movement, error) {
 		id                   int64
 		instrument, rateText *string
 		transferID           *string
+		futureExpenseID      *int64
 		kind                 string
 		amount, amountMXN    string
 	)
 	if err := row.Scan(&id, &m.Date, &m.Description, &m.Category, &instrument, &kind, &m.PaymentMethod,
-		&m.Currency, &amount, &rateText, &amountMXN, &transferID); err != nil {
+		&m.Currency, &amount, &rateText, &amountMXN, &transferID, &futureExpenseID); err != nil {
 		return domain.Movement{}, err
 	}
 	m.ID = int(id)
 	if transferID != nil {
 		m.TransferID = *transferID
+	}
+	if futureExpenseID != nil {
+		m.FutureExpenseID = int(*futureExpenseID)
 	}
 	m.Kind = domain.Kind(kind)
 	if instrument != nil {
@@ -80,21 +92,29 @@ func scan(row pgx.Row) (domain.Movement, error) {
 	return m, nil
 }
 
-// rowQuerier is the QueryRow half of a pool or a transaction.
-type rowQuerier interface {
+// RowQuerier is the QueryRow half of a pool or a transaction.
+type RowQuerier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// Insert stores m through a pool or an open transaction and returns it with
+// its generated ID. Modules that need to write movements atomically with their
+// own rows (future expense payments) call it inside their transaction so the
+// insert SQL stays in one place.
+func Insert(ctx context.Context, q RowQuerier, m domain.Movement) (domain.Movement, error) {
+	return insert(ctx, q, m, nil)
+}
+
 // insert stores m; a nil createdAt keeps the column default (now()).
-func insert(ctx context.Context, q rowQuerier, m domain.Movement, createdAt *time.Time) (domain.Movement, error) {
+func insert(ctx context.Context, q RowQuerier, m domain.Movement, createdAt *time.Time) (domain.Movement, error) {
 	row := q.QueryRow(ctx, `
 		INSERT INTO movements (date, description, category, instrument, kind, payment_method, currency,
-		                       amount, exchange_rate, amount_mxn, created_at, transfer_id)
+		                       amount, exchange_rate, amount_mxn, created_at, transfer_id, future_expense_id)
 		VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8::text::numeric, $9::text::numeric, $10::text::numeric,
-		        COALESCE($11::timestamptz, now()), $12::text::uuid)
+		        COALESCE($11::timestamptz, now()), $12::text::uuid, $13::bigint)
 		RETURNING `+columns,
 		m.Date, m.Description, m.Category, nullString(m.Instrument), string(m.Kind), m.PaymentMethod, m.Currency,
-		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt, nullString(m.TransferID))
+		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt, nullString(m.TransferID), nullInt(m.FutureExpenseID))
 	return scan(row)
 }
 

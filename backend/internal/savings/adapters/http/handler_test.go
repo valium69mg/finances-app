@@ -138,9 +138,18 @@ func TestCreate(t *testing.T) {
 	if in.Date != "2026-10-01" || in.Category != "Inversiones" || in.Instrument != "voo" || !in.Amount.Equal(d("-1000.50")) {
 		t.Errorf("input %+v", in)
 	}
-	want := `{"id":7,"date":"2026-10-01","description":"Aporte","category":"Inversiones","instrument":"voo","payment_method":"Transferencia","currency":"MXN","amount":"1000","exchange_rate":null,"amount_mxn":"1000","transfer_id":null}`
+	want := `{"id":7,"date":"2026-10-01","description":"Aporte","category":"Inversiones","instrument":"voo","payment_method":"Transferencia","currency":"MXN","amount":"1000","exchange_rate":null,"amount_mxn":"1000","transfer_id":null,"future_expense_id":null}`
 	if got := strings.TrimSpace(rec.Body.String()); got != want {
 		t.Errorf("body\n got %s\nwant %s", got, want)
+	}
+}
+
+func TestSavingExposesItsFutureExpenseLink(t *testing.T) {
+	m := vooSaving()
+	m.FutureExpenseID = 4
+	rec := do(newServer(&fakeService{movement: m}), "POST", "/savings", `{"category":"Inversiones","amount":"1000"}`)
+	if !strings.Contains(rec.Body.String(), `"future_expense_id":4`) {
+		t.Errorf("body %s, want future_expense_id 4", rec.Body)
 	}
 }
 

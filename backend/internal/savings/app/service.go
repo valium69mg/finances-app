@@ -48,6 +48,9 @@ type Input struct {
 	Currency      string
 	Amount        decimal.Decimal
 	ExchangeRate  *decimal.Decimal
+	// FutureExpenseID links the movement to a future expense it feeds; zero
+	// means none. Only the future expenses module sets it.
+	FutureExpenseID int
 }
 
 // TransferInput moves Amount (> 0, MXN) from one instrument to another. An
@@ -109,6 +112,13 @@ func savingsCategory(cfg settings.Config, name string) (string, error) {
 	return cat, nil
 }
 
+// Build validates the input into an Ahorro movement without storing it, so
+// modules that write several rows atomically reuse the category, instrument and
+// amount rules of this module.
+func (s *Service) Build(ctx context.Context, in Input) (ledger.Movement, error) {
+	return s.build(ctx, in)
+}
+
 func (s *Service) build(ctx context.Context, in Input) (ledger.Movement, error) {
 	cfg, err := s.settings.Get(ctx)
 	if err != nil {
@@ -130,10 +140,15 @@ func (s *Service) build(ctx context.Context, in Input) (ledger.Movement, error) 
 	if err != nil {
 		return ledger.Movement{}, fmt.Errorf("%w: %v", ledger.ErrInvalid, err)
 	}
-	return ledger.NewMovement(ledger.MovementInput{
+	m, err := ledger.NewMovement(ledger.MovementInput{
 		Date: in.Date, Description: in.Description, Category: category, Instrument: instrument, Kind: ledger.KindSavings,
 		PaymentMethod: in.PaymentMethod, Currency: in.Currency, Amount: in.Amount, ExchangeRate: in.ExchangeRate,
 	}, cfg.Catalog(), s.today())
+	if err != nil {
+		return ledger.Movement{}, err
+	}
+	m.FutureExpenseID = in.FutureExpenseID
+	return m, nil
 }
 
 // CreateSaving registers a savings movement (a withdrawal when negative).
@@ -143,6 +158,20 @@ func (s *Service) CreateSaving(ctx context.Context, in Input) (ledger.Movement, 
 		return ledger.Movement{}, err
 	}
 	return s.movements.Create(ctx, m)
+}
+
+// CreateMany registers several savings movements in one transaction: either
+// all of them are stored or none is. Each input is validated like CreateSaving.
+func (s *Service) CreateMany(ctx context.Context, ins []Input) ([]ledger.Movement, error) {
+	ms := make([]ledger.Movement, len(ins))
+	for i, in := range ins {
+		m, err := s.build(ctx, in)
+		if err != nil {
+			return nil, err
+		}
+		ms[i] = m
+	}
+	return s.movements.CreateMany(ctx, ms)
 }
 
 // withExisting fills the fields an update left empty from the stored movement,
@@ -184,6 +213,7 @@ func (s *Service) UpdateSaving(ctx context.Context, id int, in Input) (ledger.Mo
 		return ledger.Movement{}, err
 	}
 	m.ID = id
+	m.FutureExpenseID = cur.FutureExpenseID // the repository never changes the link
 	if err := s.movements.Update(ctx, m); err != nil {
 		return ledger.Movement{}, err
 	}

@@ -108,6 +108,8 @@ type savingDTO struct {
 	AmountMXN     decimal.Decimal  `json:"amount_mxn"`
 	// TransferID is shared by the two legs of a transfer and null otherwise.
 	TransferID *string `json:"transfer_id"`
+	// FutureExpenseID is the future expense the saving feeds, null otherwise.
+	FutureExpenseID *int `json:"future_expense_id"`
 }
 
 type transferDTO struct {
@@ -173,6 +175,10 @@ func toSavingDTO(m ledger.Movement) savingDTO {
 		ID: m.ID, Date: m.Date, Description: m.Description, Category: m.Category, Instrument: m.Instrument,
 		PaymentMethod: m.PaymentMethod, Currency: m.Currency, Amount: m.Amount, ExchangeRate: m.ExchangeRate,
 		AmountMXN: m.AmountMXN,
+	}
+	if m.FutureExpenseID != 0 {
+		id := m.FutureExpenseID
+		dto.FutureExpenseID = &id
 	}
 	if m.TransferID != "" {
 		id := m.TransferID

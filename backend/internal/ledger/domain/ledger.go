@@ -61,6 +61,10 @@ type Movement struct {
 	// TransferID (a UUID) links the two legs of a savings transfer; it is empty
 	// for every other movement.
 	TransferID string
+	// FutureExpenseID links an Ahorro movement to the future expense it feeds
+	// (a contribution, an assignment from the free balance or the release row of
+	// a payment). Zero means none; only savings movements carry a link.
+	FutureExpenseID int
 }
 
 // Valuation is a manually recorded value of an instrument on a date.

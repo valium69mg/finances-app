@@ -104,6 +104,13 @@ func (s *Service) build(ctx context.Context, in Input) (ledger.Movement, error) 
 	}, cfg.Catalog(), s.now().Format("2006-01-02"))
 }
 
+// Build validates the input into a Gasto movement without storing it, so
+// modules that write the expense atomically with their own rows reuse the
+// category, payment method and amount rules of this module.
+func (s *Service) Build(ctx context.Context, in Input) (ledger.Movement, error) {
+	return s.build(ctx, in)
+}
+
 // Create registers an expense and returns it with the budget feedback of its month.
 func (s *Service) Create(ctx context.Context, in Input) (Result, error) {
 	m, err := s.build(ctx, in)

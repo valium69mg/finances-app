@@ -557,3 +557,50 @@ func TestListSavingsFollowsTheCycle(t *testing.T) {
 		t.Errorf("default cycle of 2026-10-15: range = %s..%s, err = %v", repo.listFrom, repo.listTo, err)
 	}
 }
+
+func TestFutureExpenseLinkIsCarriedAndKept(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	m, err := svc.CreateSaving(ctx, app.Input{Category: "Gastos futuros", Amount: d("100"), FutureExpenseID: 7})
+	if err != nil || m.FutureExpenseID != 7 || repo.rows[m.ID].FutureExpenseID != 7 {
+		t.Fatalf("CreateSaving = %+v, %v, want the link stored", m, err)
+	}
+	// An edit made without the link (the savings page) never drops it.
+	updated, err := svc.UpdateSaving(ctx, m.ID, app.Input{Category: "Gastos futuros", Amount: d("150")})
+	if err != nil || updated.FutureExpenseID != 7 {
+		t.Errorf("UpdateSaving = %+v, %v, want the link kept", updated, err)
+	}
+}
+
+func TestBuildValidatesWithoutStoring(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	m, err := svc.Build(context.Background(), app.Input{Category: "Gastos futuros", Amount: d("-40"), FutureExpenseID: 3})
+	if err != nil || m.FutureExpenseID != 3 || !m.AmountMXN.Equal(d("-40")) || len(repo.rows) != 0 {
+		t.Errorf("Build = %+v, %v, stored %d", m, err, len(repo.rows))
+	}
+	if _, err := svc.Build(context.Background(), app.Input{Category: "Nope", Amount: d("1")}); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid", err)
+	}
+}
+
+func TestCreateManyIsAllOrNothing(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	ctx := context.Background()
+	out, err := svc.CreateMany(ctx, []app.Input{
+		{Category: "Gastos futuros", Amount: d("-50")},
+		{Category: "Gastos futuros", Amount: d("50"), FutureExpenseID: 2},
+	})
+	if err != nil || len(out) != 2 || out[0].FutureExpenseID != 0 || out[1].FutureExpenseID != 2 || repo.batches != 1 {
+		t.Fatalf("CreateMany = %+v, %v", out, err)
+	}
+	before := len(repo.rows)
+	if _, err := svc.CreateMany(ctx, []app.Input{
+		{Category: "Gastos futuros", Amount: d("10")},
+		{Category: "Nope", Amount: d("10")},
+	}); !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("err = %v, want ErrInvalid", err)
+	}
+	if len(repo.rows) != before {
+		t.Errorf("an invalid second row left %d rows stored", len(repo.rows)-before)
+	}
+}

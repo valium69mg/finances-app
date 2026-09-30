@@ -57,7 +57,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000006_movements.up.sql", "000007_income_amount_positive.up.sql", "000009_movements_transfer_id.up.sql"} {
+	for _, name := range []string{"000006_movements.up.sql", "000007_income_amount_positive.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -484,5 +484,47 @@ func TestImportMovements(t *testing.T) {
 	_ = pool.QueryRow(ctx, `SELECT count(*) FROM movements`).Scan(&count)
 	if count != 2 {
 		t.Errorf("rows after failed import = %d, want 2 (rolled back)", count)
+	}
+}
+
+func TestFutureExpenseLinkRoundTrip(t *testing.T) {
+	repo, pool := newRepo(t)
+	ctx := context.Background()
+	var itemID int
+	if err := pool.QueryRow(ctx, `INSERT INTO future_expenses (name, target_amount, due_date) VALUES ('Laptop', 100, '2027-01-01') RETURNING id`).Scan(&itemID); err != nil {
+		t.Fatal(err)
+	}
+	linked := saving("2026-10-01", "Gastos futuros", "25")
+	linked.FutureExpenseID = itemID
+	created, err := repo.Create(ctx, linked)
+	if err != nil || created.FutureExpenseID != itemID {
+		t.Fatalf("Create = %+v, %v, want the link returned", created, err)
+	}
+	got, _ := repo.GetByID(ctx, created.ID)
+	if got.FutureExpenseID != itemID {
+		t.Errorf("GetByID link = %d, want %d", got.FutureExpenseID, itemID)
+	}
+	plain, _ := repo.Create(ctx, saving("2026-10-01", "Gastos futuros", "5"))
+	if g, _ := repo.GetByID(ctx, plain.ID); g.FutureExpenseID != 0 {
+		t.Errorf("unlinked saving has link %d", g.FutureExpenseID)
+	}
+	all, _ := repo.ListAllByKind(ctx, domain.KindSavings)
+	if len(all) != 2 || all[0].FutureExpenseID != itemID || all[1].FutureExpenseID != 0 {
+		t.Errorf("ListAllByKind links = %+v", all)
+	}
+	// Only savings carry a link.
+	bad := expense("2026-10-01", "Mandado", "1")
+	bad.FutureExpenseID = itemID
+	if _, err := repo.Create(ctx, bad); err == nil {
+		t.Error("an expense was linked to a future expense")
+	}
+	// An update never changes the link.
+	created.Description = "edited"
+	created.FutureExpenseID = 0
+	if err := repo.Update(ctx, created); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := repo.GetByID(ctx, created.ID); g.FutureExpenseID != itemID || g.Description != "edited" {
+		t.Errorf("after update: %+v", g)
 	}
 }
