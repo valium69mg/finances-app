@@ -30,7 +30,7 @@ func (s Status) IsActive() bool {
 
 // MaxAmount is the exclusive upper bound of any stored invoice amount (the
 // NUMERIC(14,2) columns hold up to 999,999,999,999.99).
-var MaxAmount = decimal.New(1, 12)
+var MaxAmount = ledger.MaxAmount
 
 // Errors returned by the invoice rules.
 var (
@@ -155,6 +155,17 @@ func Prepare(cfg settings.Config, existing []Invoice, in PrepareInput) (Prepared
 	}
 	if _, err := ledger.ParseDate(in.Date); err != nil {
 		return Prepared{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+
+	// Range before any comparison or arithmetic on the user decimals (a huge
+	// exponent would make them allocate enormous numbers); see ledger.CheckAmount.
+	for name, v := range map[string]*decimal.Decimal{"subtotal": in.Subtotal, "amount": in.Amount, "exchange rate": in.ExchangeRate} {
+		if v == nil {
+			continue
+		}
+		if err := ledger.CheckAmount(*v); err != nil {
+			return Prepared{}, fmt.Errorf("%w: %s is out of range, it must be below %s", ErrInvalidInput, name, MaxAmount)
+		}
 	}
 
 	inv := Invoice{

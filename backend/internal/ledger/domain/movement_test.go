@@ -144,6 +144,19 @@ func TestNewMovementInvalid(t *testing.T) {
 		{"negative income", func(i *MovementInput) { i.Kind, i.Category, i.Amount = KindIncome, "Sueldo", dec("-1") }},
 		{"zero savings", func(i *MovementInput) { i.Kind, i.Category, i.Amount = KindSavings, "Inversiones", decimal.Zero }},
 		{"USD with zero rate", func(i *MovementInput) { i.Currency = "USD"; z := decimal.Zero; i.ExchangeRate = &z }},
+		{"huge exponent", func(i *MovementInput) { i.Amount = dec("1e2000000000") }},
+		{"huge exponent 999999999", func(i *MovementInput) { i.Amount = dec("1e999999999") }},
+		{"tiny exponent", func(i *MovementInput) { i.Amount = dec("1e-2000000000") }},
+		{"amount above numeric(14,2)", func(i *MovementInput) { i.Amount = dec("10000000000000") }},
+		{"savings above numeric(14,2)", func(i *MovementInput) {
+			i.Kind, i.Category, i.Amount = KindSavings, "Inversiones", dec("-10000000000000")
+		}},
+		{"rate with huge exponent", func(i *MovementInput) { i.Currency = "USD"; r := dec("1e2000000000"); i.ExchangeRate = &r }},
+		{"USD amount whose MXN value overflows", func(i *MovementInput) {
+			i.Currency, i.Amount = "USD", dec("999999999999")
+			r := dec("17.74")
+			i.ExchangeRate = &r
+		}},
 	}
 	for _, tc := range tests {
 		in := ok

@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/shopspring/decimal"
+
+	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 )
 
 // Errors returned by the bills rules and repositories.
@@ -216,6 +218,15 @@ func IsDueSoon(due, today string, leadDays int) bool {
 	return err == nil && n >= 0 && n <= leadDays
 }
 
+// checkAmount is the range guard of every user amount of this module: below
+// ledger.MaxAmount (the numeric(14,2) columns) and with a sane exponent.
+func checkAmount(v decimal.Decimal) error {
+	if err := ledger.CheckAmount(v); err != nil {
+		return invalid("amount is out of range, it must be below %s", ledger.MaxAmount)
+	}
+	return nil
+}
+
 // Validated is a bill input after validation and defaults.
 type Validated struct {
 	Name             string
@@ -259,6 +270,11 @@ func Validate(in Input) (Validated, error) {
 	}
 	var amount *decimal.Decimal
 	if in.Amount != nil {
+		// Range first: the comparisons and the rounding below rescale the
+		// decimal, which is only safe once its exponent is bounded.
+		if err := checkAmount(*in.Amount); err != nil {
+			return Validated{}, err
+		}
 		if !in.Amount.IsPositive() {
 			return Validated{}, invalid("amount must be greater than zero, or empty for a variable bill")
 		}
@@ -326,6 +342,9 @@ func ResolvePayment(b Bill, in PaymentInput, today string) (Payment, error) {
 		amount = *b.Amount
 	default:
 		return Payment{}, invalid("amount is required: the bill has no fixed amount")
+	}
+	if err := checkAmount(amount); err != nil {
+		return Payment{}, err
 	}
 	if !amount.IsPositive() {
 		return Payment{}, invalid("amount must be greater than zero")

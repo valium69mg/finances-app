@@ -132,6 +132,16 @@ func NewMovement(in MovementInput, cat Catalog, today string) (Movement, error) 
 		return Movement{}, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 
+	// Range first: every later comparison and the MXN conversion rescale the
+	// decimals, which is only safe once their exponent is bounded.
+	if err := CheckAmount(in.Amount); err != nil {
+		return Movement{}, invalid("amount is out of range, it must be below %s", MaxAmount)
+	}
+	if in.ExchangeRate != nil {
+		if err := CheckAmount(*in.ExchangeRate); err != nil {
+			return Movement{}, invalid("exchange rate is out of range")
+		}
+	}
 	if in.Amount.IsZero() {
 		return Movement{}, invalid("amount must not be zero")
 	}
@@ -156,6 +166,11 @@ func NewMovement(in MovementInput, cat Catalog, today string) (Movement, error) 
 		rate = &r
 	}
 
+	amountMXN := AmountMXN(in.Amount, currency, rate)
+	if err := CheckAmount(amountMXN); err != nil {
+		return Movement{}, invalid("amount in MXN is out of range, it must be below %s", MaxAmount)
+	}
+
 	return Movement{
 		Date:          date,
 		Description:   strings.TrimSpace(in.Description),
@@ -166,7 +181,7 @@ func NewMovement(in MovementInput, cat Catalog, today string) (Movement, error) 
 		Currency:      currency,
 		Amount:        in.Amount,
 		ExchangeRate:  rate,
-		AmountMXN:     AmountMXN(in.Amount, currency, rate),
+		AmountMXN:     amountMXN,
 	}, nil
 }
 

@@ -27,7 +27,7 @@ func TestRealConfigSectionsAreValid(t *testing.T) {
 
 func TestInvalidSections(t *testing.T) {
 	d := settingstest.D
-	neg := d("-1")
+	neg, huge, over := d("-1"), d("1e2000000000"), d("10000000000000")
 	tests := map[string]error{
 		"empty category name":  domain.ValidateCategories([]domain.Category{{Name: " ", Kind: ledger.KindExpense}}),
 		"duplicate category":   domain.ValidateCategories([]domain.Category{{Name: "A", Kind: ledger.KindExpense}, {Name: "A", Kind: ledger.KindExpense}}),
@@ -44,6 +44,14 @@ func TestInvalidSections(t *testing.T) {
 		"issuer without rfc":   domain.Issuer{Name: "x"}.Validate(),
 		"general fx zero":      domain.General{MorseFeeRate: d("0.001")}.Validate(),
 		"general fee over one": domain.General{FXRateApplied: d("17"), MorseFeeRate: d("2")}.Validate(),
+		// Huge exponents are rejected before any comparison rescales them.
+		"general huge salary":  domain.General{SalaryUSD: d("1e2000000000"), FXRateApplied: d("17"), MorseFeeRate: d("0.001")}.Validate(),
+		"general huge fx":      domain.General{FXRateApplied: d("1e999999999"), MorseFeeRate: d("0.001")}.Validate(),
+		"huge budget":          domain.ValidateCategories([]domain.Category{{Name: "A", Kind: ledger.KindExpense, Budget: &huge}}),
+		"huge client rate":     domain.ValidateClients([]domain.Client{{ID: "a", Name: "x", Currency: "MXN", IVARate: huge}}),
+		"huge bracket bound":   domain.ValidateBrackets([]domain.Bracket{{Upper: huge, Rate: d("0.01")}}),
+		"huge bracket rate":    domain.ValidateBrackets([]domain.Bracket{{Upper: d("100"), Rate: huge}}),
+		"budget above maximum": domain.ValidateCategories([]domain.Category{{Name: "A", Kind: ledger.KindExpense, Budget: &over}}),
 	}
 	for name, err := range tests {
 		if !errors.Is(err, domain.ErrInvalid) {

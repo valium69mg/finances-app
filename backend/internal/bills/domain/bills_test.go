@@ -232,6 +232,10 @@ func TestValidateRejects(t *testing.T) {
 		{"zero amount", func(i *domain.Input) { i.Amount = d("0") }},
 		{"negative amount", func(i *domain.Input) { i.Amount = d("-5") }},
 		{"three decimals", func(i *domain.Input) { i.Amount = d("10.123") }},
+		{"huge exponent", func(i *domain.Input) { i.Amount = d("1e2000000000") }},
+		{"huge exponent 999999999", func(i *domain.Input) { i.Amount = d("1e999999999") }},
+		{"above numeric(14,2)", func(i *domain.Input) { i.Amount = d("10000000000000") }},
+		{"exactly the exclusive maximum", func(i *domain.Input) { i.Amount = d("1000000000000") }},
 		{"bad date", func(i *domain.Input) { i.NextDueDate = "2026-02-30" }},
 		{"empty date", func(i *domain.Input) { i.NextDueDate = "" }},
 		{"negative lead", func(i *domain.Input) { i.ReminderLeadDays = &neg }},
@@ -303,6 +307,10 @@ func TestResolvePaymentRejects(t *testing.T) {
 		{"negative amount", fixed, domain.PaymentInput{Amount: d("-1")}},
 		{"too many decimals", fixed, domain.PaymentInput{Amount: d("1.005")}},
 		{"bad date", fixed, domain.PaymentInput{Date: "yesterday"}},
+		{"huge exponent", fixed, domain.PaymentInput{Amount: d("1e2000000000")}},
+		{"huge exponent 999999999", fixed, domain.PaymentInput{Amount: d("1e999999999")}},
+		{"above numeric(14,2)", fixed, domain.PaymentInput{Amount: d("10000000000000")}},
+		{"exactly the exclusive maximum", fixed, domain.PaymentInput{Amount: d("1000000000000")}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

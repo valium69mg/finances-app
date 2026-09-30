@@ -86,6 +86,12 @@ func TestPrepareDefaultsAndValidation(t *testing.T) {
 		{"USA rejects an amount", invoices.PrepareInput{ClientID: "usa", Date: "2026-10-15", Amount: ptr("100")}, invoices.ErrInvalidInput},
 		{"B rejects a subtotal", invoices.PrepareInput{ClientID: "b", Date: "2026-10-15", Subtotal: ptr("100")}, invoices.ErrInvalidInput},
 		{"B requires an amount", invoices.PrepareInput{ClientID: "b", Date: "2026-10-15"}, invoices.ErrInvalidInput},
+		{"B amount 1e2000000000", invoices.PrepareInput{ClientID: "b", Date: "2026-10-15", Amount: ptr("1e2000000000")}, invoices.ErrInvalidInput},
+		{"B amount 1e999999999", invoices.PrepareInput{ClientID: "b", Date: "2026-10-15", Amount: ptr("1e999999999")}, invoices.ErrInvalidInput},
+		{"B amount above the maximum", invoices.PrepareInput{ClientID: "b", Date: "2026-10-15", Amount: ptr("10000000000000")}, invoices.ErrInvalidInput},
+		{"USA subtotal 1e2000000000", invoices.PrepareInput{ClientID: "usa", Date: "2026-10-15", Subtotal: ptr("1e2000000000")}, invoices.ErrInvalidInput},
+		{"USA rate 1e2000000000", invoices.PrepareInput{ClientID: "usa", Date: "2026-10-15", ExchangeRate: ptr("1e2000000000")}, invoices.ErrInvalidInput},
+		{"USA negative subtotal", invoices.PrepareInput{ClientID: "usa", Date: "2026-10-15", Subtotal: ptr("-1")}, invoices.ErrInvalidInput},
 	}
 	for _, tc := range failures {
 		if _, err := invoices.Prepare(cfg, nil, tc.in); !errors.Is(err, tc.want) {

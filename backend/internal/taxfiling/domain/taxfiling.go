@@ -43,6 +43,10 @@ func ValidatePeriod(period string) error {
 	return nil
 }
 
+// checkMoney is the range guard of every user decimal of this module. It runs
+// before any comparison or rounding of the value (see ledger.CheckAmount).
+func checkMoney(v decimal.Decimal) error { return ledger.CheckAmount(v) }
+
 // DueDate returns the filing deadline of a YYYY-MM period: the 17th of the
 // following month (December rolls to January), as the original CLI does. There
 // is no holiday calendar, so the SAT may move it to the next business day.
@@ -101,8 +105,8 @@ func ComputeDeclaration(cfg settings.Config, all []invoices.Invoice, period stri
 	if err := ValidatePeriod(period); err != nil {
 		return Declaration{}, err
 	}
-	if ivaCreditable.IsNegative() || ivaCreditable.GreaterThanOrEqual(invoices.MaxAmount) {
-		return Declaration{}, fmt.Errorf("%w: creditable IVA must be between 0 and %s", ErrInvalidInput, invoices.MaxAmount)
+	if err := checkMoney(ivaCreditable); err != nil || ivaCreditable.IsNegative() {
+		return Declaration{}, fmt.Errorf("%w: creditable IVA must be between 0 and %s", ErrInvalidInput, ledger.MaxAmount)
 	}
 	due, err := DueDate(period)
 	if err != nil {

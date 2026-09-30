@@ -304,6 +304,32 @@ func TestRegisterFailuresLeaveNoOrphanExpense(t *testing.T) {
 	}
 }
 
+func TestUserAmountsOutOfRangeAreInvalidInput(t *testing.T) {
+	fx := newFixture()
+	ctx := context.Background()
+	for _, raw := range []string{"1e2000000000", "1e999999999", "10000000000000"} {
+		if _, err := fx.svc.Preview(ctx, "2026-10", d(raw)); !errors.Is(err, taxfiling.ErrInvalidInput) {
+			t.Errorf("Preview %s: err = %v", raw, err)
+		}
+		if _, err := fx.svc.Register(ctx, app.RegisterInput{Period: "2026-10", IVACreditable: d(raw)}); !errors.Is(err, taxfiling.ErrInvalidInput) {
+			t.Errorf("Register iva_acreditable %s: err = %v", raw, err)
+		}
+		if _, err := fx.svc.Register(ctx, app.RegisterInput{Period: "2026-10", Payment: &app.PaymentInput{ISRPaid: d(raw)}}); !errors.Is(err, taxfiling.ErrInvalidInput) {
+			t.Errorf("Register isr_paid %s: err = %v", raw, err)
+		}
+	}
+	if len(fx.repo.filings) != 0 || len(fx.expenses.created) != 0 {
+		t.Errorf("filings %d, expenses %d; a rejected input stores nothing", len(fx.repo.filings), len(fx.expenses.created))
+	}
+	// Paying an existing filing goes through the same guard.
+	if _, err := fx.svc.Register(ctx, app.RegisterInput{Period: "2026-10"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.svc.Pay(ctx, "2026-10", app.PaymentInput{IVAPaid: d("1e2000000000"), RecordExpense: true}); !errors.Is(err, taxfiling.ErrInvalidInput) || len(fx.expenses.created) != 0 {
+		t.Errorf("Pay: err = %v, expenses %d", err, len(fx.expenses.created))
+	}
+}
+
 func TestRegisterRefusesToRecordAZeroExpense(t *testing.T) {
 	fx := newFixture()
 	_, err := fx.svc.Register(context.Background(), app.RegisterInput{

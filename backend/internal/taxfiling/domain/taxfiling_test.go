@@ -380,6 +380,39 @@ func TestStatusOf(t *testing.T) {
 	}
 }
 
+// User decimals are range-checked before any comparison or rounding: a huge
+// exponent must be a plain invalid-input error, not an allocation blow-up.
+func TestUserAmountsAreRangeChecked(t *testing.T) {
+	cfg := settingstest.RealConfig()
+	bad := []string{"1e2000000000", "1e999999999", "10000000000000", "-1", "1e-2000000000"}
+
+	for _, raw := range bad {
+		if _, err := taxfiling.ComputeDeclaration(cfg, octoberInvoices(), "2026-10", d(raw)); !errors.Is(err, taxfiling.ErrInvalidInput) {
+			t.Errorf("ComputeDeclaration iva_acreditable %s: err = %v, want ErrInvalidInput", raw, err)
+		}
+		in := taxfiling.FilingInput{Period: "2026-10", Date: "2026-11-05", IVACreditable: d(raw)}
+		if _, err := taxfiling.NewFiling(cfg, octoberInvoices(), nil, in); !errors.Is(err, taxfiling.ErrInvalidInput) {
+			t.Errorf("NewFiling iva_acreditable %s: err = %v, want ErrInvalidInput", raw, err)
+		}
+		for name, p := range map[string]taxfiling.PaymentInput{
+			"isr": {Date: "2026-11-07", ISRPaid: d(raw)},
+			"iva": {Date: "2026-11-07", IVAPaid: d(raw)},
+		} {
+			if _, err := taxfiling.NewPayment(p); !errors.Is(err, taxfiling.ErrInvalidInput) {
+				t.Errorf("NewPayment %s_paid %s: err = %v, want ErrInvalidInput", name, raw, err)
+			}
+		}
+	}
+
+	// Zero is a valid creditable IVA and a valid (empty) payment.
+	if _, err := taxfiling.ComputeDeclaration(cfg, octoberInvoices(), "2026-10", d("0")); err != nil {
+		t.Errorf("zero creditable IVA: %v", err)
+	}
+	if _, err := taxfiling.NewPayment(taxfiling.PaymentInput{Date: "2026-11-07"}); err != nil {
+		t.Errorf("zero payment: %v", err)
+	}
+}
+
 func TestPaymentStatusIsValid(t *testing.T) {
 	if !taxfiling.PaymentPending.IsValid() || !taxfiling.PaymentPaid.IsValid() || taxfiling.PaymentNone.IsValid() || taxfiling.PaymentStatus("x").IsValid() {
 		t.Error("only pendiente and pagada are valid filing statuses")

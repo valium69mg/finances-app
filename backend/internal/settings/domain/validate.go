@@ -23,8 +23,18 @@ func invalid(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, args...))
 }
 
+// validRate reports whether d is a rate between 0 and 1. The range guard comes
+// first: comparing a huge-exponent decimal would allocate enormous numbers.
 func validRate(d decimal.Decimal) bool {
-	return !d.IsNegative() && d.LessThanOrEqual(decimal.NewFromInt(1))
+	return ledger.CheckAmount(d) == nil && !d.IsNegative() && d.LessThanOrEqual(decimal.NewFromInt(1))
+}
+
+// checkMoney rejects an amount outside the stored range (see ledger.CheckAmount).
+func checkMoney(name string, v decimal.Decimal) error {
+	if err := ledger.CheckAmount(v); err != nil {
+		return invalid("%s is out of range, it must be below %s", name, ledger.MaxAmount)
+	}
+	return nil
 }
 
 // ValidateMonth requires the YYYY-MM format.
@@ -43,6 +53,9 @@ func (g General) Validate() error {
 		"emergency_months":          g.EmergencyMonths,
 		"extra_income_estimate_mxn": g.ExtraIncomeEstimateMXN,
 	} {
+		if err := checkMoney(name, v); err != nil {
+			return err
+		}
 		if v.IsNegative() {
 			return invalid("%s must not be negative", name)
 		}
@@ -90,8 +103,13 @@ func ValidateCategories(cats []Category) error {
 		default:
 			return invalid("category %q has unknown kind %q", c.Name, c.Kind)
 		}
-		if c.Budget != nil && c.Budget.IsNegative() {
-			return invalid("category %q budget must not be negative", c.Name)
+		if c.Budget != nil {
+			if err := checkMoney("category budget", *c.Budget); err != nil {
+				return err
+			}
+			if c.Budget.IsNegative() {
+				return invalid("category %q budget must not be negative", c.Name)
+			}
 		}
 	}
 	return nil
@@ -157,6 +175,9 @@ func ValidateBrackets(brackets []Bracket) error {
 	}
 	prev := decimal.Zero
 	for i, b := range brackets {
+		if err := checkMoney("bracket upper bound", b.Upper); err != nil {
+			return err
+		}
 		if !b.Upper.GreaterThan(prev) {
 			return invalid("bracket %d upper bound must be greater than the previous one", i+1)
 		}
@@ -214,6 +235,9 @@ func (p PausePlan) Validate() error {
 	if p.ResumeMonth <= prev {
 		return invalid("resume month must be after the last paused month")
 	}
+	if err := checkMoney("normal budget", p.NormalBudget); err != nil {
+		return err
+	}
 	if p.NormalBudget.IsNegative() {
 		return invalid("normal budget must not be negative")
 	}
@@ -221,6 +245,9 @@ func (p PausePlan) Validate() error {
 		amount, ok := p.FutureExpensesPlan[m]
 		if !ok {
 			return invalid("plan is missing paused month %s", m)
+		}
+		if err := checkMoney("plan amount", amount); err != nil {
+			return err
 		}
 		if amount.IsNegative() {
 			return invalid("plan amount of %s must not be negative", m)

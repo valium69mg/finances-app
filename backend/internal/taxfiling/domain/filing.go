@@ -103,11 +103,15 @@ func NewPayment(in PaymentInput) (Payment, error) {
 	if _, err := ledger.ParseDate(in.Date); err != nil {
 		return Payment{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
+	// Range before any rounding or comparison: see ledger.CheckAmount.
+	if checkMoney(in.ISRPaid) != nil || checkMoney(in.IVAPaid) != nil {
+		return Payment{}, fmt.Errorf("%w: paid amounts are out of range, they must be below %s", ErrInvalidInput, ledger.MaxAmount)
+	}
 	p := Payment{Date: in.Date, ISRPaid: in.ISRPaid.Round(2), IVAPaid: in.IVAPaid.Round(2)}
 	if p.ISRPaid.IsNegative() || p.IVAPaid.IsNegative() {
 		return Payment{}, fmt.Errorf("%w: paid amounts cannot be negative", ErrInvalidInput)
 	}
-	if p.ISRPaid.GreaterThanOrEqual(invoices.MaxAmount) || p.IVAPaid.GreaterThanOrEqual(invoices.MaxAmount) {
+	if p.ISRPaid.GreaterThanOrEqual(ledger.MaxAmount) || p.IVAPaid.GreaterThanOrEqual(ledger.MaxAmount) {
 		return Payment{}, fmt.Errorf("%w: amount is too large", ErrInvalidInput)
 	}
 	return p, nil
@@ -142,6 +146,10 @@ func NewFiling(cfg settings.Config, all []invoices.Invoice, filings []Filing, in
 		return Filing{}, fmt.Errorf("%w: the folio is longer than %d characters", ErrInvalidInput, MaxFolioLength)
 	}
 
+	// The creditable IVA is rounded below, so its range is checked first.
+	if err := checkMoney(in.IVACreditable); err != nil {
+		return Filing{}, fmt.Errorf("%w: creditable IVA must be between 0 and %s", ErrInvalidInput, ledger.MaxAmount)
+	}
 	decl, err := ComputeDeclaration(cfg, all, in.Period, in.IVACreditable.Round(2))
 	if err != nil {
 		return Filing{}, err
