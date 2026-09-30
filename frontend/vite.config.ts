@@ -19,7 +19,8 @@ function cspPlugin(apiOrigin: string, isBuild: boolean): Plugin {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'none'",
+    // frame-ancestors is ignored in a <meta> tag: production sends it (and the full policy)
+    // as an HTTP header from nginx, see deploy/nginx/snippets/csp.conf.
   ].join("; ");
   return {
     name: "inject-csp",
