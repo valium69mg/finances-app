@@ -170,6 +170,22 @@ func TestCreateExtraContractWithSplit(t *testing.T) {
 	}
 }
 
+func TestUnavailableSummaryIsNull(t *testing.T) {
+	res := sueldoResult()
+	res.Summary, res.SummaryUnavailable = app.Summary{}, true
+	rec := do(newServer(&fakeService{result: res}), "POST", "/income", `{"amount":"1"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body["summary"]) != "null" {
+		t.Errorf("summary = %s, want null", body["summary"])
+	}
+}
+
 func TestNullResicoAndEmptyBreakdown(t *testing.T) {
 	res := sueldoResult()
 	res.Summary.Resico = nil

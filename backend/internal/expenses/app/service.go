@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -62,6 +63,7 @@ type Service struct {
 	repo     ledgerapp.MovementRepo
 	settings Settings
 	now      func() time.Time
+	logger   *slog.Logger
 }
 
 // NewService builds a Service. A nil now selects time.Now.
@@ -69,7 +71,16 @@ func NewService(repo ledgerapp.MovementRepo, settings Settings, now func() time.
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, settings: settings, now: now}
+	return &Service{repo: repo, settings: settings, now: now, logger: slog.Default()}
+}
+
+// WithLogger sets the logger used to report a budget feedback that could not be
+// computed. A nil logger keeps slog.Default().
+func (s *Service) WithLogger(l *slog.Logger) *Service {
+	if l != nil {
+		s.logger = l
+	}
+	return s
 }
 
 // build validates the input into a Gasto movement, inferring the category when
@@ -167,14 +178,18 @@ func (s *Service) expense(ctx context.Context, id int) (ledger.Movement, error) 
 	return m, nil
 }
 
-// result attaches the budget feedback to a saved expense.
+// result attaches the budget feedback to a saved expense. The expense is
+// already persisted, so a feedback that cannot be computed never turns into an
+// error: callers (bills, tax filing) would leave a saved expense unlinked and a
+// retry would duplicate it. The feedback is omitted instead (a warning is
+// logged unless the tax settings are simply incomplete).
 func (s *Service) result(ctx context.Context, m ledger.Movement) (Result, error) {
 	fb, err := s.feedback(ctx, m)
-	if errors.Is(err, settings.ErrMissingConfig) {
-		return Result{Movement: m}, nil
-	}
 	if err != nil {
-		return Result{}, err
+		if !errors.Is(err, settings.ErrMissingConfig) {
+			s.logger.Warn("expense saved but its budget feedback could not be computed", "movement", m.ID, "error", err)
+		}
+		return Result{Movement: m}, nil
 	}
 	return Result{Movement: m, Feedback: &fb}, nil
 }

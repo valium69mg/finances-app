@@ -22,6 +22,9 @@ type fakeRepo struct {
 	listLimit int
 	listKind  ledger.Kind
 	listMonth string
+	// listErr and listAllErr fail the month listing and the all-time listing.
+	listErr    error
+	listAllErr error
 }
 
 func newFakeRepo() *fakeRepo { return &fakeRepo{rows: map[int]ledger.Movement{}, nextID: 1} }
@@ -55,6 +58,9 @@ func (f *fakeRepo) GetByID(_ context.Context, id int) (ledger.Movement, error) {
 }
 func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
 	f.listMonth, f.listKind, f.listLimit = month, kind, limit
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	var out []ledger.Movement
 	for _, m := range f.rows {
 		if ledger.MonthOf(m.Date) == month && (kind == "" || m.Kind == kind) {
@@ -64,6 +70,9 @@ func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind
 	return out, nil
 }
 func (f *fakeRepo) ListAllByKind(_ context.Context, kind ledger.Kind) ([]ledger.Movement, error) {
+	if f.listAllErr != nil {
+		return nil, f.listAllErr
+	}
 	var out []ledger.Movement
 	for _, m := range f.rows {
 		if m.Kind == kind {
@@ -395,4 +404,27 @@ func TestInferCategory(t *testing.T) {
 	if name, ok, _ := svc.InferCategory(context.Background(), "walmart"); ok {
 		t.Errorf("expense keyword inferred income %q", name)
 	}
+}
+
+// The income is already persisted when the summary is computed: a failing
+// lookup must only omit its part, never fail the operation.
+func TestSummaryFailureNeverFailsASavedIncome(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("month listing fails", func(t *testing.T) {
+		svc, repo, _ := newService(t)
+		repo.listErr = errors.New("db down")
+		res, err := svc.Create(ctx, app.Input{Category: "Sueldo", Amount: d("1000")})
+		if err != nil || !res.SummaryUnavailable || res.Movement.ID != 1 || len(repo.rows) != 1 {
+			t.Errorf("res=%+v err=%v rows=%d", res, err, len(repo.rows))
+		}
+	})
+	t.Run("split lookup fails", func(t *testing.T) {
+		svc, repo, _ := newService(t)
+		repo.listAllErr = errors.New("db down")
+		res, err := svc.Create(ctx, app.Input{Category: "Contrato extra", Amount: d("1000")})
+		if err != nil || res.Split != nil || res.SummaryUnavailable || res.Summary.Resico == nil || len(repo.rows) != 1 {
+			t.Errorf("res=%+v err=%v rows=%d", res, err, len(repo.rows))
+		}
+	})
 }

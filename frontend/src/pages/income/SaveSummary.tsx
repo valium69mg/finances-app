@@ -51,23 +51,32 @@ function SplitPanel({ split }: { split: IncomeSplit }) {
 /** Summary shown after a save: month total, estimated RESICO ISR, rate warning and the suggested split. */
 export function SaveSummary({ result }: { result: SaveIncomeResult }) {
   const { summary, split } = result;
-  const resico = summary.resico;
+  const resico = summary?.resico ?? null;
   return (
     <div role="status" className="space-y-3 text-sm">
       <span className="flex items-center gap-1.5">
         <CheckCircle2 className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
         Ingreso guardado.
       </span>
-      <dl className="divide-y divide-border rounded-lg border border-border px-4">
-        <Row label={`Total del mes (${summary.month})`}>{formatMoney(summary.month_total_mxn)} MXN</Row>
-        {resico ? (
-          <Row label="ISR RESICO estimado">
-            {formatMoney(resico.estimated_isr)} ({formatRatePercent(resico.rate)})
-          </Row>
-        ) : (
-          <Row label="ISR RESICO estimado">Sin estimación</Row>
-        )}
-      </dl>
+      {summary ? (
+        <dl className="divide-y divide-border rounded-lg border border-border px-4">
+          <Row label={`Total del mes (${summary.month})`}>{formatMoney(summary.month_total_mxn)} MXN</Row>
+          {resico ? (
+            <Row label="ISR RESICO estimado">
+              {formatMoney(resico.estimated_isr)} ({formatRatePercent(resico.rate)})
+            </Row>
+          ) : (
+            <Row label="ISR RESICO estimado">Sin estimación</Row>
+          )}
+        </dl>
+      ) : (
+        <p className="flex items-start gap-1.5 text-muted">
+          <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words">
+            El ingreso se guardó, pero no se pudo calcular el resumen del mes. Recarga la lista para verlo.
+          </span>
+        </p>
+      )}
       {resico?.rate_increased && (
         <p className="flex items-start gap-1.5 font-medium text-destructive">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

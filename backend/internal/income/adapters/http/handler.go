@@ -111,9 +111,10 @@ type splitDTO struct {
 }
 
 type resultDTO struct {
-	Income  incomeDTO  `json:"income"`
-	Summary summaryDTO `json:"summary"`
-	Split   *splitDTO  `json:"split"`
+	Income incomeDTO `json:"income"`
+	// Summary is null when the month lookup failed after the income was saved.
+	Summary *summaryDTO `json:"summary"`
+	Split   *splitDTO   `json:"split"`
 }
 
 type inferDTO struct {
@@ -135,12 +136,12 @@ func toIncomeDTO(m ledger.Movement) incomeDTO {
 }
 
 func toResultDTO(r app.Result) resultDTO {
-	out := resultDTO{
-		Income:  toIncomeDTO(r.Movement),
-		Summary: summaryDTO{Month: r.Summary.Month, MonthTotalMXN: r.Summary.MonthTotalMXN},
-	}
-	if e := r.Summary.Resico; e != nil {
-		out.Summary.Resico = &resicoDTO{Rate: e.Rate, EstimatedISR: e.EstimatedISR, RateIncreased: e.RateIncreased, PreviousRate: e.PreviousRate}
+	out := resultDTO{Income: toIncomeDTO(r.Movement)}
+	if !r.SummaryUnavailable {
+		out.Summary = &summaryDTO{Month: r.Summary.Month, MonthTotalMXN: r.Summary.MonthTotalMXN}
+		if e := r.Summary.Resico; e != nil {
+			out.Summary.Resico = &resicoDTO{Rate: e.Rate, EstimatedISR: e.EstimatedISR, RateIncreased: e.RateIncreased, PreviousRate: e.PreviousRate}
+		}
 	}
 	if s := r.Split; s != nil {
 		out.Split = &splitDTO{

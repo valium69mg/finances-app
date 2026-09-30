@@ -62,7 +62,8 @@ export interface IncomeSplit {
 
 export interface SaveIncomeResult {
   income: Income;
-  summary: IncomeSummary;
+  /** null when the month summary could not be computed after the income was saved. */
+  summary: IncomeSummary | null;
   split: IncomeSplit | null;
 }
 

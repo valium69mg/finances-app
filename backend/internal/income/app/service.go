@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -65,13 +66,15 @@ type Split struct {
 	Breakdown []savings.Share
 }
 
-// Result is a saved income with its summary. Split is nil unless the category
-// is ledger.CategoryExtraContract and the emergency fund status could be
-// computed; it is a preview and is never stored.
+// Result is a saved income with its summary. SummaryUnavailable is set (and
+// Summary is empty) when the month lookup failed after the income was saved.
+// Split is nil unless the category is ledger.CategoryExtraContract and the
+// emergency fund status could be computed; it is a preview and is never stored.
 type Result struct {
-	Movement ledger.Movement
-	Summary  Summary
-	Split    *Split
+	Movement           ledger.Movement
+	Summary            Summary
+	SummaryUnavailable bool
+	Split              *Split
 }
 
 // Service implements the income use cases.
@@ -79,6 +82,7 @@ type Service struct {
 	repo     ledgerapp.MovementRepo
 	settings Settings
 	now      func() time.Time
+	logger   *slog.Logger
 }
 
 // NewService builds a Service. A nil now selects time.Now.
@@ -86,7 +90,16 @@ func NewService(repo ledgerapp.MovementRepo, settings Settings, now func() time.
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{repo: repo, settings: settings, now: now}
+	return &Service{repo: repo, settings: settings, now: now, logger: slog.Default()}
+}
+
+// WithLogger sets the logger used to report a summary that could not be
+// computed. A nil logger keeps slog.Default().
+func (s *Service) WithLogger(l *slog.Logger) *Service {
+	if l != nil {
+		s.logger = l
+	}
+	return s
 }
 
 // build validates the input into an Ingreso movement, inferring the category
@@ -209,14 +222,17 @@ func (s *Service) income(ctx context.Context, id int) (ledger.Movement, error) {
 }
 
 // result attaches the month summary and, for extra contracts, the split
-// preview to a saved income.
+// preview to a saved income. The income is already persisted, so a lookup that
+// fails only omits its part (with a warning) and never fails the operation.
 func (s *Service) result(ctx context.Context, cfg settings.Config, m ledger.Movement) (Result, error) {
 	res := Result{Movement: m}
 
 	month := ledger.MonthOf(m.Date)
 	monthIncome, err := s.repo.ListByMonth(ctx, month, ledger.KindIncome, 0)
 	if err != nil {
-		return Result{}, err
+		s.logger.Warn("income saved but its month summary could not be computed", "movement", m.ID, "error", err)
+		res.SummaryUnavailable = true
+		return res, nil
 	}
 	// The month total before this movement, whether or not the listing already
 	// contains it (an update may also have moved it out of another month).
@@ -232,7 +248,8 @@ func (s *Service) result(ctx context.Context, cfg settings.Config, m ledger.Move
 	if m.Category == ledger.CategoryExtraContract {
 		split, err := s.split(ctx, cfg, m)
 		if err != nil {
-			return Result{}, err
+			s.logger.Warn("income saved but its extra-contract split could not be computed", "movement", m.ID, "error", err)
+			return res, nil
 		}
 		res.Split = split
 	}

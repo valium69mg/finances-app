@@ -23,6 +23,7 @@ type fakeRepo struct {
 	listLimit int
 	listKind  ledger.Kind
 	listMonth string
+	listErr   error
 }
 
 func newFakeRepo() *fakeRepo { return &fakeRepo{rows: map[int]ledger.Movement{}, nextID: 1} }
@@ -65,6 +66,9 @@ func (f *fakeRepo) ListAllByKind(_ context.Context, kind ledger.Kind) ([]ledger.
 }
 func (f *fakeRepo) ListByMonth(_ context.Context, month string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
 	f.listMonth, f.listKind, f.listLimit = month, kind, limit
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
 	var out []ledger.Movement
 	for _, m := range f.rows {
 		if ledger.MonthOf(m.Date) == month && (kind == "" || m.Kind == kind) {
@@ -213,10 +217,42 @@ func TestMissingTaxConfigDropsFeedbackOnly(t *testing.T) {
 	if err != nil || res.Feedback != nil || len(repo.rows) != 1 {
 		t.Errorf("res=%+v err=%v rows=%d", res, err, len(repo.rows))
 	}
-	st.budgetsErr = errors.New("boom")
-	if _, err := svc.Create(context.Background(), app.Input{Category: "Mandado", Amount: d("10")}); err == nil {
-		t.Error("other feedback errors must surface")
-	}
+}
+
+// The expense is already persisted when the feedback is computed: a failing
+// lookup must never turn into an error (callers would leave the expense
+// unlinked and a retry would duplicate it), only into an omitted feedback.
+func TestFeedbackFailureNeverFailsASavedExpense(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("budgets lookup fails on create", func(t *testing.T) {
+		svc, repo, st := newService(t)
+		st.budgetsErr = errors.New("boom")
+		res, err := svc.Create(ctx, app.Input{Category: "Mandado", Amount: d("10")})
+		if err != nil || res.Feedback != nil || res.Movement.ID != 1 || len(repo.rows) != 1 {
+			t.Errorf("res=%+v err=%v rows=%d", res, err, len(repo.rows))
+		}
+	})
+	t.Run("month listing fails on create", func(t *testing.T) {
+		svc, repo, _ := newService(t)
+		repo.listErr = errors.New("db down")
+		res, err := svc.Create(ctx, app.Input{Category: "Mandado", Amount: d("10")})
+		if err != nil || res.Feedback != nil || len(repo.rows) != 1 {
+			t.Errorf("res=%+v err=%v rows=%d", res, err, len(repo.rows))
+		}
+	})
+	t.Run("feedback fails on update", func(t *testing.T) {
+		svc, repo, st := newService(t)
+		created, err := svc.Create(ctx, app.Input{Category: "Mandado", Amount: d("10")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		st.budgetsErr = errors.New("boom")
+		res, err := svc.Update(ctx, created.Movement.ID, app.Input{Category: "Mandado", Amount: d("20")})
+		if err != nil || res.Feedback != nil || !repo.rows[created.Movement.ID].Amount.Equal(d("20")) {
+			t.Errorf("res=%+v err=%v stored=%+v", res, err, repo.rows[created.Movement.ID])
+		}
+	})
 }
 
 func TestUpdate(t *testing.T) {
