@@ -3,11 +3,14 @@ package app_test
 import (
 	"context"
 	"errors"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/shopspring/decimal"
 
+	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
+	bills "github.com/valium69mg/finances-app/backend/internal/bills/domain"
 	"github.com/valium69mg/finances-app/backend/internal/dashboard/app"
 	incomeapp "github.com/valium69mg/finances-app/backend/internal/income/app"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
@@ -62,14 +65,41 @@ func (f *fakeFilings) MonthStatus(_ context.Context, month string) (taxfiling.Mo
 	return f.status, f.err
 }
 
+type fakeBills struct {
+	list []billsapp.Status
+	err  error
+}
+
+func (f *fakeBills) List(context.Context, bool) ([]billsapp.Status, error) { return f.list, f.err }
+
+// billStatus builds a bill with a pending occurrence due in days days from the
+// fake clock (2026-10-15).
+func billStatus(id int, name, recurrence, currency, amount string, due string, days int) billsapp.Status {
+	b := bills.Bill{
+		ID: id, Name: name, Category: "Servicios", Currency: currency, Recurrence: bills.Recurrence(recurrence),
+		Active: true, NextDueDate: due, Pending: &bills.Occurrence{DueDate: due, Status: bills.StatusPending},
+	}
+	if amount != "" {
+		a := d(amount)
+		b.Amount = &a
+	}
+	return billsapp.Status{Bill: b, DaysUntilDue: days, Overdue: days < 0}
+}
+
 type fakeMovements struct{ rows []ledger.Movement }
 
-func (f *fakeMovements) ListByRange(_ context.Context, from, to string, kind ledger.Kind, _ int) ([]ledger.Movement, error) {
+// ListByRange mimics the repository: newest first, every kind when kind is
+// empty, capped by limit when positive.
+func (f *fakeMovements) ListByRange(_ context.Context, from, to string, kind ledger.Kind, limit int) ([]ledger.Movement, error) {
 	var out []ledger.Movement
 	for _, m := range f.rows {
-		if m.Date >= from && m.Date <= to && m.Kind == kind {
+		if m.Date >= from && m.Date <= to && (kind == "" || m.Kind == kind) {
 			out = append(out, m)
 		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Date > out[j].Date })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }
@@ -92,7 +122,16 @@ func newService() (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements) {
 	return svc, st, inc, mvs
 }
 
+func newServiceWithBills(list ...billsapp.Status) (*app.Service, *fakeMovements) {
+	svc, _, _, mvs, _ := buildService(&fakeBills{list: list})
+	return svc, mvs
+}
+
 func newServiceWithFilings() (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements, *fakeFilings) {
+	return buildService(&fakeBills{})
+}
+
+func buildService(fb *fakeBills) (*app.Service, *fakeSettings, *fakeIncome, *fakeMovements, *fakeFilings) {
 	st := &fakeSettings{
 		cfg: settingstest.RealConfig(),
 		budgets: []settingsapp.CategoryBudget{
@@ -119,7 +158,7 @@ func newServiceWithFilings() (*app.Service, *fakeSettings, *fakeIncome, *fakeMov
 	}}
 	now := func() time.Time { return time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC) }
 	filings := &fakeFilings{status: taxfiling.MonthStatus{Payment: taxfiling.PaymentNone, PreviousPeriod: "2026-09"}}
-	return app.NewService(mvs, st, inc, filings, now), st, inc, mvs, filings
+	return app.NewService(mvs, st, inc, filings, fb, now), st, inc, mvs, filings
 }
 
 func TestMonthComposesTheSummary(t *testing.T) {
@@ -306,5 +345,104 @@ func TestMonthDefaultPeriodIsTheCalendarMonth(t *testing.T) {
 	}
 	if got.PeriodStart != "2026-10-01" || got.PeriodEnd != "2026-10-31" {
 		t.Errorf("period = %s..%s, want the calendar month", got.PeriodStart, got.PeriodEnd)
+	}
+}
+
+func TestMonthCycleProgress(t *testing.T) {
+	svc, _, _, _ := newService()
+	got, err := svc.Month(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 2026-10-15 is day 15 of the 31 of October, in the clock's zone.
+	if got.Cycle.Today != "2026-10-15" || got.Cycle.Day != 15 || got.Cycle.Days != 31 {
+		t.Errorf("cycle = %+v", got.Cycle)
+	}
+}
+
+func TestMonthRecentMovementsMixKinds(t *testing.T) {
+	svc, _, _, mvs := newService()
+	for i := 0; i < 10; i++ {
+		mvs.rows = append(mvs.rows, ledger.Movement{ID: 100 + i, Date: "2026-08-0" + string(rune('1'+i%9)), Kind: ledger.KindExpense, Category: "Ocio", AmountMXN: d("1")})
+	}
+	got, err := svc.Month(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Recent) != app.RecentLimit {
+		t.Fatalf("recent = %d movements, want %d", len(got.Recent), app.RecentLimit)
+	}
+	kinds := map[ledger.Kind]bool{}
+	for i, m := range got.Recent {
+		kinds[m.Kind] = true
+		if i > 0 && m.Date > got.Recent[i-1].Date {
+			t.Errorf("recent not newest first: %s after %s", m.Date, got.Recent[i-1].Date)
+		}
+	}
+	if !kinds[ledger.KindIncome] || !kinds[ledger.KindExpense] || !kinds[ledger.KindSavings] {
+		t.Errorf("recent kinds = %v, want Ingreso, Gasto and Ahorro", kinds)
+	}
+}
+
+func TestMonthUpcomingBillsWindow(t *testing.T) {
+	inactive := billStatus(5, "Vieja", "monthly", "MXN", "10", "2026-10-16", 1)
+	inactive.Bill.Active = false
+	svc, _ := newServiceWithBills(
+		billStatus(1, "Luz", "monthly", "MXN", "200", "2026-10-13", -2), // overdue stays
+		billStatus(2, "Agua", "monthly", "MXN", "", "2026-10-29", 14),   // last day of the window
+		billStatus(3, "Seguro", "yearly", "MXN", "36000", "2026-12-15", 61),
+		billStatus(4, "Gas", "monthly", "MXN", "500", "2026-10-30", 15), // one day out
+		inactive,
+	)
+	got, err := svc.Month(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Upcoming) != 2 || got.Upcoming[0].Name != "Luz" || !got.Upcoming[0].Overdue || got.Upcoming[1].Name != "Agua" {
+		t.Fatalf("upcoming = %+v, want the overdue Luz and Agua (14 days)", got.Upcoming)
+	}
+	if got.Upcoming[1].Amount != nil || got.Upcoming[1].DaysUntilDue != 14 {
+		t.Errorf("Agua = %+v, want a variable bill due in 14 days", got.Upcoming[1])
+	}
+}
+
+func TestMonthFutureExpensesFromYearlyBills(t *testing.T) {
+	svc, mvs := newServiceWithBills(
+		billStatus(1, "Seguro", "yearly", "MXN", "36000", "2026-12-15", 61),
+		billStatus(2, "Predial", "yearly", "MXN", "10000", "2027-01-20", 97),
+		billStatus(3, "Luz", "monthly", "MXN", "200", "2026-10-20", 5),     // not yearly
+		billStatus(4, "Dominio", "yearly", "USD", "20", "2027-03-01", 137), // not MXN
+		billStatus(5, "Variable", "yearly", "MXN", "", "2027-03-01", 137),  // no amount
+	)
+	mvs.rows = append(mvs.rows,
+		mv("2026-09-01", ledger.KindSavings, ledger.CategoryFutureExpenses, "5000.50"),
+		mv("2026-10-02", ledger.KindSavings, ledger.CategoryFutureExpenses, "1000"),
+		mv("2026-10-03", ledger.KindSavings, "Inversiones", "9999"), // another category
+	)
+	got, err := svc.Month(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := got.Future
+	if len(f.Items) != 2 || f.Items[0].Name != "Seguro" || f.Items[1].Name != "Predial" {
+		t.Fatalf("items = %+v, want Seguro then Predial (earliest due first)", f.Items)
+	}
+	if !f.Target.Equal(d("46000")) || !f.Saved.Equal(d("6000.50")) {
+		t.Errorf("totals target %s saved %s, want 46000 and 6000.50", f.Target, f.Saved)
+	}
+	// The pool funds the earliest expense first: 6000.50 of the insurance.
+	// October to December: 2 cycles, 29999.50 / 2.
+	if !f.Items[0].Saved.Equal(d("6000.50")) || f.Items[0].CyclesLeft != 2 || !f.Items[0].Suggested.Equal(d("14999.75")) {
+		t.Errorf("Seguro = %+v", f.Items[0])
+	}
+	if !f.Items[1].Saved.IsZero() || f.Items[1].CyclesLeft != 3 || !f.Items[1].Suggested.Equal(d("3333.34")) {
+		t.Errorf("Predial = %+v", f.Items[1])
+	}
+}
+
+func TestMonthPropagatesBillsErrors(t *testing.T) {
+	svc, _, _, _, _ := buildService(&fakeBills{err: errors.New("boom")})
+	if _, err := svc.Month(context.Background(), ""); err == nil {
+		t.Error("want the bills error")
 	}
 }

@@ -217,7 +217,7 @@ func run() error {
 		slog.Info("email reminders are disabled (REMINDERS_ENABLED=false)")
 	}
 
-	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, now)
+	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, billsSvc, now)
 	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, nil, slog.Default())
