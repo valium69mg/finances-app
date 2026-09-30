@@ -153,6 +153,38 @@ test.describe("savings page", () => {
     expect((put?.body as { amount: string }).amount).toBe("11000.75");
   });
 
+  test("editing only the description keeps a USD saving's currency, rate, method and MXN amount", async ({ page }) => {
+    const usd = seeded({
+      id: 3,
+      description: "Aporte en dólares",
+      currency: "USD",
+      amount: "10.00",
+      exchange_rate: "20.50",
+      amount_mxn: "205.00",
+      payment_method: "Efectivo",
+      date: "2026-09-03",
+    });
+    const api = await open(page, { savings: [usd] });
+    await page.getByLabel("Mes").fill("2026-09");
+    await page.getByRole("button", { name: "Editar Aporte en dólares" }).click();
+
+    const form = savingForm(page);
+    await expect(form.getByLabel("Moneda")).toHaveValue("USD");
+    await expect(form.getByLabel("Tipo de cambio (opcional)")).toHaveValue("20.50");
+    await expect(form.getByLabel("Método de pago")).toHaveValue("Efectivo");
+    await expect(form.getByLabel("Fecha")).toHaveValue("2026-09-03");
+    await form.getByLabel("Descripción").fill("Aporte corregido");
+    await form.getByRole("button", { name: "Guardar cambios" }).click();
+
+    await expect(page.getByText("Ahorro guardado.")).toBeVisible();
+    const put = api.writes.find((w) => w.method === "PUT" && w.path === "/savings/3")?.body as Record<string, unknown>;
+    expect(put).toMatchObject({ currency: "USD", exchange_rate: "20.50", payment_method: "Efectivo", amount: "10.00", date: "2026-09-03" });
+    const row = page.getByRole("listitem").filter({ hasText: "Aporte corregido" });
+    await expect(row).toContainText("$10.00 USD");
+    await expect(row).toContainText("≈ $205.00 MXN (TC 20.50)");
+    expect(api.savings[0]).toMatchObject({ currency: "USD", exchange_rate: "20.50", payment_method: "Efectivo", amount_mxn: "205.00" });
+  });
+
   test("deletes a saving after an inline confirmation", async ({ page }) => {
     page.on("dialog", (d) => {
       throw new Error(`unexpected native dialog: ${d.message()}`);

@@ -251,7 +251,7 @@ export async function mockApi(
         return json(route, 204);
       }
       if (savingsFail) return json(route, 400, { error: "invalid_saving", message: savingsFail });
-      const row = buildSaving(id, body, settings);
+      const row = buildSaving(id, body, settings, savings[index]);
       savings[index] = row;
       return json(route, 200, row);
     }
@@ -432,19 +432,23 @@ export interface MockValuation {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildSaving(id: number, body: any, settings: any): MockSaving {
+function buildSaving(id: number, body: any, settings: any, existing?: MockSaving): MockSaving {
   const category = body.category || "Inversiones";
+  // Like the backend, an update keeps the stored date, payment method, currency and rate when the body omits them.
+  const currency: string = body.currency || existing?.currency || "MXN";
+  const keptRate = existing?.currency === "USD" ? existing.exchange_rate : null;
+  const rate: string | null = currency === "USD" ? (body.exchange_rate ?? keptRate ?? settings.general.fx_rate_applied) : null;
   return {
     id,
-    date: body.date ?? todayLocal(),
+    date: body.date || existing?.date || todayLocal(),
     description: body.description ?? "",
     category,
     instrument: body.instrument || settings.instruments.by_category[category] || "",
-    payment_method: body.payment_method ?? "Transferencia",
-    currency: "MXN",
+    payment_method: body.payment_method || existing?.payment_method || "Transferencia",
+    currency,
     amount: body.amount,
-    exchange_rate: null,
-    amount_mxn: body.amount,
+    exchange_rate: rate,
+    amount_mxn: rate ? (Number(body.amount) * Number(rate)).toFixed(2) : body.amount,
   };
 }
 
