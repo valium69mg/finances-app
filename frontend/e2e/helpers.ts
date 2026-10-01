@@ -5,12 +5,16 @@ import { createFutureExpensesMock, type FutureExpensesFail, type MockFutureExpen
 import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
 import { createMonthCloseMock, type MockClose, type MonthCloseFail } from "./monthCloseMock";
 import { createTaxFilingMock, previousMonthOf, type MockFiling, type TaxFilingFail } from "./taxFilingMock";
+import { OWNER_USER, createUsersMock, type MockUser, type UsersFail } from "./usersMock";
 
 export type { BillsFail, MockBill, MockOccurrence } from "./billsMock";
 export type { FutureExpensesFail, MockFutureExpense } from "./futureExpensesMock";
 export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
 export type { MockClose, MonthCloseFail } from "./monthCloseMock";
 export type { MockFiling, TaxFilingFail } from "./taxFilingMock";
+export type { MockUser, UsersFail } from "./usersMock";
+
+export type MockRole = "owner" | "household";
 
 export const API_ORIGIN = "http://localhost:8080";
 
@@ -197,8 +201,10 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void; role?: MockRole; users?: MockUser[]; usersFail?: UsersFail; denyAll?: boolean } = {},
 ) {
+  const role: MockRole = opts.role ?? "owner";
+  const usersMock = createUsersMock(opts.users ?? [], opts.usersFail, json);
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
   const settingsFail = opts.settingsFail;
@@ -279,6 +285,12 @@ export async function mockApi(
     }
     const { pathname, searchParams } = new URL(request.url());
 
+    // The backend denies the household role everything but its dashboard and its own session routes.
+    // denyAll refuses every module route even for the owner: a session whose role changed on the server.
+    if (opts.denyAll ? !pathname.startsWith("/auth/") : role === "household" && !pathname.startsWith("/auth/") && !(pathname === "/dashboard" && request.method() === "GET")) {
+      return json(route, 403, { error: "forbidden" });
+    }
+    if (await usersMock.handle(route, request, pathname)) return;
     if (await invoiceMock.handle(route, request, pathname, searchParams, settings)) return;
     if (await taxMock.handle(route, request, pathname, searchParams)) return;
     if (await billsMock.handle(route, request, pathname, searchParams)) return;
@@ -335,6 +347,12 @@ export async function mockApi(
       if (opts.dashboardFail === "incomplete") return json(route, 422, { error: "settings_incomplete", message: "missing required config: emergency_months" });
       const dashboardMonth = searchParams.get("month") ?? "";
       const filing = opts.dashboardFiling ?? taxMock.monthStatus(dashboardMonth);
+      if (role === "household") {
+        // The reduced payload: the period and the budget rows, nothing else.
+        const month = dashboardMonth || cycleOf(todayLocal(), settings.general.cycle_start_day ?? 0);
+        const full = buildDashboard(month, { expenses, income, savings, bills: [] }, settings, false, filing, undefined, todayLocal());
+        return json(route, 200, { month: full.month, period_start: full.period_start, period_end: full.period_end, categories: full.categories });
+      }
       return json(route, 200, buildDashboard(dashboardMonth, { expenses, income, savings, bills: billsMock.bills }, settings, !opts.dashboardNoTax, filing, opts.dashboardFuture ?? futureMock.dashboard(), todayLocal()));
     }
     if (pathname === "/savings/portfolio" && request.method() === "GET") {
@@ -476,18 +494,18 @@ export async function mockApi(
         if (login === "unauthorized") return json(route, 401, { error: "invalid_credentials" });
         if (login === "rate_limited") return json(route, 429, { error: "rate_limited" });
         if (login === "network_error") return route.abort("failed");
-        return json(route, 200, { access_token: "access-1", refresh_token: "refresh-1" });
+        return json(route, 200, { access_token: "access-1", refresh_token: "refresh-1", role });
       case "/auth/me":
-        return json(route, 200, { id: "u1", email: "admin@example.com", verified: true });
+        return json(route, 200, role === "household" ? { id: "u-her", email: "her@example.com", verified: true, role } : { id: OWNER_USER.id, email: OWNER_USER.email, verified: true, role });
       case "/auth/refresh":
-        return json(route, 200, { access_token: "access-2", refresh_token: "refresh-2" });
+        return json(route, 200, { access_token: "access-2", refresh_token: "refresh-2", role });
       case "/auth/logout":
         return json(route, 204);
       default:
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes };
+  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes };
 }
 
 /** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */
@@ -799,11 +817,12 @@ function budgetFor(expense: MockExpense, all: MockExpense[], settings: any) {
 }
 
 /** Starts the page with a stored session, as if the user had already logged in. */
-export async function seedSession(page: Page) {
-  await page.addInitScript(() => {
+export async function seedSession(page: Page, role?: MockRole) {
+  await page.addInitScript((r) => {
     localStorage.setItem("access_token", "access-1");
     localStorage.setItem("refresh_token", "refresh-1");
-  });
+    if (r) localStorage.setItem("role", r);
+  }, role);
 }
 
 /** Runs step one with a verified email so the password step is showing. */
