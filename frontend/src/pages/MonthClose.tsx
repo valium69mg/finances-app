@@ -6,6 +6,8 @@ import { History } from "./monthclose/History";
 import { PreviewPanel } from "./monthclose/PreviewPanel";
 import { periodLabel } from "./taxfiling/labels";
 import { useCyclePeriod } from "./useCycle";
+import { PageTitle } from "../components/PageTitle";
+import { moduleIcon } from "../modules";
 
 /** Cierre de mes: a preview of a month and its stored snapshots. Replaces /cierre-mes. */
 export function MonthClose() {
@@ -20,9 +22,7 @@ export function MonthClose() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Cierre de mes
-      </h1>
+      <PageTitle icon={moduleIcon("/cierre-de-mes")}>Cierre de mes</PageTitle>
       <p className="mt-1 text-sm text-muted">
         Revisa cómo te fue en un mes: gastos contra presupuesto, dinero disponible y avance del fondo de emergencia. Al cerrarlo se guarda una foto fija de esas cifras.
       </p>

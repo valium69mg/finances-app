@@ -5,6 +5,8 @@ import { deleteExpense, expensesKeys, listExpenses, type Expense } from "../../a
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import { describeExpenseError } from "./errors";
 import { formatMoney } from "./money";
+import { EmptyNote } from "../../components/EmptyNote";
+import { KIND } from "../../lib/tones";
 
 interface Props {
   month: string;
@@ -46,7 +48,7 @@ export function ExpenseList({ month, editingId, onEdit, onDeleted }: Props) {
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-sm text-muted">No hay gastos registrados en este periodo.</p>;
+    return <EmptyNote icon={KIND.Gasto.icon}>No hay gastos registrados en este periodo.</EmptyNote>;
   }
 
   return (

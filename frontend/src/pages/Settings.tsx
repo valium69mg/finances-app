@@ -10,6 +10,8 @@ import { GeneralSection } from "./settings/GeneralSection";
 import { InstrumentsSection } from "./settings/InstrumentsSection";
 import { PauseSection } from "./settings/PauseSection";
 import { ErrorBanner, describeSaveError, secondaryButton } from "./settings/ui";
+import { PageTitle } from "../components/PageTitle";
+import { moduleIcon } from "../modules";
 
 const SECTIONS = [
   { id: "general", label: "General", render: (s: AllSettings) => <GeneralSection data={s.general} /> },
@@ -42,9 +44,7 @@ export function Settings() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Configuración
-      </h1>
+      <PageTitle icon={moduleIcon("/configuracion")}>Configuración</PageTitle>
       <p className="mt-1 text-sm text-muted">Ajusta los parámetros que usan todos los módulos.</p>
 
       <div role="tablist" aria-label="Secciones de configuración" className="mt-6 flex flex-wrap gap-2">

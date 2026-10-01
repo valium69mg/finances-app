@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, Loader2, Pencil, Power, RotateCcw, SkipForward, Wallet } from "lucide-react";
+import { CalendarClock, ChevronDown, ChevronUp, Loader2, Pencil, Power, RotateCcw, SkipForward, Wallet } from "lucide-react";
 import { billsKeys, deactivateBill, listBills, skipBill, updateBill, type Bill } from "../../api/bills";
 import { formatMoney } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
@@ -10,6 +10,7 @@ import { describeBillsError } from "./errors";
 import { HistoryPanel } from "./HistoryPanel";
 import { RECURRENCE_LABEL, leadLabel } from "./labels";
 import { toBillInput, draftOf } from "./form";
+import { EmptyNote } from "../../components/EmptyNote";
 
 interface Props {
   includeInactive: boolean;
@@ -86,7 +87,7 @@ export function BillList({ includeInactive, editingId, onPay, onEdit, onNotice, 
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-sm text-muted">Aún no tienes pagos recurrentes. Agrega el primero con el formulario de arriba.</p>;
+    return <EmptyNote icon={CalendarClock}>Aún no tienes pagos recurrentes. Agrega el primero con el formulario de arriba.</EmptyNote>;
   }
 
   return (

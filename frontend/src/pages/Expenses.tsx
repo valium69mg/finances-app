@@ -11,6 +11,8 @@ import { ExpenseList } from "./expenses/ExpenseList";
 import { describeExpenseError } from "./expenses/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
 import { useCyclePeriod } from "./useCycle";
+import { PageTitle } from "../components/PageTitle";
+import { KIND } from "../lib/tones";
 
 export function Expenses() {
   const { month, setMonth, rangeHint } = useCyclePeriod();
@@ -22,9 +24,7 @@ export function Expenses() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Gastos
-      </h1>
+      <PageTitle icon={KIND.Gasto.icon} tone={KIND.Gasto.tone}>Gastos</PageTitle>
       <p className="mt-1 text-sm text-muted">Registra tus gastos y revisa cuánto llevas contra tu presupuesto.</p>
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">

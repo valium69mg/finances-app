@@ -12,6 +12,8 @@ import { FILING_STATUS_LABEL, periodLabel } from "./taxfiling/labels";
 import { PaymentDialog } from "./taxfiling/PaymentDialog";
 import { PendingPeriods } from "./taxfiling/PendingPeriods";
 import { UnfiledInvoices } from "./taxfiling/UnfiledInvoices";
+import { PageTitle } from "../components/PageTitle";
+import { moduleIcon } from "../modules";
 
 /** History of filed declarations with their payment status, the periods still to file and the payment dialog. */
 export function FiledRecords() {
@@ -39,9 +41,7 @@ export function FiledRecords() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Declaraciones presentadas
-      </h1>
+      <PageTitle icon={moduleIcon("/declaraciones-presentadas")}>Declaraciones presentadas</PageTitle>
       <p className="mt-1 text-sm text-muted">Historial de tus declaraciones RESICO, el estado de su pago y los periodos que aún te faltan por declarar.</p>
 
       {notice && (

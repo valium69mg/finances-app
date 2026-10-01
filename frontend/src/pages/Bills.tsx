@@ -12,6 +12,8 @@ import { PayDialog } from "./bills/PayDialog";
 import { formatMoney } from "./expenses/money";
 import { dateLabel } from "./taxfiling/labels";
 import { Checkbox, ErrorBanner, secondaryButton } from "./settings/ui";
+import { PageTitle } from "../components/PageTitle";
+import { moduleIcon } from "../modules";
 
 /** Pagos recurrentes: bills and subscriptions with their next due date, paid as expenses or skipped. */
 export function Bills() {
@@ -35,9 +37,7 @@ export function Bills() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Pagos recurrentes
-      </h1>
+      <PageTitle icon={moduleIcon("/pagos-recurrentes")}>Pagos recurrentes</PageTitle>
       <p className="mt-1 text-sm text-muted">
         Administra tus servicios y suscripciones: mira cuándo vence cada uno, regístralos como gasto al pagarlos u omite un vencimiento.
       </p>

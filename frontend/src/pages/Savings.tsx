@@ -13,6 +13,8 @@ import { ValuationForm } from "./savings/ValuationForm";
 import { describeSavingsError } from "./savings/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
 import { useCyclePeriod } from "./useCycle";
+import { PageTitle } from "../components/PageTitle";
+import { KIND } from "../lib/tones";
 
 const panel = "mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6";
 
@@ -26,9 +28,7 @@ export function Savings() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Ahorros
-      </h1>
+      <PageTitle icon={KIND.Ahorro.icon} tone={KIND.Ahorro.tone}>Ahorros</PageTitle>
       <p className="mt-1 text-sm text-muted">Registra tus aportaciones, traspasos y valuaciones, y revisa tu portafolio.</p>
 
       <div className={panel}>

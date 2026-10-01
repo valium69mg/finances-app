@@ -5,6 +5,8 @@ import { deleteIncome, incomeKeys, listIncome, type Income } from "../../api/inc
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import { describeIncomeError } from "./errors";
+import { EmptyNote } from "../../components/EmptyNote";
+import { KIND } from "../../lib/tones";
 
 interface Props {
   month: string;
@@ -46,7 +48,7 @@ export function IncomeList({ month, editingId, onEdit, onDeleted }: Props) {
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-sm text-muted">No hay ingresos registrados en este periodo.</p>;
+    return <EmptyNote icon={KIND.Ingreso.icon}>No hay ingresos registrados en este periodo.</EmptyNote>;
   }
 
   return (

@@ -6,6 +6,8 @@ import { describeSystemError } from "./system/errors";
 import { formatAge, formatGB, formatLoad, formatUptime } from "./system/format";
 import { UsageCard, UsageCardSkeleton } from "./system/UsageCard";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
+import { PageTitle } from "../components/PageTitle";
+import { moduleIcon } from "../modules";
 
 /** Refresh period while the tab is visible. */
 const REFRESH_MS = 10_000;
@@ -98,9 +100,7 @@ export function System() {
     <section aria-labelledby="page-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-            Sistema
-          </h1>
+          <PageTitle icon={moduleIcon("/sistema")}>Sistema</PageTitle>
           <p className="mt-1 text-sm text-muted">Uso actual del servidor: procesador, memoria y disco de datos. Solo consulta; los avisos funcionan por separado.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

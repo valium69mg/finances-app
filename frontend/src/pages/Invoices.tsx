@@ -12,6 +12,8 @@ import { PrepareForm } from "./invoices/PrepareForm";
 import { describeInvoiceError } from "./invoices/errors";
 import { STATE_LABEL } from "./invoices/labels";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
+import { PageTitle } from "../components/PageTitle";
+import { moduleIcon } from "../modules";
 
 export function Invoices() {
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
@@ -31,9 +33,7 @@ export function Invoices() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Facturas
-      </h1>
+      <PageTitle icon={moduleIcon("/facturas")}>Facturas</PageTitle>
       <p className="mt-1 text-sm text-muted">Prepara el checklist de tus facturas CFDI, da seguimiento a su estado y guarda los archivos emitidos.</p>
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">

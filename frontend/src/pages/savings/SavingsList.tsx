@@ -6,6 +6,8 @@ import type { Instrument } from "../../api/settings";
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import { describeSavingsError } from "./errors";
+import { EmptyNote } from "../../components/EmptyNote";
+import { KIND } from "../../lib/tones";
 
 interface Props {
   month: string;
@@ -48,7 +50,7 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-sm text-muted">No hay ahorros registrados en este periodo.</p>;
+    return <EmptyNote icon={KIND.Ahorro.icon}>No hay ahorros registrados en este periodo.</EmptyNote>;
   }
 
   return (

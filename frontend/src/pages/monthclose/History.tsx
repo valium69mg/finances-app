@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ChevronRight, Loader2 } from "lucide-react";
+import { AlertTriangle, CalendarCheck, ChevronRight, Loader2 } from "lucide-react";
 import { listMonthCloses, monthCloseKeys, type MonthClose } from "../../api/monthClose";
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
@@ -7,6 +7,7 @@ import { periodLabel } from "../taxfiling/labels";
 import { CloseDetail } from "./CloseDetail";
 import { describeMonthCloseError } from "./errors";
 import { closedAtLabel, overBudgetOf } from "./labels";
+import { EmptyNote } from "../../components/EmptyNote";
 
 interface Props {
   /** Period of the close shown in the detail, or null. */
@@ -71,7 +72,7 @@ export function History({ selected, onSelect, onDeleted }: Props) {
     );
   }
   if (list.data.length === 0) {
-    return <p className="text-sm text-muted">Aún no has cerrado ningún mes. Cuando cierres uno, su resumen se guardará aquí tal como estaba ese día.</p>;
+    return <EmptyNote icon={CalendarCheck}>Aún no has cerrado ningún mes. Cuando cierres uno, su resumen se guardará aquí tal como estaba ese día.</EmptyNote>;
   }
 
   const open = list.data.find((c) => c.period === selected);

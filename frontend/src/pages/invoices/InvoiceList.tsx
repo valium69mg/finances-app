@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { Eye, Loader2 } from "lucide-react";
+import { Eye, FileText, Loader2 } from "lucide-react";
+import { EmptyNote } from "../../components/EmptyNote";
 import { invoiceKeys, listInvoices, type InvoiceFilter } from "../../api/invoices";
 import type { Client } from "../../api/settings";
 import { formatMoney } from "../expenses/money";
@@ -39,9 +40,7 @@ export function InvoiceList({ filter, clients, selectedId, onSelect }: Props) {
   if (list.data.length === 0) {
     const filtered = Boolean(filter.period || filter.state);
     return (
-      <p className="text-sm text-muted">
-        {filtered ? "No hay facturas con estos filtros." : "Aún no hay facturas. Prepara la primera con el formulario de arriba."}
-      </p>
+      <EmptyNote icon={FileText}>{filtered ? "No hay facturas con estos filtros." : "Aún no hay facturas. Prepara la primera con el formulario de arriba."}</EmptyNote>
     );
   }
 

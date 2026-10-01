@@ -15,6 +15,8 @@ import { dateLabel, periodLabel, previousPeriod } from "./taxfiling/labels";
 import { isPaidAmount } from "./taxfiling/payment";
 import { RegisterForm } from "./taxfiling/RegisterForm";
 import { FilingStatusBadge } from "./taxfiling/StatusBadge";
+import { PageTitle } from "../components/PageTitle";
+import { moduleIcon } from "../modules";
 
 const isPeriod = (v: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(v);
 
@@ -94,9 +96,7 @@ export function TaxFiling() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Declaración
-      </h1>
+      <PageTitle icon={moduleIcon("/declaracion")}>Declaración</PageTitle>
       <p className="mt-1 text-sm text-muted">
         Calcula tu declaración mensual RESICO con las facturas emitidas del periodo y regístrala cuando la presentes en el portal del SAT.
       </p>

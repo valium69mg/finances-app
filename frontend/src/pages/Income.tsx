@@ -11,6 +11,8 @@ import { SaveSummary } from "./income/SaveSummary";
 import { describeIncomeError } from "./income/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
 import { useCyclePeriod } from "./useCycle";
+import { PageTitle } from "../components/PageTitle";
+import { KIND } from "../lib/tones";
 
 export function Income() {
   const { month, setMonth, rangeHint } = useCyclePeriod();
@@ -22,9 +24,7 @@ export function Income() {
 
   return (
     <section aria-labelledby="page-title">
-      <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-        Ingresos
-      </h1>
+      <PageTitle icon={KIND.Ingreso.icon} tone={KIND.Ingreso.tone}>Ingresos</PageTitle>
       <p className="mt-1 text-sm text-muted">Registra tus ingresos y revisa tu total del mes y el ISR RESICO estimado.</p>
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
