@@ -219,12 +219,12 @@ describe("FutureExpensesCard", () => {
 
   it("links to the configuration where the items are managed", () => {
     renderCard(future);
-    expect(screen.getByRole("link", { name: "Administrar gastos futuros" })).toHaveAttribute("href", "/configuracion");
+    expect(screen.getByRole("link", { name: "Administrar gastos futuros" })).toHaveAttribute("href", "/gastos-futuros");
   });
 
   it("explains where to add one when there are none", () => {
     renderCard({ items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0", free_balance: "0" });
-    expect(screen.getByText(/Aún no hay gastos futuros/)).toHaveTextContent("Configuración");
+    expect(screen.getByText(/Aún no hay gastos futuros/)).toHaveTextContent("Regístralos en Gastos futuros");
   });
 });
 

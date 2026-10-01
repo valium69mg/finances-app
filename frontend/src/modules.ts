@@ -9,6 +9,7 @@ import {
   Receipt,
   Repeat,
   Settings,
+  Target,
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
@@ -27,6 +28,7 @@ export const modules: ModuleTab[] = [
   { path: "/ingresos", label: "Ingresos", icon: TrendingUp, description: "Aquí registrarás y consultarás tus ingresos." },
   { path: "/gastos", label: "Gastos", icon: Receipt, description: "Aquí registrarás y clasificarás tus gastos." },
   { path: "/ahorros", label: "Ahorros", icon: PiggyBank, description: "Aquí darás seguimiento a tus aportaciones de ahorro." },
+  { path: "/gastos-futuros", label: "Gastos futuros", icon: Target, description: "Aquí administrarás lo que quieres juntar para gastos futuros." },
   { path: "/facturas", label: "Facturas", icon: FileText, description: "Aquí prepararás y consultarás tus facturas." },
   { path: "/declaracion", label: "Declaración", icon: Calculator, description: "Aquí calcularás tu declaración mensual." },
   {

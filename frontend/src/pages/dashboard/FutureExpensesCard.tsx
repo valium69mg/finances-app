@@ -10,7 +10,7 @@ import { dateLabel } from "../taxfiling/labels";
 const isZero = (v: string) => /^0(\.0+)?$/.test(v);
 
 /**
- * The active future expenses the owner registered (Configuración > Gastos futuros): due date, target, saved so
+ * The active future expenses the owner registered (the Gastos futuros tab): due date, target, saved so
  * far with a progress bar and the amount to put aside each cycle to have each one on time, a total row and the
  * free balance (savings in Gastos futuros not assigned to any item yet).
  */
@@ -23,7 +23,7 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
       </CardTitle>
       {future.items.length === 0 ? (
         <EmptyNote icon={Target}>
-          Aún no hay gastos futuros. Regístralos en Configuración, con su monto y fecha de vencimiento, para planear cuánto apartar cada mes.
+          Aún no hay gastos futuros. Regístralos en Gastos futuros, con su monto y fecha de vencimiento, para planear cuánto apartar cada mes.
         </EmptyNote>
       ) : (
         <>
@@ -71,7 +71,7 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
           Saldo libre: <span className="font-medium text-foreground">{formatMoney(future.free_balance)}</span>, ahorro en Gastos futuros sin asignar a un gasto.
         </p>
       )}
-      <Link to="/configuracion" className="mt-3 inline-block text-sm font-medium underline">
+      <Link to="/gastos-futuros" className="mt-3 inline-block text-sm font-medium underline">
         Administrar gastos futuros
       </Link>
     </section>

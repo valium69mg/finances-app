@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../api/client";
 import type { AllSettings } from "../../api/settings";
-import { FutureExpensesSection } from "../settings/FutureExpensesSection";
+import { FutureExpenses } from "../FutureExpenses";
 import { AmountDialog } from "./AmountDialog";
 import { describeFutureError } from "./errors";
 import { LAPTOP, LIST, PAID } from "./fixtures";
@@ -21,6 +21,8 @@ const api = vi.hoisted(() => ({
   assignFutureSaving: vi.fn(),
   payFutureExpense: vi.fn(),
 }));
+const settingsApi = vi.hoisted(() => ({ getSettings: vi.fn() }));
+vi.mock("../../api/settings", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api/settings")>()), ...settingsApi }));
 vi.mock("../../api/futureExpenses", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api/futureExpenses")>()), ...api }));
 
 // Vitest runs without globals, so Testing Library does not unmount between tests on its own.
@@ -30,6 +32,7 @@ afterEach(() => {
 });
 
 function wrap(ui: ReactNode) {
+  settingsApi.getSettings.mockResolvedValue(SETTINGS);
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
 }
@@ -197,10 +200,10 @@ describe("PayDialog", () => {
   });
 });
 
-describe("FutureExpensesSection", () => {
+describe("FutureExpenses page", () => {
   it("shows the free balance, the active items, the totals and the paid history", async () => {
     api.listFutureExpenses.mockResolvedValue(LIST);
-    wrap(<FutureExpensesSection settings={SETTINGS} />);
+    wrap(<FutureExpenses />);
     expect(await screen.findByRole("list", { name: "Gastos futuros activos" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Saldo libre" })).toHaveTextContent("$350.25");
     const active = within(screen.getByRole("list", { name: "Gastos futuros activos" })).getAllByRole("listitem");
@@ -214,7 +217,7 @@ describe("FutureExpensesSection", () => {
 
   it("hides the assign action when there is no free balance", async () => {
     api.listFutureExpenses.mockResolvedValue({ ...LIST, free_balance: "0.00" });
-    wrap(<FutureExpensesSection settings={SETTINGS} />);
+    wrap(<FutureExpenses />);
     await screen.findByRole("list", { name: "Gastos futuros activos" });
     expect(screen.queryByRole("button", { name: /Asignar saldo libre/ })).not.toBeInTheDocument();
   });
@@ -222,7 +225,7 @@ describe("FutureExpensesSection", () => {
   it("asks before deleting and explains the savings are kept", async () => {
     api.listFutureExpenses.mockResolvedValue(LIST);
     api.deleteFutureExpense.mockResolvedValue(undefined);
-    wrap(<FutureExpensesSection settings={SETTINGS} />);
+    wrap(<FutureExpenses />);
     await screen.findByRole("list", { name: "Gastos futuros activos" });
     fireEvent.click(screen.getByRole("button", { name: "Eliminar Laptop" }));
     expect(screen.getByText(/vuelve al saldo libre/)).toBeInTheDocument();
@@ -234,11 +237,11 @@ describe("FutureExpensesSection", () => {
 
   it("explains an empty state and offers a retry when loading fails", async () => {
     api.listFutureExpenses.mockResolvedValueOnce({ active: [], paid: [], totals: LIST.totals, free_balance: "0" });
-    const { unmount } = wrap(<FutureExpensesSection settings={SETTINGS} />);
+    const { unmount } = wrap(<FutureExpenses />);
     expect(await screen.findByText(/Aún no tienes gastos futuros/)).toBeInTheDocument();
     unmount();
     api.listFutureExpenses.mockRejectedValueOnce(new ApiError(500, "internal_error"));
-    wrap(<FutureExpensesSection settings={SETTINGS} />);
+    wrap(<FutureExpenses />);
     expect(await screen.findByRole("button", { name: "Reintentar" })).toBeInTheDocument();
   });
 });

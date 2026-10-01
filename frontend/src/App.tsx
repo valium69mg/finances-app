@@ -5,6 +5,7 @@ import { modules } from "./modules";
 import { Bills } from "./pages/Bills";
 import { Dashboard } from "./pages/Dashboard";
 import { Expenses } from "./pages/Expenses";
+import { FutureExpenses } from "./pages/FutureExpenses";
 import { FiledRecords } from "./pages/FiledRecords";
 import { Income } from "./pages/Income";
 import { Invoices } from "./pages/Invoices";
@@ -23,6 +24,7 @@ function pageFor(path: string) {
   if (path === "/gastos") return <Expenses />;
   if (path === "/ingresos") return <Income />;
   if (path === "/ahorros") return <Savings />;
+  if (path === "/gastos-futuros") return <FutureExpenses />;
   if (path === "/facturas") return <Invoices />;
   if (path === "/declaracion") return <TaxFiling />;
   if (path === "/pagos-recurrentes") return <Bills />;
