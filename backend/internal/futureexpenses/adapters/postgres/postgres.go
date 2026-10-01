@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
@@ -147,15 +148,32 @@ func (r *Repo) Update(ctx context.Context, id int, v domain.Validated) (domain.F
 	return r.Get(ctx, id)
 }
 
+// Execer is the Exec half of a pool or a transaction.
+type Execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// DeleteByID removes the item through a pool or an open transaction (the
+// expense request revert deletes it atomically with the request reset). It
+// reports whether a row was deleted. The foreign key of movements is ON DELETE
+// SET NULL, so its linked savings are unlinked in the same statement.
+func DeleteByID(ctx context.Context, q Execer, id int) (bool, error) {
+	tag, err := q.Exec(ctx, `DELETE FROM future_expenses WHERE id = $1`, int64(id))
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
 // Delete removes the item. The foreign key of movements is ON DELETE SET NULL,
 // so its linked savings are unlinked (they return to the free balance) in the
 // same statement; nothing else is deleted.
 func (r *Repo) Delete(ctx context.Context, id int) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM future_expenses WHERE id = $1`, int64(id))
+	deleted, err := DeleteByID(ctx, r.pool, id)
 	if err != nil {
 		return err
 	}
-	if tag.RowsAffected() == 0 {
+	if !deleted {
 		return domain.ErrNotFound
 	}
 	return nil

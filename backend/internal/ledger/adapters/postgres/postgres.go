@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 
@@ -210,6 +211,23 @@ func (r *Repo) Update(ctx context.Context, m domain.Movement) error {
 		return domain.ErrNotFound
 	}
 	return nil
+}
+
+// Execer is the Exec half of a pool or a transaction.
+type Execer interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+// DeleteOfKind removes the movement with the id and the kind through a pool or
+// an open transaction, so a module can delete a movement atomically with its
+// own rows while the SQL stays in one place. It reports whether a row was
+// deleted: a missing row and a kind mismatch both answer false.
+func DeleteOfKind(ctx context.Context, q Execer, id int, kind domain.Kind) (bool, error) {
+	tag, err := q.Exec(ctx, `DELETE FROM movements WHERE id = $1 AND kind = $2`, int64(id), string(kind))
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // Delete removes the movement.
