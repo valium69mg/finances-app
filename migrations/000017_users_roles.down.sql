@@ -1,0 +1,4 @@
+DROP INDEX IF EXISTS movements_created_by_idx;
+ALTER TABLE movements DROP COLUMN IF EXISTS created_by;
+ALTER TABLE users DROP COLUMN IF EXISTS active;
+ALTER TABLE users DROP COLUMN IF EXISTS role;
