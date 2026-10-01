@@ -19,6 +19,7 @@ export const MODULE_ROUTES = [
   "/ingresos",
   "/gastos",
   "/ahorros",
+  "/gastos-futuros",
   "/facturas",
   "/declaracion",
   "/declaraciones-presentadas",

@@ -219,7 +219,7 @@ test.describe("dashboard page", () => {
 
   test("future expenses explain where to add one when there are none", async ({ page }) => {
     await open(page);
-    await expect(page.getByRole("region", { name: "Gastos futuros" })).toContainText("Aún no hay gastos futuros");
+    await expect(page.getByRole("region", { name: "Gastos futuros" })).toContainText("Regístralos en Gastos futuros");
   });
 
   test("lists the latest movements of every kind in one list", async ({ page }) => {

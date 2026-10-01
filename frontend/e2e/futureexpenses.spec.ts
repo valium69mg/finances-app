@@ -10,6 +10,8 @@ function day(offset = 0) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
+
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
@@ -26,16 +28,15 @@ const PHONE: MockFutureExpense = { id: 3, name: "Teléfono", target_amount: "500
 async function openSection(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
   const api = await mockApi(page, opts);
   await seedSession(page);
-  await page.goto("/configuracion");
-  await page.getByRole("tab", { name: "Gastos futuros" }).click();
-  await expect(page.getByRole("heading", { level: 2, name: "Gastos futuros" })).toBeVisible();
+  await page.goto("/gastos-futuros");
+  await expect(page.getByRole("heading", { level: 1, name: "Gastos futuros" })).toBeVisible();
   return api;
 }
 
 const rowOf = (page: Page, name: string) => page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("listitem").filter({ hasText: name }).first();
 
-test.describe("future expenses in the configuration", () => {
-  test("lives in its own configuration tab with the free balance, the items and the history", async ({ page }) => {
+test.describe("future expenses module", () => {
+  test("lives in its own tab with the free balance, the items and the history", async ({ page }) => {
     await openSection(page, { futureExpenses: [LAPTOP, TRIP, PHONE], futureFreeBalance: "350.25" });
     await expect(page.getByRole("region", { name: "Saldo libre" })).toContainText("$350.25");
     const rows = page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("listitem");
@@ -46,7 +47,32 @@ test.describe("future expenses in the configuration", () => {
     await expect(rowOf(page, "Laptop")).toContainText(/Aparta \$[\d,]+\.\d{2} al mes \(\d+ ciclos? restantes?\)/);
     await expect(page.getByRole("list", { name: "Gastos futuros pagados" })).toContainText("Teléfono");
     await expect(page.getByRole("list", { name: "Gastos futuros pagados" })).toContainText("$4,800.00");
-    await expectNoHorizontalOverflow(page, "future expenses section");
+    await expectNoHorizontalOverflow(page, "future expenses page");
+  });
+
+  test("is reachable from the nav and no longer lives in the configuration", async ({ page }) => {
+    await mockApi(page, { futureExpenses: [LAPTOP] });
+    await seedSession(page);
+    await page.goto("/");
+    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
+    await page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Gastos futuros" }).click();
+    await expect(page).toHaveURL(/\/gastos-futuros$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Gastos futuros" })).toBeVisible();
+    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
+    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Gastos futuros" })).toHaveAttribute("aria-current", "page");
+
+    await page.goto("/configuracion");
+    await expect(page.getByRole("tab", { name: "General" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Gastos futuros" })).toHaveCount(0);
+  });
+
+  test("fits a 375px phone", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await mockApi(page, { futureExpenses: [LAPTOP, TRIP, PHONE], futureFreeBalance: "350.25" });
+    await seedSession(page);
+    await page.goto("/gastos-futuros");
+    await expect(rowOf(page, "Laptop")).toBeVisible();
+    await expectNoHorizontalOverflow(page, "375px future expenses");
   });
 
   test("the create form is collapsed, validates and sends the decimal string", async ({ page }) => {
@@ -181,7 +207,7 @@ test.describe("future expenses in the configuration", () => {
 });
 
 test.describe("future expenses on the dashboard", () => {
-  test("shows what the module holds, the free balance and links to the configuration", async ({ page }) => {
+  test("shows what the module holds, the free balance and links to the module", async ({ page }) => {
     await mockApi(page, { futureExpenses: [LAPTOP, TRIP], futureFreeBalance: "75.50" });
     await seedSession(page);
     await page.goto("/");
@@ -192,8 +218,9 @@ test.describe("future expenses on the dashboard", () => {
     await expect(card.getByText("Total", { exact: true }).locator("xpath=following-sibling::dd[1]")).toHaveText("$32,000.00");
     await expect(card).toContainText("Saldo libre: $75.50");
     await card.getByRole("link", { name: "Administrar gastos futuros" }).click();
-    await expect(page).toHaveURL(/\/configuracion$/);
-    await expectNoHorizontalOverflow(page, "configuration");
+    await expect(page).toHaveURL(/\/gastos-futuros$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Gastos futuros" })).toBeVisible();
+    await expectNoHorizontalOverflow(page, "future expenses page");
   });
 
   test("a paid item leaves the dashboard card", async ({ page }) => {

@@ -59,7 +59,7 @@ test.describe("layout", () => {
     if (!isDesktop(page.viewportSize()?.width)) {
       await page.getByRole("button", { name: "Abrir menú" }).click();
     }
-    await expect(page.getByRole("link", { name: "Gastos" })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: "Gastos", exact: true })).toHaveAttribute("aria-current", "page");
   });
 
   test("moves focus to the content after navigating", async ({ page }) => {
