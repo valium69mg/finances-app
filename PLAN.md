@@ -155,3 +155,11 @@ Document storage for uploaded CFDIs **DECIDED:** S3-compatible object storage. M
 ## 9. Reference
 
 Source of truth for current behavior: `~/finances/fin.py` and `~/finances/config.json`.
+
+## 10. Visual design decisions
+
+- **Kind colors** (tokens in `frontend/src/index.css`, registered in `tailwind.config.js`, light and both dark blocks): Ingreso emerald (`income`), Gasto violet (`expense`), Ahorro sky (`saving`). Each has a strong color (icons, bars, text) and a `-soft` tint (10% of the strong color over the surface) for chips and cards. Primary stays blue (buttons, focus).
+- **Why Gasto is not red:** `destructive` (red) and `warning` (amber) are reserved for over-budget, errors and warnings. If every expense were red, a real over-budget alert would stop standing out.
+- **Contrast:** every strong/soft/foreground/muted pair is asserted at 4.5:1 or better in both themes by `src/tokens.test.ts`, which reads the values from `index.css`. Color is never the only signal: it always comes with an icon or text.
+- **Icons:** lucide-react only, stroke 1.75 (global CSS), sizes 16/20/24, decorative icons `aria-hidden`, icon-only buttons carry `aria-label`. Kinds: Ingreso ArrowDownLeft, Gasto ArrowUpRight, Ahorro PiggyBank. Section icons live next to each card heading (`CardTitle`, `IconChip`, `PageTitle`); empty states use `EmptyNote`.
+- **Category icons:** `src/lib/categoryIcon.ts` maps a category name to an icon by accent-insensitive keyword prefix (first match wins), with Sparkles as the fallback.
