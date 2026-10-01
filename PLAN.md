@@ -58,6 +58,7 @@ Rules:
 - Domain code is pure functions plus entities. No database, no HTTP.
 - Money is an exact decimal (the `BigDecimal` equivalent), never `float64`. **DECIDED:** `shopspring/decimal` in Go, `NUMERIC` in PostgreSQL, and decimal strings in the JSON API. Rounding rules per calculation (e.g. SAT rounding) are defined explicitly and tested.
 - Every tax and split calculation has tests with hand-computed cases from real numbers.
+- Time **DECIDED:** calendar days follow `TZ_NAME` (America/Mexico_City in production), never the container's UTC: today, default dates, the current month or cycle, the "future period" checks and the mid-month snapshots. `cmd/api/main.go` builds one clock with `clock.In(loc)` (`internal/platform/clock`) and injects it into every service that reads "now" (expenses, income, savings, invoices, tax filing, bills, future expenses, dashboard, month close, expense requests, reminders); a nil clock only exists in tests. Instants stay UTC: `created_at`, `closed_at`, token expiry and rate limits keep the real moment. Each module has table tests with a fake clock around local midnight and the local month end (2026-10-01T02:30Z is still 2026-09-30 in Mexico City).
 
 ## 4. Modules (one tab each)
 
