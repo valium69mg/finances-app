@@ -209,12 +209,21 @@ func (s *Service) result(ctx context.Context, m ledger.Movement) (Result, error)
 }
 
 func (s *Service) feedback(ctx context.Context, m ledger.Movement) (BudgetFeedback, error) {
+	return s.BudgetFor(ctx, m.Category, m.Date)
+}
+
+// BudgetFor compares the spending of a category in the pay cycle that contains
+// date (YYYY-MM-DD) with its budget of that cycle. The budgets are resolved
+// exactly as the dashboard resolves them (month overrides and the investment
+// pause plan included), so every screen shows the same numbers. Nothing is
+// stored.
+func (s *Service) BudgetFor(ctx context.Context, category, date string) (BudgetFeedback, error) {
 	cfg, err := s.settings.Get(ctx)
 	if err != nil {
 		return BudgetFeedback{}, err
 	}
 	cycle := cfg.Cycle()
-	month := cycle.Of(m.Date)
+	month := cycle.Of(date)
 	from, to, err := cycle.Range(month)
 	if err != nil {
 		return BudgetFeedback{}, err
@@ -229,11 +238,11 @@ func (s *Service) feedback(ctx context.Context, m ledger.Movement) (BudgetFeedba
 	}
 	fb := BudgetFeedback{
 		Month:    month,
-		Category: m.Category,
-		Spent:    ledger.SumBy(movements, ledger.Filter{Kind: ledger.KindExpense, Category: m.Category}),
+		Category: category,
+		Spent:    ledger.SumBy(movements, ledger.Filter{Kind: ledger.KindExpense, Category: category}),
 	}
 	for _, b := range budgets {
-		if b.Name != m.Category || b.Budget == nil || !b.Budget.IsPositive() {
+		if b.Name != category || b.Budget == nil || !b.Budget.IsPositive() {
 			continue
 		}
 		budget := *b.Budget

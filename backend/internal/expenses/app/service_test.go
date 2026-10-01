@@ -379,3 +379,31 @@ func TestCycleGroupsTheFeedbackAndTheListing(t *testing.T) {
 		t.Errorf("default cycle range = %s..%s, %v", repo.listFrom, repo.listTo, err)
 	}
 }
+
+func TestBudgetForReadsTheCycleOfTheDateWithoutStoring(t *testing.T) {
+	svc, repo, st := newService(t)
+	st.cfg.CycleStartDay = 15
+	ctx := context.Background()
+	// Transporte budget is 1000. 2026-10-14 is still cycle 2026-10, 2026-10-15 starts 2026-11.
+	for _, e := range []struct{ date, amount string }{{"2026-10-14", "300"}, {"2026-10-15", "70"}} {
+		if _, err := svc.Create(ctx, app.Input{Category: "Transporte", Amount: d(e.amount), Date: e.date}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stored := len(repo.rows)
+
+	fb, err := svc.BudgetFor(ctx, "Transporte", "2026-10-14")
+	if err != nil || fb.Month != "2026-10" || !fb.Spent.Equal(d("300")) || fb.Budget == nil || !fb.Budget.Equal(d("1000")) {
+		t.Errorf("BudgetFor(2026-10-14) = %+v, %v", fb, err)
+	}
+	fb, err = svc.BudgetFor(ctx, "Transporte", "2026-10-15")
+	if err != nil || fb.Month != "2026-11" || !fb.Spent.Equal(d("70")) {
+		t.Errorf("BudgetFor(2026-10-15) = %+v, %v", fb, err)
+	}
+	if fb, err := svc.BudgetFor(ctx, "Ocio", "2026-10-14"); err != nil || fb.Budget != nil || fb.Remaining != nil {
+		t.Errorf("a category without budget = %+v, %v", fb, err)
+	}
+	if len(repo.rows) != stored {
+		t.Error("BudgetFor must not store anything")
+	}
+}
