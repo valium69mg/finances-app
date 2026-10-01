@@ -140,15 +140,6 @@ export function ApproveDialog({ request, categories, paymentMethods, onClose, on
                 ))}
               </SelectField>
               <TextField label="Fecha del gasto" type="date" value={draft.date} onChange={(e) => set({ date: e.target.value })} error={errors.date} />
-              {paymentMethods.length > 0 && (
-                <SelectField label="Método de pago" value={draft.paymentMethod} onChange={(e) => set({ paymentMethod: e.target.value })}>
-                  {paymentMethods.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </SelectField>
-              )}
             </div>
             {errors.category && <ErrorBanner>{errors.category}</ErrorBanner>}
 
@@ -163,6 +154,16 @@ export function ApproveDialog({ request, categories, paymentMethods, onClose, on
               )}
               {check.isError && <ErrorBanner>{`No se pudo revisar el presupuesto. ${describeRequestError(check.error)} Aun así puedes aprobar la petición.`}</ErrorBanner>}
             </section>
+
+            {paymentMethods.length > 0 && (
+              <SelectField label="Método de pago" value={draft.paymentMethod} onChange={(e) => set({ paymentMethod: e.target.value })}>
+                {paymentMethods.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </SelectField>
+            )}
           </div>
         ) : (
           <div className="space-y-3">
