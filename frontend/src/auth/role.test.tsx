@@ -12,6 +12,10 @@ vi.mock("../pages/Dashboard", () => ({ Dashboard: () => <p>dashboard page</p> })
 vi.mock("../pages/Settings", () => ({ Settings: () => <p>settings page</p> }));
 vi.mock("../pages/System", () => ({ System: () => <p>system page</p> }));
 vi.mock("../pages/Income", () => ({ Income: () => <p>income page</p> }));
+vi.mock("../api/expenseRequests", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../api/expenseRequests")>()),
+  listExpenseRequests: vi.fn().mockResolvedValue([]),
+}));
 vi.mock("../api/auth", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/auth")>()),
   fetchMe: vi.fn().mockResolvedValue({ id: "u1", email: "someone@example.com", verified: true, role: "household" }),
@@ -50,8 +54,8 @@ describe("canOpen", () => {
     for (const m of modules) expect(canOpen("owner", m.path), m.path).toBe(true);
   });
 
-  it("lets household open only the dashboard, so a new module is owner-only by default", () => {
-    expect(modules.filter((m) => canOpen("household", m.path)).map((m) => m.path)).toEqual(["/"]);
+  it("lets household open only the dashboard and the requests, so a new module is owner-only by default", () => {
+    expect(modules.filter((m) => canOpen("household", m.path)).map((m) => m.path)).toEqual(["/", "/peticiones"]);
   });
 });
 
@@ -93,9 +97,9 @@ describe("the session role", () => {
 });
 
 describe("route guards", () => {
-  it("household: every module but the dashboard redirects to /", () => {
+  it("household: every module but the dashboard and the requests redirects to /", () => {
     signIn("household");
-    for (const path of modules.map((m) => m.path).filter((p) => p !== "/")) {
+    for (const path of modules.map((m) => m.path).filter((p) => p !== "/" && p !== "/peticiones")) {
       renderApp(path);
       expect(screen.getByText("dashboard page"), path).toBeInTheDocument();
       cleanup();
@@ -108,11 +112,11 @@ describe("route guards", () => {
     expect(screen.getByText("dashboard page")).toBeInTheDocument();
   });
 
-  it("household: the navigation lists only the dashboard", () => {
+  it("household: the navigation lists only the dashboard and the requests", () => {
     signIn("household");
     renderApp("/");
     const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
-    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Panel"]);
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Panel", "Peticiones"]);
   });
 
   it("owner: modules and the navigation are unchanged", () => {

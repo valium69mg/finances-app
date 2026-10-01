@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { canOpen, modules } from "./modules";
 import { Bills } from "./pages/Bills";
 import { Dashboard } from "./pages/Dashboard";
+import { ExpenseRequests } from "./pages/ExpenseRequests";
 import { Expenses } from "./pages/Expenses";
 import { FutureExpenses } from "./pages/FutureExpenses";
 import { FiledRecords } from "./pages/FiledRecords";
@@ -21,6 +22,7 @@ import { VerifyEmail } from "./pages/VerifyEmail";
 
 function pageFor(path: string) {
   if (path === "/") return <Dashboard />;
+  if (path === "/peticiones") return <ExpenseRequests />;
   if (path === "/configuracion") return <Settings />;
   if (path === "/gastos") return <Expenses />;
   if (path === "/ingresos") return <Income />;

@@ -3,11 +3,33 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CircleUser, LogOut, Menu, Wallet, X } from "lucide-react";
 import { fetchMe } from "../api/auth";
+import { expenseRequestsKeys, listExpenseRequests } from "../api/expenseRequests";
 import { tokenStore } from "../api/tokens";
 import { useAuth } from "../auth/AuthContext";
 import { canOpen, modules } from "../modules";
 
 const DESKTOP_QUERY = "(min-width: 1024px)";
+
+/** Count of requests waiting for the owner, shown next to the Peticiones tab. A failure just hides it. */
+function PendingRequestsBadge() {
+  const pending = useQuery({
+    queryKey: expenseRequestsKeys.pendingCount,
+    queryFn: async () => (await listExpenseRequests("solicitada")).length,
+    retry: false,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  if (!pending.data) return null;
+  return (
+    <span
+      data-testid="pending-requests-badge"
+      aria-label={pending.data === 1 ? "1 petición pendiente" : `${pending.data} peticiones pendientes`}
+      className="ml-auto inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-on-primary"
+    >
+      {pending.data}
+    </span>
+  );
+}
 
 function ModuleNav({ onNavigate }: { onNavigate?: () => void }) {
   const { role } = useAuth();
@@ -30,6 +52,7 @@ function ModuleNav({ onNavigate }: { onNavigate?: () => void }) {
               >
                 <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 break-words">{m.label}</span>
+                {m.path === "/peticiones" && role === "owner" && <PendingRequestsBadge />}
               </NavLink>
             </li>
           );

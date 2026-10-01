@@ -4,6 +4,7 @@ import {
   Calculator,
   FileCheck,
   FileText,
+  HandCoins,
   LayoutDashboard,
   PiggyBank,
   Receipt,
@@ -25,6 +26,7 @@ export interface ModuleTab {
 // One tab per module in PLAN.md section 4.
 export const modules: ModuleTab[] = [
   { path: "/", label: "Panel", icon: LayoutDashboard, description: "Aquí verás un resumen de tus finanzas del mes." },
+  { path: "/peticiones", label: "Peticiones", icon: HandCoins, description: "Aquí pedirás o revisarás peticiones de gasto." },
   { path: "/ingresos", label: "Ingresos", icon: TrendingUp, description: "Aquí registrarás y consultarás tus ingresos." },
   { path: "/gastos", label: "Gastos", icon: Receipt, description: "Aquí registrarás y clasificarás tus gastos." },
   { path: "/ahorros", label: "Ahorros", icon: PiggyBank, description: "Aquí darás seguimiento a tus aportaciones de ahorro." },
@@ -47,7 +49,7 @@ export const modules: ModuleTab[] = [
  * Tabs the household role may open. Everything else is owner-only (the backend answers 403 for it, so hiding
  * the tab and redirecting the route are only conveniences). A new module is owner-only until it is listed here.
  */
-const HOUSEHOLD_PATHS: readonly string[] = ["/"];
+const HOUSEHOLD_PATHS: readonly string[] = ["/", "/peticiones"];
 
 /** True when a session with this role may open the module at `path`. */
 export const canOpen = (role: "owner" | "household", path: string): boolean => role === "owner" || HOUSEHOLD_PATHS.includes(path);
