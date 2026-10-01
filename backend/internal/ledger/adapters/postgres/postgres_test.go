@@ -15,6 +15,7 @@ import (
 
 	"github.com/valium69mg/finances-app/backend/internal/ledger/adapters/postgres"
 	"github.com/valium69mg/finances-app/backend/internal/ledger/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
 func dec(s string) decimal.Decimal { return decimal.RequireFromString(s) }
@@ -57,7 +58,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000006_movements.up.sql", "000007_income_amount_positive.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql"} {
+	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000007_income_amount_positive.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -526,5 +527,76 @@ func TestFutureExpenseLinkRoundTrip(t *testing.T) {
 	}
 	if g, _ := repo.GetByID(ctx, created.ID); g.FutureExpenseID != itemID || g.Description != "edited" {
 		t.Errorf("after update: %+v", g)
+	}
+}
+
+func createdBy(t *testing.T, pool *pgxpool.Pool, id int) *string {
+	t.Helper()
+	var by *string
+	if err := pool.QueryRow(context.Background(), `SELECT created_by::text FROM movements WHERE id = $1`, int64(id)).Scan(&by); err != nil {
+		t.Fatalf("read created_by: %v", err)
+	}
+	return by
+}
+
+func TestCreateRecordsTheActingUser(t *testing.T) {
+	repo, pool := newRepo(t)
+	bg := context.Background()
+
+	var userID string
+	if err := pool.QueryRow(bg, `INSERT INTO users (email, password_hash, role) VALUES ('her@example.com', 'x', 'household') RETURNING id::text`).Scan(&userID); err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+
+	acting := session.With(bg, session.Identity{UserID: userID, Role: session.RoleOwner})
+	one, err := repo.Create(acting, expense("2026-10-02", "Comida", "10.00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if by := createdBy(t, pool, one.ID); by == nil || *by != userID {
+		t.Errorf("created_by = %v, want %s", by, userID)
+	}
+
+	many, err := repo.CreateMany(acting, []domain.Movement{expense("2026-10-03", "Comida", "5.00"), income("2026-10-03", "20.00")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range many {
+		if by := createdBy(t, pool, m.ID); by == nil || *by != userID {
+			t.Errorf("CreateMany created_by = %v, want %s", by, userID)
+		}
+	}
+
+	// No identity (imports, background jobs) leaves the author empty.
+	anon, err := repo.Create(bg, expense("2026-10-04", "Comida", "1.00"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if by := createdBy(t, pool, anon.ID); by != nil {
+		t.Errorf("created_by = %v, want NULL without an acting user", *by)
+	}
+
+	// Deleting the user keeps the movement and clears the author.
+	if _, err := pool.Exec(bg, `DELETE FROM users WHERE id = $1::uuid`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if by := createdBy(t, pool, one.ID); by != nil {
+		t.Errorf("created_by = %v after the user was deleted, want NULL", *by)
+	}
+}
+
+func TestUsersRoleMigrationDefaults(t *testing.T) {
+	_, pool := newRepo(t)
+	bg := context.Background()
+	var role string
+	var active bool
+	if err := pool.QueryRow(bg, `INSERT INTO users (email, password_hash) VALUES ('owner@example.com', 'x') RETURNING role, active`).Scan(&role, &active); err != nil {
+		t.Fatal(err)
+	}
+	if role != "owner" || !active {
+		t.Errorf("defaults = %q, %v; want owner, true so the existing admin stays owner", role, active)
+	}
+	if _, err := pool.Exec(bg, `INSERT INTO users (email, password_hash, role) VALUES ('x@example.com', 'x', 'admin')`); err == nil {
+		t.Error("an unknown role must violate the CHECK constraint")
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/shopspring/decimal"
 
 	"github.com/valium69mg/finances-app/backend/internal/ledger/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
 // Repo stores movements in the movements table.
@@ -105,16 +106,19 @@ func Insert(ctx context.Context, q RowQuerier, m domain.Movement) (domain.Moveme
 	return insert(ctx, q, m, nil)
 }
 
-// insert stores m; a nil createdAt keeps the column default (now()).
+// insert stores m; a nil createdAt keeps the column default (now()). The acting
+// user of the request context, when there is one, is recorded in created_by;
+// imports and background jobs have none and leave it NULL.
 func insert(ctx context.Context, q RowQuerier, m domain.Movement, createdAt *time.Time) (domain.Movement, error) {
 	row := q.QueryRow(ctx, `
 		INSERT INTO movements (date, description, category, instrument, kind, payment_method, currency,
-		                       amount, exchange_rate, amount_mxn, created_at, transfer_id, future_expense_id)
+		                       amount, exchange_rate, amount_mxn, created_at, transfer_id, future_expense_id, created_by)
 		VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8::text::numeric, $9::text::numeric, $10::text::numeric,
-		        COALESCE($11::timestamptz, now()), $12::text::uuid, $13::bigint)
+		        COALESCE($11::timestamptz, now()), $12::text::uuid, $13::bigint, $14::text::uuid)
 		RETURNING `+columns,
 		m.Date, m.Description, m.Category, nullString(m.Instrument), string(m.Kind), m.PaymentMethod, m.Currency,
-		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt, nullString(m.TransferID), nullInt(m.FutureExpenseID))
+		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt, nullString(m.TransferID), nullInt(m.FutureExpenseID),
+		nullString(session.UserID(ctx)))
 	return scan(row)
 }
 
