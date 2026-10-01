@@ -282,4 +282,33 @@ test.describe("dashboard page", () => {
     }
     await expectNoHorizontalOverflow(page, "budget by category");
   });
+  test("shows a colored icon per kind in the totals and the latest movements", async ({ page }) => {
+    await open(page, { expenses: [expense({})], income: [salary], savings: [emergencySaving] });
+    const totals = page.getByRole("region", { name: "Resumen del mes" });
+    // Every kind card carries an icon next to its text label.
+    for (const label of ["Ingresos", "Gastos", "Ahorros", "Disponible"]) {
+      await expect(totals.locator("div").filter({ has: page.getByText(label, { exact: true }) }).locator("svg").first()).toBeVisible();
+    }
+    const recent = page.getByRole("region", { name: "Últimos movimientos" });
+    // The badge is icon plus the kind written out.
+    for (const kind of ["Ingreso", "Gasto", "Ahorro"]) await expect(recent.locator("span:has(> svg)", { hasText: new RegExp(`^${kind}$`) })).toBeVisible();
+  });
+
+  test("renders in dark mode with no horizontal overflow at 375px", async ({ page }) => {
+    await page.emulateMedia({ colorScheme: "dark" });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await open(page, {
+      expenses: [expense({}), expense({ id: 2, category: "Comida", amount: "1000.00", amount_mxn: "1000.00" })],
+      income: [salary],
+      savings: [emergencySaving],
+    });
+    await expect(budgetRow(page, /Renta/)).toContainText("$15,000.00");
+    // The dark tokens are active: the page background is the dark one, not the light #F8FAFC.
+    const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(bg).toBe("rgb(11, 17, 32)");
+    // Kind colors come from the dark tokens too (income is emerald 400).
+    const income = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--color-income").trim());
+    expect(income).toBe("52 211 153");
+    await expectNoHorizontalOverflow(page, "dashboard in dark mode at 375px");
+  });
 });
