@@ -62,6 +62,15 @@ func (h *Handler) Register(mux httpmw.Router) {
 var householdAllowlist = map[string]bool{
 	"GET /auth/me":   true,
 	"GET /dashboard": true, // answered with the reduced, budget-only payload
+
+	// Expense requests (phase 9, step 3). The service scopes the household
+	// listing to her own requests and only the requester may cancel.
+	"POST /expense-requests":             true,
+	"GET /expense-requests":              true,
+	"GET /expense-requests/categories":   true, // Gasto category names only, no budgets
+	"POST /expense-requests/{id}/cancel": true,
+	// Not listed on purpose (owner-only): GET /expense-requests/{id}/budget-check,
+	// POST /expense-requests/{id}/approve and POST /expense-requests/{id}/reject.
 }
 
 // HouseholdAllowed reports whether the household role may call the route

@@ -193,8 +193,42 @@ func TestOwnerOnlyAreasAreRegisteredAndDenied(t *testing.T) {
 func TestHouseholdAllowlistIsExactlyTheDecidedOne(t *testing.T) {
 	got := authhttp.HouseholdAllowlist()
 	sort.Strings(got)
-	want := []string{"GET /auth/me", "GET /dashboard"}
+	want := []string{
+		"GET /auth/me", "GET /dashboard",
+		"GET /expense-requests", "GET /expense-requests/categories", "POST /expense-requests", "POST /expense-requests/{id}/cancel",
+	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("household allowlist = %v, want %v; widening it is a decision (PLAN.md phase 9)", got, want)
+	}
+}
+
+// The expense request routes are split by role: household may create, list,
+// cancel and read the Gasto category names; the budget check, the approval and
+// the rejection are owner-only (default denied, not on the allowlist).
+func TestExpenseRequestRoutesSplitByRole(t *testing.T) {
+	router := mountAllRoutes(t)
+	householdRoutes := []string{
+		"POST /expense-requests", "GET /expense-requests", "GET /expense-requests/categories", "POST /expense-requests/{id}/cancel",
+	}
+	ownerOnly := []string{
+		"GET /expense-requests/{id}/budget-check", "POST /expense-requests/{id}/approve", "POST /expense-requests/{id}/reject",
+	}
+	for _, pattern := range append(slices.Clone(householdRoutes), ownerOnly...) {
+		if !slices.Contains(router.patterns, pattern) {
+			t.Fatalf("%s is not registered: update the lists if the route was renamed", pattern)
+		}
+	}
+	for _, pattern := range householdRoutes {
+		if rec := call(router.mux, pattern, "household"); rec.Code < 200 || rec.Code > 299 {
+			t.Errorf("%s answered %d to household, want 2xx", pattern, rec.Code)
+		}
+	}
+	for _, pattern := range ownerOnly {
+		if rec := call(router.mux, pattern, "household"); rec.Code != http.StatusForbidden {
+			t.Errorf("%s answered %d to household, want 403", pattern, rec.Code)
+		}
+		if rec := call(router.mux, pattern, "owner"); rec.Code < 200 || rec.Code > 299 {
+			t.Errorf("%s answered %d to the owner, want 2xx", pattern, rec.Code)
+		}
 	}
 }

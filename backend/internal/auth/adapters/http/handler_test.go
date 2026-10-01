@@ -540,7 +540,11 @@ func TestHouseholdAllowlistIsExplicit(t *testing.T) {
 	for _, p := range authhttp.HouseholdAllowlist() {
 		got[p] = true
 	}
-	want := map[string]bool{"GET /auth/me": true, "GET /dashboard": true}
+	want := map[string]bool{
+		"GET /auth/me": true, "GET /dashboard": true,
+		"POST /expense-requests": true, "GET /expense-requests": true, "GET /expense-requests/categories": true,
+		"POST /expense-requests/{id}/cancel": true,
+	}
 	if len(got) != len(want) {
 		t.Fatalf("allowlist = %v, want exactly %v", got, want)
 	}

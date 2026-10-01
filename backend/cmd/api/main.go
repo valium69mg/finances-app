@@ -23,6 +23,8 @@ import (
 	billspg "github.com/valium69mg/finances-app/backend/internal/bills/adapters/postgres"
 	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
 	dashboardapp "github.com/valium69mg/finances-app/backend/internal/dashboard/app"
+	expenserequestspg "github.com/valium69mg/finances-app/backend/internal/expenserequests/adapters/postgres"
+	expenserequestsapp "github.com/valium69mg/finances-app/backend/internal/expenserequests/app"
 	expensesapp "github.com/valium69mg/finances-app/backend/internal/expenses/app"
 	futureexpensespg "github.com/valium69mg/finances-app/backend/internal/futureexpenses/adapters/postgres"
 	futureexpensesapp "github.com/valium69mg/finances-app/backend/internal/futureexpenses/app"
@@ -216,11 +218,19 @@ func run() error {
 		Repo: userspg.NewRepo(pool), Sessions: authSvc, Inviter: authSvc, Limiter: limiter,
 	})
 
+	// Household expense requests: the Gasto and the future expense of an approval
+	// are built by their modules' rules and written by the repository in one
+	// transaction. Emails are best-effort through the same Resend mailer.
+	expenseRequestsSvc := expenserequestsapp.NewService(expenserequestsapp.Deps{
+		Repo: expenserequestspg.NewRepo(pool), Expenses: expensesSvc, Settings: settingsSvc, Mailer: resendMailer,
+		Limiter: limiter, AppBaseURL: cfg.AppBaseURL, Now: now, Logger: slog.Default(),
+	})
+
 	mux := http.NewServeMux()
 	registerRoutes(mux, routeDeps{
 		Health: health.Handler(pool), Auth: auth, Settings: settingsSvc, Expenses: expensesSvc, Income: incomeSvc,
 		Savings: savingsSvc, Invoices: invoicesSvc, TaxFiling: taxfilingSvc, Bills: billsSvc, FutureExpense: futureSvc,
-		Dashboard: dashboardSvc, MonthClose: monthcloseSvc, System: systemSvc, Users: usersSvc,
+		Dashboard: dashboardSvc, MonthClose: monthcloseSvc, System: systemSvc, Users: usersSvc, ExpenseReq: expenseRequestsSvc,
 	}, auth.RequireAuth, slog.Default())
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
