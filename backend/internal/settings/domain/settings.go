@@ -113,6 +113,41 @@ func (c Config) General() General {
 	}
 }
 
+// Keys of the extra-income split as stored in the configuration.
+const (
+	SplitSATReserve  = "sat_reserve_rate"
+	SplitEmergency   = "fondo_emergencia"
+	SplitInvestments = "inversiones"
+	SplitAguinaldo   = "aguinaldo_vacaciones"
+)
+
+// SplitDestinations are the three parts of an extra income that must add up to
+// 100%; the SAT reserve is taken off before and is separate.
+var SplitDestinations = []string{SplitEmergency, SplitInvestments, SplitAguinaldo}
+
+// DefaultSplit holds the rates used when the configuration does not define a key.
+var DefaultSplit = map[string]decimal.Decimal{
+	SplitSATReserve:  decimal.RequireFromString("0.165"),
+	SplitEmergency:   decimal.RequireFromString("0.5"),
+	SplitInvestments: decimal.RequireFromString("0.35"),
+	SplitAguinaldo:   decimal.RequireFromString("0.15"),
+}
+
+// BaseMonthlyIncome is the estimated monthly income used for planning:
+// salary_usd * fx_rate_applied rounded to cents. ok is false when either value
+// is missing, not positive or out of range, and every percentage feature then
+// degrades to the amount-only behavior.
+func (g General) BaseMonthlyIncome() (base decimal.Decimal, ok bool) {
+	if ledger.CheckAmount(g.SalaryUSD) != nil || ledger.CheckAmount(g.FXRateApplied) != nil {
+		return decimal.Zero, false
+	}
+	if !g.SalaryUSD.IsPositive() || !g.FXRateApplied.IsPositive() {
+		return decimal.Zero, false
+	}
+	base = g.SalaryUSD.Mul(g.FXRateApplied).Round(2)
+	return base, base.IsPositive()
+}
+
 // Cycle returns the personal budget cycle configured for the owner.
 func (c Config) Cycle() ledger.Cycle {
 	return ledger.Cycle{StartDay: c.CycleStartDay}

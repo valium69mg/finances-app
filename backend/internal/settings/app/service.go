@@ -44,9 +44,18 @@ func (s *Service) UpdateGeneral(ctx context.Context, g domain.General) error {
 	return s.repo.SaveGeneral(ctx, g)
 }
 
-// UpdateCategories validates and replaces the categories.
+// UpdateCategories validates and replaces the categories. The budgets of the
+// Gasto and Ahorro categories may not exceed the base monthly income (a rule
+// that does not apply while the base is unavailable).
 func (s *Service) UpdateCategories(ctx context.Context, cats []domain.Category) error {
 	if err := domain.ValidateCategories(cats); err != nil {
+		return err
+	}
+	cfg, err := s.repo.Load(ctx)
+	if err != nil {
+		return err
+	}
+	if err := domain.ValidateBudgetTotal(cats, cfg.General()); err != nil {
 		return err
 	}
 	return s.repo.SaveCategories(ctx, cats)

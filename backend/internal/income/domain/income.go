@@ -11,10 +11,10 @@ import (
 
 // Default split rates, used when the configuration does not define them.
 var (
-	defaultSATReserveRate = decimal.RequireFromString("0.165")
-	defaultEmergencyRate  = decimal.RequireFromString("0.5")
-	defaultInvestmentRate = decimal.RequireFromString("0.35")
-	defaultAguinaldoRate  = decimal.RequireFromString("0.15")
+	defaultSATReserveRate = settings.DefaultSplit[settings.SplitSATReserve]
+	defaultEmergencyRate  = settings.DefaultSplit[settings.SplitEmergency]
+	defaultInvestmentRate = settings.DefaultSplit[settings.SplitInvestments]
+	defaultAguinaldoRate  = settings.DefaultSplit[settings.SplitAguinaldo]
 )
 
 // ToMXN converts a value to pesos: USD values are multiplied by the exchange

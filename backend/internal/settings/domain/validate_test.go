@@ -2,7 +2,10 @@ package domain_test
 
 import (
 	"errors"
+	"strings"
 	"testing"
+
+	"github.com/shopspring/decimal"
 
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	"github.com/valium69mg/finances-app/backend/internal/settings/domain"
@@ -69,5 +72,129 @@ func TestCycleStartDayBounds(t *testing.T) {
 		if err := g.Validate(); err != nil {
 			t.Errorf("cycle_start_day %d: %v", day, err)
 		}
+	}
+}
+
+func general(split map[string]string, alloc ...domain.Weight) domain.General {
+	g := settingstest.RealConfig().General()
+	if split != nil {
+		g.ExtraIncomeSplit = map[string]decimal.Decimal{}
+		for k, v := range split {
+			g.ExtraIncomeSplit[k] = d(v)
+		}
+	}
+	if alloc != nil {
+		g.InvestmentAllocation = alloc
+	}
+	return g
+}
+
+func TestSplitDestinationsMustAddUpToOneHundredPercent(t *testing.T) {
+	valid := map[string]map[string]string{
+		"realistic":              {"sat_reserve_rate": "0.165", "fondo_emergencia": "0.5", "inversiones": "0.35", "aguinaldo_vacaciones": "0.15"},
+		"sat reserve is aside":   {"sat_reserve_rate": "0.9", "fondo_emergencia": "0.5", "inversiones": "0.35", "aguinaldo_vacaciones": "0.15"},
+		"no sat reserve":         {"fondo_emergencia": "0.5", "inversiones": "0.35", "aguinaldo_vacaciones": "0.15"},
+		"only defaults":          {},
+		"partial equal defaults": {"inversiones": "0.35"},
+		"custom 60-30-10":        {"fondo_emergencia": "0.6", "inversiones": "0.3", "aguinaldo_vacaciones": "0.1"},
+	}
+	for name, split := range valid {
+		if err := general(split).Validate(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	invalid := map[string]map[string]string{
+		"adds up to 99.9":              {"fondo_emergencia": "0.5", "inversiones": "0.35", "aguinaldo_vacaciones": "0.149"},
+		"adds up to 110":               {"fondo_emergencia": "0.5", "inversiones": "0.35", "aguinaldo_vacaciones": "0.25"},
+		"partial against the defaults": {"inversiones": "0.9"},
+		"sat reserve above 100":        {"sat_reserve_rate": "1.1", "fondo_emergencia": "0.5", "inversiones": "0.35", "aguinaldo_vacaciones": "0.15"},
+	}
+	for name, split := range invalid {
+		if err := general(split).Validate(); !errors.Is(err, domain.ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+}
+
+func TestInvestmentAllocationMustAddUpToOneHundredPercent(t *testing.T) {
+	w := func(k, v string) domain.Weight { return domain.Weight{Key: k, Value: d(v)} }
+	for name, alloc := range map[string][]domain.Weight{
+		"realistic voo 1.0": {w("voo", "1.0")},
+		"60-40":             {w("voo", "0.6"), w("vxus", "0.4")},
+		"thirds are exact":  {w("a", "0.3333"), w("b", "0.3333"), w("c", "0.3334")},
+	} {
+		if err := general(nil, alloc...).Validate(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	for name, alloc := range map[string][]domain.Weight{
+		"adds up to 90":  {w("voo", "0.5"), w("vxus", "0.4")},
+		"adds up to 101": {w("voo", "0.6"), w("vxus", "0.41")},
+		"single 0.99":    {w("voo", "0.99")},
+	} {
+		if err := general(nil, alloc...).Validate(); !errors.Is(err, domain.ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	g := settingstest.RealConfig().General()
+	g.InvestmentAllocation = nil
+	if err := g.Validate(); err != nil {
+		t.Errorf("no allocation is valid: %v", err)
+	}
+}
+
+func TestBaseMonthlyIncome(t *testing.T) {
+	tests := []struct {
+		salary, fx, want string
+		ok               bool
+	}{
+		{"3500", "17.74", "62090", true},
+		{"3500.55", "17.743", "62110.26", true}, // 62110.25865 rounds to cents
+		{"0", "17.74", "", false},
+		{"3500", "0", "", false},
+		{"", "", "", false},
+		{"1e2000000000", "17", "", false}, // out of range, never multiplied
+	}
+	for _, tc := range tests {
+		g := domain.General{}
+		if tc.salary != "" {
+			g.SalaryUSD = d(tc.salary)
+		}
+		if tc.fx != "" {
+			g.FXRateApplied = d(tc.fx)
+		}
+		base, ok := g.BaseMonthlyIncome()
+		if ok != tc.ok || (ok && !base.Equal(d(tc.want))) {
+			t.Errorf("base(%s, %s) = %s, %v; want %s, %v", tc.salary, tc.fx, base, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestBudgetTotalCannotExceedBase(t *testing.T) {
+	g := settingstest.RealConfig().General() // base 62,090.00
+	cfg := settingstest.RealConfig()
+	if err := domain.ValidateBudgetTotal(cfg.Categories, g); err != nil {
+		t.Fatalf("realistic budgets (56,827 of 62,090) must pass: %v", err)
+	}
+	bud := func(name string, kind ledger.Kind, v string) domain.Category {
+		b := d(v)
+		return domain.Category{Name: name, Kind: kind, Budget: &b}
+	}
+	exact := []domain.Category{bud("A", ledger.KindExpense, "40000.50"), bud("B", ledger.KindSavings, "22089.50")}
+	if err := domain.ValidateBudgetTotal(exact, g); err != nil {
+		t.Errorf("exactly 100%% passes: %v", err)
+	}
+	over := []domain.Category{bud("A", ledger.KindExpense, "40000.50"), bud("B", ledger.KindSavings, "22089.51")}
+	err := domain.ValidateBudgetTotal(over, g)
+	if !errors.Is(err, domain.ErrInvalid) || !strings.Contains(err.Error(), "0.01 more") {
+		t.Errorf("one cent over: err = %v", err)
+	}
+	// Income budgets do not count, and without a base the rule does not apply.
+	income := []domain.Category{bud("Sueldo", ledger.KindIncome, "999999")}
+	if err := domain.ValidateBudgetTotal(income, g); err != nil {
+		t.Errorf("income budgets are ignored: %v", err)
+	}
+	if err := domain.ValidateBudgetTotal(over, domain.General{}); err != nil {
+		t.Errorf("no base, no rule: %v", err)
 	}
 }

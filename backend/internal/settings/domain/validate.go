@@ -71,6 +71,9 @@ func (g General) Validate() error {
 			return invalid("extra_income_split.%s must be between 0 and 1", k)
 		}
 	}
+	if err := validateSplitSum(g.ExtraIncomeSplit); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for _, w := range g.InvestmentAllocation {
 		if w.Key == "" {
@@ -83,6 +86,66 @@ func (g General) Validate() error {
 		if !validRate(w.Value) {
 			return invalid("investment_allocation.%s must be between 0 and 1", w.Key)
 		}
+	}
+	if len(g.InvestmentAllocation) > 0 {
+		sum := decimal.Zero
+		for _, w := range g.InvestmentAllocation {
+			sum = sum.Add(w.Value)
+		}
+		if !sum.Equal(decimal.NewFromInt(1)) {
+			return invalid("investment_allocation must add up to 100%% (it adds up to %s%%)", percentString(sum))
+		}
+	}
+	return nil
+}
+
+// validateSplitSum requires the three destinations of the extra-income split
+// (emergency fund, investments, aguinaldo and vacation) to add up to exactly
+// 100%. A destination missing from the map counts at its default rate, as the
+// income split does, and an empty map means "use the defaults" (always valid).
+// The SAT reserve is taken off before the split, so only its range matters.
+func validateSplitSum(split map[string]decimal.Decimal) error {
+	present := false
+	sum := decimal.Zero
+	for _, k := range SplitDestinations {
+		v, ok := split[k]
+		if ok {
+			present = true
+		} else {
+			v = DefaultSplit[k]
+		}
+		sum = sum.Add(v)
+	}
+	if present && !sum.Equal(decimal.NewFromInt(1)) {
+		return invalid("extra_income_split destinations (%s) must add up to 100%% (they add up to %s%%)", strings.Join(SplitDestinations, ", "), percentString(sum))
+	}
+	return nil
+}
+
+func percentString(rate decimal.Decimal) string {
+	return rate.Shift(2).String()
+}
+
+// ValidateBudgetTotal requires the budgets of the Gasto and Ahorro categories to
+// add up to no more than the base monthly income (see General.BaseMonthlyIncome).
+// When the base is not available the rule does not apply.
+func ValidateBudgetTotal(cats []Category, g General) error {
+	base, ok := g.BaseMonthlyIncome()
+	if !ok {
+		return nil
+	}
+	total := decimal.Zero
+	for _, c := range cats {
+		if c.Budget == nil || (c.Kind != ledger.KindExpense && c.Kind != ledger.KindSavings) {
+			continue
+		}
+		if ledger.CheckAmount(*c.Budget) != nil {
+			continue // ValidateCategories reports it
+		}
+		total = total.Add(*c.Budget)
+	}
+	if total.GreaterThan(base) {
+		return invalid("category budgets add up to %s, which is %s more than the base monthly income of %s", total.StringFixed(2), total.Sub(base).StringFixed(2), base.StringFixed(2))
 	}
 	return nil
 }

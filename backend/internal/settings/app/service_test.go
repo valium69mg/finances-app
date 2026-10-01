@@ -160,3 +160,33 @@ func TestImportEmptyAndInvalid(t *testing.T) {
 		t.Fatalf("empty config err = %v, want ErrInvalid", err)
 	}
 }
+
+func TestUpdateCategoriesRejectsBudgetsOverTheBase(t *testing.T) {
+	cfg := settingstest.RealConfig() // base 62,090
+	repo := &fakeRepo{cfg: cfg}
+	cats := append([]domain.Category{}, cfg.Categories...)
+	over := settingstest.D("60000")
+	for i := range cats {
+		if cats[i].Name == "Vivienda" {
+			cats[i].Budget = &over
+		}
+	}
+	if err := app.NewService(repo).UpdateCategories(context.Background(), cats); !errors.Is(err, domain.ErrInvalid) {
+		t.Fatalf("err = %v, want ErrInvalid", err)
+	}
+	if len(repo.saved) != 0 {
+		t.Fatalf("repo was called: %v", repo.saved)
+	}
+}
+
+func TestUpdateCategoriesWithoutBaseSkipsTheBudgetRule(t *testing.T) {
+	cfg := settingstest.RealConfig()
+	zero := settingstest.D("0")
+	cfg.SalaryUSD = &zero
+	repo := &fakeRepo{cfg: cfg}
+	huge := settingstest.D("900000")
+	cats := []domain.Category{{Name: "A", Kind: "Gasto", Budget: &huge}}
+	if err := app.NewService(repo).UpdateCategories(context.Background(), cats); err != nil {
+		t.Fatalf("err = %v, want nil", err)
+	}
+}
