@@ -1,6 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 import { cycleOf, cycleRange } from "../src/pages/cycle";
 import { createBillsMock, type BillsFail, type MockBill } from "./billsMock";
+import { createExpenseRequestsMock, type ExpenseRequestsFail, type MockExpenseRequest } from "./expenseRequestsMock";
 import { createFutureExpensesMock, type FutureExpensesFail, type MockFutureExpense } from "./futureExpensesMock";
 import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
 import { createMonthCloseMock, type MockClose, type MonthCloseFail } from "./monthCloseMock";
@@ -8,6 +9,7 @@ import { createTaxFilingMock, previousMonthOf, type MockFiling, type TaxFilingFa
 import { OWNER_USER, createUsersMock, type MockUser, type UsersFail } from "./usersMock";
 
 export type { BillsFail, MockBill, MockOccurrence } from "./billsMock";
+export type { ExpenseRequestsFail, MockExpenseRequest } from "./expenseRequestsMock";
 export type { FutureExpensesFail, MockFutureExpense } from "./futureExpensesMock";
 export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
 export type { MockClose, MonthCloseFail } from "./monthCloseMock";
@@ -20,6 +22,7 @@ export const API_ORIGIN = "http://localhost:8080";
 
 export const MODULE_ROUTES = [
   "/",
+  "/peticiones",
   "/ingresos",
   "/gastos",
   "/ahorros",
@@ -201,7 +204,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void; role?: MockRole; users?: MockUser[]; usersFail?: UsersFail; denyAll?: boolean } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void; role?: MockRole; users?: MockUser[]; usersFail?: UsersFail; denyAll?: boolean; expenseRequests?: MockExpenseRequest[]; expenseRequestsFail?: ExpenseRequestsFail } = {},
 ) {
   const role: MockRole = opts.role ?? "owner";
   const usersMock = createUsersMock(opts.users ?? [], opts.usersFail, json);
@@ -267,6 +270,19 @@ export async function mockApi(
     settings: () => settings,
     json,
   });
+  const requestsMock = createExpenseRequestsMock(opts.expenseRequests ?? [], opts.expenseRequestsFail, {
+    role,
+    today: todayLocal,
+    settings: () => settings,
+    expenses: () => expenses,
+    recordExpense: (body) => {
+      const expense = buildExpense(nextExpenseId++, { payment_method: "Débito", ...body }, settings);
+      expenses.push(expense);
+      return { id: expense.id, amount_mxn: expense.amount_mxn };
+    },
+    recordFuture: (name, target, due) => futureMock.add(name, target, due),
+    json,
+  });
   const monthCloseMock = createMonthCloseMock(opts.closes ?? [], opts.monthCloseFail, {
     // A close is computed from the same in-memory movements as the dashboard.
     figures: (month) => {
@@ -287,7 +303,17 @@ export async function mockApi(
 
     // The backend denies the household role everything but its dashboard and its own session routes.
     // denyAll refuses every module route even for the owner: a session whose role changed on the server.
-    if (opts.denyAll ? !pathname.startsWith("/auth/") : role === "household" && !pathname.startsWith("/auth/") && !(pathname === "/dashboard" && request.method() === "GET")) {
+    // The expense request routes of the household role: create, list, cancel and the category names. The budget
+    // check, the approval and the rejection are owner-only.
+    const householdRequestRoute =
+      (pathname === "/expense-requests" && ["GET", "POST"].includes(request.method())) ||
+      (pathname === "/expense-requests/categories" && request.method() === "GET") ||
+      (/^\/expense-requests\/\d+\/cancel$/.test(pathname) && request.method() === "POST");
+    if (
+      opts.denyAll
+        ? !pathname.startsWith("/auth/")
+        : role === "household" && !pathname.startsWith("/auth/") && !(pathname === "/dashboard" && request.method() === "GET") && !householdRequestRoute
+    ) {
       return json(route, 403, { error: "forbidden" });
     }
     if (await usersMock.handle(route, request, pathname)) return;
@@ -295,6 +321,7 @@ export async function mockApi(
     if (await taxMock.handle(route, request, pathname, searchParams)) return;
     if (await billsMock.handle(route, request, pathname, searchParams)) return;
     if (await futureMock.handle(route, request, pathname)) return;
+    if (await requestsMock.handle(route, request, pathname, searchParams)) return;
     if (await monthCloseMock.handle(route, request, pathname, searchParams)) return;
 
     if (pathname === "/income/infer-category") {
@@ -505,7 +532,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes };
+  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes, expenseRequests: requestsMock.requests, requestWrites: requestsMock.writes, budgetChecks: requestsMock.budgetChecks };
 }
 
 /** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */

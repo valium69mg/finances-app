@@ -227,5 +227,12 @@ export function createFutureExpensesMock(seed: MockFutureExpense[], initialFreeB
     return false;
   }
 
-  return { handle, dashboard, writes, freeBalance: () => money(freeCents) };
+  /** Adds an active item, as approving an expense request does. */
+  function add(name: string, targetAmount: string, dueDate: string): number {
+    const id = nextId++;
+    items.push({ id, name, targetCents: cents(targetAmount), due_date: dueDate, savedCents: 0, status: "active", paid_at: null, amountPaidCents: null, expense_movement_id: null });
+    return id;
+  }
+
+  return { handle, dashboard, add, writes, freeBalance: () => money(freeCents) };
 }
