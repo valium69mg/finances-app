@@ -42,6 +42,8 @@ export default defineConfig(({ command, mode }) => {
     plugins: [react(), cspPlugin(apiOrigin, command === "build")],
     test: {
       environment: "jsdom",
+      // Lets src/tokens.test.ts read index.css as text (by default vitest swaps CSS for an empty string).
+      css: { include: [/index\.css\?raw/] },
       setupFiles: ["./src/test-setup.ts"],
       exclude: ["**/node_modules/**", "e2e/**", "playwright-report/**", "test-results/**"],
     },

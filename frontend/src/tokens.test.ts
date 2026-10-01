@@ -1,9 +1,7 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import css from "./index.css?raw";
 
 type Rgb = [number, number, number];
-const css = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
 
 /** Token values of one theme block, e.g. the `:root {` block or the explicit dark one. */
 function tokensOf(blockStart: string): Record<string, Rgb> {
