@@ -14,6 +14,8 @@ export function describeRequestError(err: unknown): string {
         return `Los datos no son válidos: ${err.message}`;
       case "invalid_state":
         return "Esta petición ya fue resuelta o cancelada. Actualiza la lista para ver su estado.";
+      case "future_expense_paid":
+        return "No se puede volver a solicitada: ese gasto futuro ya se pagó y se convirtió en un gasto real. Primero deshaz ese pago en Gastos futuros.";
       case "rate_limited":
         return "Enviaste demasiadas peticiones seguidas. Espera un rato e intenta de nuevo.";
     }

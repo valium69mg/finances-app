@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, ClipboardList, Loader2, XCircle } from "lucide-react";
+import { CheckCircle2, ClipboardList, Loader2, Undo2, XCircle } from "lucide-react";
 import { expenseRequestsKeys, getRequestCategories, listExpenseRequests, REQUEST_STATUSES, type ApproveResult, type ExpenseRequest, type RequestStatus } from "../../api/expenseRequests";
 import { getSettings, settingsKeys } from "../../api/settings";
 import { EmptyNote } from "../../components/EmptyNote";
@@ -10,10 +10,11 @@ import { ApproveDialog } from "./ApproveDialog";
 import { describeRequestError } from "./errors";
 import { STATUS_META } from "./labels";
 import { RejectDialog } from "./RejectDialog";
+import { RevertDialog } from "./RevertDialog";
 import { RequestCard } from "./RequestCard";
 
 type Filter = RequestStatus | "";
-type Dialog = { kind: "approve"; request: ExpenseRequest } | { kind: "reject"; request: ExpenseRequest } | null;
+type Dialog = { kind: "approve" | "reject" | "revert"; request: ExpenseRequest } | null;
 
 const FILTERS: { value: Filter; label: string }[] = [
   ...REQUEST_STATUSES.map((s) => ({ value: s as Filter, label: `${STATUS_META[s].label}s` })),
@@ -119,6 +120,19 @@ export function OwnerView() {
                         Rechazar
                       </button>
                     </>
+                  ) : r.status === "aprobada" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotice(null);
+                        setDialog({ kind: "revert", request: r });
+                      }}
+                      aria-label={`Volver a solicitada la petición ${r.description}`}
+                      className={secondaryButton}
+                    >
+                      <Undo2 className="h-4 w-4" aria-hidden="true" />
+                      Volver a solicitada
+                    </button>
                   ) : undefined
                 }
               />
@@ -147,6 +161,17 @@ export function OwnerView() {
           onRejected={(r) => {
             setDialog(null);
             setNotice(`Rechazaste ${r.description}. Quien la pidió recibirá tu comentario.`);
+          }}
+        />
+      )}
+      {dialog?.kind === "revert" && (
+        <RevertDialog
+          key={dialog.request.id}
+          request={dialog.request}
+          onClose={() => setDialog(null)}
+          onReverted={(r) => {
+            setDialog(null);
+            setNotice(`${r.description} volvió a solicitada: la aprobación se deshizo.`);
           }}
         />
       )}

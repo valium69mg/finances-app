@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
-import { MessageSquareText } from "lucide-react";
+import { MessageSquareText, Undo2 } from "lucide-react";
 import type { ExpenseRequest } from "../../api/expenseRequests";
 import { formatMoney } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
-import { resultText, StateBadge } from "./labels";
+import { resultText, revertHistory, StateBadge } from "./labels";
 
 interface Props {
   request: ExpenseRequest;
@@ -47,6 +47,12 @@ export function RequestCard({ request: r, showRequester = false, actions }: Prop
         </p>
       )}
       {result && <p className="text-sm">{result}</p>}
+      {r.status === "solicitada" && r.revert_count > 0 && (
+        <p data-testid="revert-history" className="flex items-start gap-2 text-sm text-muted">
+          <Undo2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words">{revertHistory(r.revert_count)}</span>
+        </p>
+      )}
       {actions && <div className="flex flex-wrap gap-3">{actions}</div>}
     </li>
   );

@@ -19,6 +19,7 @@ const api = vi.hoisted(() => ({
   getBudgetCheck: vi.fn(),
   approveExpenseRequest: vi.fn(),
   rejectExpenseRequest: vi.fn(),
+  revertExpenseRequest: vi.fn(),
 }));
 const settingsApi = vi.hoisted(() => ({ getSettings: vi.fn() }));
 vi.mock("../../api/expenseRequests", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api/expenseRequests")>()), ...api }));
@@ -92,6 +93,7 @@ describe("describeRequestError", () => {
   it("maps the module codes to Spanish copy", () => {
     expect(describeRequestError(new ApiError(409, "invalid_state"))).toContain("ya fue resuelta");
     expect(describeRequestError(new ApiError(429, "rate_limited"))).toContain("demasiadas");
+    expect(describeRequestError(new ApiError(409, "future_expense_paid"))).toContain("ya se pagó");
     expect(describeRequestError(new ApiError(400, "invalid_expense_request", "amount must be greater than zero"))).toBe("Los datos no son válidos: amount must be greater than zero");
     expect(describeRequestError(new ApiError(404, "not_found"))).toContain("ya no existe");
     expect(describeRequestError(new ApiError(403, "forbidden"))).toContain("no tiene permiso");
@@ -111,7 +113,7 @@ describe("household view", () => {
     expect(cards[3]).toHaveTextContent("Se movió a gastos futuros.");
     // Cancelar only on the pending one; nothing owner-only on the page.
     expect(screen.getAllByRole("button", { name: /^Cancelar la petición/ })).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: /Aprobar|Rechazar/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Aprobar|Rechazar|Volver a solicitada/ })).toBeNull();
     expect(api.listExpenseRequests).toHaveBeenCalledWith();
     expect(settingsApi.getSettings).not.toHaveBeenCalled();
   });
@@ -306,5 +308,69 @@ describe("owner view", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Rechazar petición" }));
     await waitFor(() => expect(api.rejectExpenseRequest).toHaveBeenCalledWith(1, "No este mes"));
     expect(await screen.findByText(/Rechazaste Tacos/)).toBeInTheDocument();
+  });
+});
+
+describe("reverting an approval (owner)", () => {
+  async function openRevert(name: string) {
+    fireEvent.click(await screen.findByRole("button", { name: `Volver a solicitada la petición ${name}` }));
+    return screen.findByRole("dialog", { name: "Volver a solicitada" });
+  }
+
+  it("offers the action only on approved requests", async () => {
+    api.listExpenseRequests.mockResolvedValue([PENDING, REJECTED, APPROVED_EXPENSE, CANCELLED]);
+    renderPage("owner");
+    await screen.findAllByTestId("request-card");
+    expect(screen.getAllByRole("button", { name: /^Volver a solicitada la petición/ })).toHaveLength(1);
+  });
+
+  it("says exactly what a Gasto approval will undo and reverts it", async () => {
+    api.listExpenseRequests.mockResolvedValue([APPROVED_EXPENSE]);
+    api.revertExpenseRequest.mockResolvedValue({ ...PENDING, id: 3, description: "Gasolina", revert_count: 1, reverted_at: "2026-10-05T12:00:00Z" });
+    renderPage("owner");
+    const dialog = await openRevert("Gasolina");
+    expect(dialog).toHaveTextContent("Se eliminará el gasto registrado de $250.50.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Volver a solicitada" }));
+    await waitFor(() => expect(api.revertExpenseRequest).toHaveBeenCalledWith(3));
+    expect(await screen.findByText(/Gasolina volvió a solicitada/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("says that the savings of a future expense go back to the free balance", async () => {
+    api.listExpenseRequests.mockResolvedValue([APPROVED_FUTURE]);
+    renderPage("owner");
+    const dialog = await openRevert("Regalo");
+    expect(dialog).toHaveTextContent("Se eliminará el gasto futuro «Regalo»; su ahorro asignado vuelve al saldo libre.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(api.revertExpenseRequest).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dialog open with a clear message on 409 and 403", async () => {
+    api.listExpenseRequests.mockResolvedValue([APPROVED_FUTURE]);
+    renderPage("owner");
+    const dialog = await openRevert("Regalo");
+
+    api.revertExpenseRequest.mockRejectedValueOnce(new ApiError(409, "future_expense_paid"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Volver a solicitada" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("ya se pagó");
+
+    api.revertExpenseRequest.mockRejectedValueOnce(new ApiError(409, "invalid_state"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Volver a solicitada" }));
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent("ya no está aprobada"));
+
+    api.revertExpenseRequest.mockRejectedValueOnce(new ApiError(403, "forbidden"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Volver a solicitada" }));
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toHaveTextContent("no tiene permiso"));
+    expect(screen.getByRole("button", { name: "Volver a solicitada la petición Regalo" })).toBeInTheDocument();
+  });
+
+  it("shows the revert history on a pending request, for the owner and the requester", async () => {
+    api.listExpenseRequests.mockResolvedValue([{ ...PENDING, revert_count: 2, reverted_at: "2026-10-05T12:00:00Z" }, PENDING]);
+    renderPage("household");
+    const cards = await screen.findAllByTestId("request-card");
+    expect(within(cards[0]).getByTestId("revert-history")).toHaveTextContent("la aprobación se deshizo 2 veces");
+    expect(within(cards[1]).queryByTestId("revert-history")).toBeNull();
+    expect(within(cards[0]).getByTestId("request-state")).toHaveTextContent("Solicitada");
   });
 });

@@ -32,3 +32,8 @@ export function resultText(r: ExpenseRequest): string | null {
   if (r.status !== "aprobada") return null;
   return r.result_kind === "gasto_futuro" ? "Se movió a gastos futuros." : "Se registró como gasto.";
 }
+
+/** Audit line of a request the owner reverted back to solicitada. */
+export function revertHistory(count: number): string {
+  return count === 1 ? "Revertida: la aprobación se deshizo una vez." : `Revertida: la aprobación se deshizo ${count} veces.`;
+}

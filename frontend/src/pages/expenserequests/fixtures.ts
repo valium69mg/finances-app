@@ -15,6 +15,8 @@ export const PENDING: ExpenseRequest = {
   result_movement_id: null,
   result_future_expense_id: null,
   created_at: "2026-10-03T12:00:00Z",
+  revert_count: 0,
+  reverted_at: null,
 };
 
 export const REJECTED: ExpenseRequest = {

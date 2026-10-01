@@ -32,6 +32,10 @@ export interface ExpenseRequest {
   /** The future expense, null when not moved there or deleted later. */
   result_future_expense_id: number | null;
   created_at: string;
+  /** Audit trail: how many times the owner reverted an approval back to solicitada (0 when never). */
+  revert_count: number;
+  /** When it was last reverted, null when never. */
+  reverted_at: string | null;
 }
 
 /** Body of POST /expense-requests. */
@@ -105,6 +109,8 @@ export function createExpenseRequestsApi(client: Client = api) {
       return client.request<BudgetCheck>(`/expense-requests/${id}/budget-check?${query.toString()}`);
     },
     approve: (id: number, input: ApproveInput) => client.request<ApproveResult>(`/expense-requests/${id}/approve`, { method: "POST", body: input }),
+    /** Owner only: undoes an approval (deletes the Gasto or the active future expense) and returns the refreshed request. */
+    revert: (id: number) => client.request<ExpenseRequest>(`/expense-requests/${id}/revert`, { method: "POST" }),
     reject: (id: number, comment: string) => client.request<ExpenseRequest>(`/expense-requests/${id}/reject`, { method: "POST", body: { comment } }),
   };
 }
@@ -118,3 +124,4 @@ export const cancelExpenseRequest = defaultApi.cancel;
 export const getBudgetCheck = defaultApi.budgetCheck;
 export const approveExpenseRequest = defaultApi.approve;
 export const rejectExpenseRequest = defaultApi.reject;
+export const revertExpenseRequest = defaultApi.revert;
