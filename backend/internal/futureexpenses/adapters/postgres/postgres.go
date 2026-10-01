@@ -73,17 +73,31 @@ func scan(row pgx.Row) (domain.FutureExpense, error) {
 	return it, nil
 }
 
-// Create stores an active item.
-func (r *Repo) Create(ctx context.Context, v domain.Validated) (domain.FutureExpense, error) {
+// RowQuerier is the QueryRow half of a pool or a transaction.
+type RowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// Insert stores an active item through a pool or an open transaction and
+// returns its id. Modules that must create an item atomically with their own
+// rows (expense request approval) call it inside their transaction so the
+// insert SQL stays in one place.
+func Insert(ctx context.Context, q RowQuerier, v domain.Validated) (int, error) {
 	var id int64
-	err := r.pool.QueryRow(ctx, `
+	err := q.QueryRow(ctx, `
 		INSERT INTO future_expenses (name, target_amount, due_date)
 		VALUES ($1, $2::text::numeric, $3::date) RETURNING id`,
 		v.Name, v.Target.String(), v.DueDate).Scan(&id)
+	return int(id), err
+}
+
+// Create stores an active item.
+func (r *Repo) Create(ctx context.Context, v domain.Validated) (domain.FutureExpense, error) {
+	id, err := Insert(ctx, r.pool, v)
 	if err != nil {
 		return domain.FutureExpense{}, err
 	}
-	return r.Get(ctx, int(id))
+	return r.Get(ctx, id)
 }
 
 // Get returns the item with its saved amount.
