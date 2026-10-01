@@ -1,5 +1,7 @@
+import { Gauge } from "lucide-react";
 import { useId } from "react";
 import type { Dashboard } from "../../api/dashboard";
+import { CardTitle } from "../../components/CardTitle";
 import { formatMoney, percentOf } from "../expenses/money";
 
 /** Cents of a plain decimal string, or null when it is not one. Integer math only. */
@@ -42,10 +44,10 @@ export function CycleProgress({ dashboard }: { dashboard: Pick<Dashboard, "cycle
 
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
-      <h3 id={titleId} className="font-semibold">
+      <CardTitle id={titleId} icon={Gauge}>
         Progreso del ciclo
-      </h3>
-      <p className="mt-1 text-sm tabular-nums">{dayText}</p>
+      </CardTitle>
+      <p className="mt-3 text-sm tabular-nums">{dayText}</p>
       <div
         role="progressbar"
         aria-label="Avance del ciclo"
@@ -54,7 +56,7 @@ export function CycleProgress({ dashboard }: { dashboard: Pick<Dashboard, "cycle
         aria-valuenow={Math.round(timePct)}
         className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border"
       >
-        <div className="h-full rounded-full bg-accent" style={{ width: `${timePct}%` }} />
+        <div className="h-full rounded-full bg-primary" style={{ width: `${timePct}%` }} />
       </div>
       {budgetCents > 0n ? (
         <>
@@ -69,7 +71,7 @@ export function CycleProgress({ dashboard }: { dashboard: Pick<Dashboard, "cycle
             aria-valuenow={Math.round(spentPct)}
             className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border"
           >
-            <div className={`h-full rounded-full ${pace === "above" ? "bg-destructive" : "bg-accent"}`} style={{ width: `${spentPct}%` }} />
+            <div className={`h-full rounded-full ${pace === "above" ? "bg-destructive" : "bg-expense"}`} style={{ width: `${spentPct}%` }} />
           </div>
           {pace && (
             <p className={`mt-2 text-sm ${pace === "above" ? "font-medium text-destructive" : "text-muted"}`}>

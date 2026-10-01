@@ -1,6 +1,9 @@
 import { useId } from "react";
+import { CalendarClock } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { UpcomingBill } from "../../api/dashboard";
+import { CardTitle } from "../../components/CardTitle";
+import { EmptyNote } from "../../components/EmptyNote";
 import { formatMoney } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
 
@@ -19,11 +22,11 @@ export function UpcomingBills({ bills }: { bills: UpcomingBill[] }) {
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
-      <h3 id={titleId} className="font-semibold">
+      <CardTitle id={titleId} icon={CalendarClock} tone="expense">
         Próximas cuentas
-      </h3>
+      </CardTitle>
       {bills.length === 0 ? (
-        <p className="mt-1 text-sm text-muted">No tienes cuentas por vencer en los próximos 14 días.</p>
+        <EmptyNote icon={CalendarClock}>No tienes cuentas por vencer en los próximos 14 días.</EmptyNote>
       ) : (
         <ul className="mt-2 divide-y divide-border">
           {bills.map((b) => (

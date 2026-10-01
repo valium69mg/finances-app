@@ -1,17 +1,21 @@
 import { useId } from "react";
+import { Coins } from "lucide-react";
 import type { MovementKind, RecentMovement } from "../../api/dashboard";
+import { CardTitle } from "../../components/CardTitle";
+import { EmptyNote } from "../../components/EmptyNote";
+import { KIND, TONES } from "../../lib/tones";
 import { formatMoney } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
 
-const KIND_STYLE: Record<MovementKind, string> = {
-  Ingreso: "border-accent/60 bg-accent/15 text-foreground",
-  Gasto: "border-destructive/40 bg-destructive/10 text-destructive",
-  Ahorro: "border-border bg-border/40 text-foreground",
-};
-
-/** The kind is always written out; the tint only reinforces it. */
+/** Icon, color and the kind written out: the color never carries the meaning alone. */
 function KindBadge({ kind }: { kind: MovementKind }) {
-  return <span className={`inline-block shrink-0 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${KIND_STYLE[kind]}`}>{kind}</span>;
+  const { icon: Icon, tone } = KIND[kind];
+  return (
+    <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${TONES[tone].chip}`}>
+      <Icon className="h-4 w-4" aria-hidden="true" />
+      {kind}
+    </span>
+  );
 }
 
 /** One mixed list of the latest movements across Ingreso, Gasto and Ahorro. */
@@ -19,11 +23,11 @@ export function RecentMovements({ movements }: { movements: RecentMovement[] }) 
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
-      <h3 id={titleId} className="font-semibold">
+      <CardTitle id={titleId} icon={Coins}>
         Últimos movimientos
-      </h3>
+      </CardTitle>
       {movements.length === 0 ? (
-        <p className="mt-1 text-sm text-muted">Aún no hay movimientos registrados.</p>
+        <EmptyNote icon={Coins}>Aún no hay movimientos registrados.</EmptyNote>
       ) : (
         <ul className="mt-2 divide-y divide-border">
           {movements.map((m) => (

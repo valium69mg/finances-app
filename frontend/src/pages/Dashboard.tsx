@@ -1,9 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Coins, Loader2, Wallet } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dashboardKeys, getDashboard, type Dashboard as DashboardData } from "../api/dashboard";
 import { ApiError } from "../api/client";
 import { TextField } from "../components/AuthCard";
+import { EmptyNote } from "../components/EmptyNote";
+import { IconChip } from "../components/IconChip";
+import { PageTitle } from "../components/PageTitle";
 import { BudgetTable } from "./dashboard/BudgetTable";
 import { CycleProgress } from "./dashboard/CycleProgress";
 import { FutureExpensesCard } from "./dashboard/FutureExpensesCard";
@@ -12,6 +15,7 @@ import { UpcomingBills } from "./dashboard/UpcomingBills";
 import { TaxCard } from "./dashboard/TaxCard";
 import { TotalsCards } from "./dashboard/TotalsCards";
 import { describeDashboardError } from "./dashboard/errors";
+import { moduleIcon } from "../modules";
 import { rangeText } from "./cycle";
 import { useCyclePeriod } from "./useCycle";
 import { EmergencyCard } from "./savings/PortfolioPanel";
@@ -30,7 +34,8 @@ function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
       )}
 
       <section aria-labelledby="totals-title">
-        <h2 id="totals-title" className="mb-3 text-lg font-semibold tracking-tight">
+        <h2 id="totals-title" className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight">
+          <IconChip icon={Coins} size="sm" />
           Resumen del mes
         </h2>
         <TotalsCards dashboard={dashboard} />
@@ -42,11 +47,12 @@ function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
       </div>
 
       <section aria-labelledby="budget-title">
-        <h2 id="budget-title" className="mb-3 text-lg font-semibold tracking-tight">
+        <h2 id="budget-title" className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight">
+          <IconChip icon={Wallet} tone="expense" size="sm" />
           Presupuesto por categoría
         </h2>
         {dashboard.categories.length === 0 ? (
-          <p className="text-sm text-muted">Aún no hay categorías de gasto. Agrégalas en Configuración para ver tu presupuesto.</p>
+          <EmptyNote icon={Wallet}>Aún no hay categorías de gasto. Agrégalas en Configuración para ver tu presupuesto.</EmptyNote>
         ) : (
           <BudgetTable categories={dashboard.categories} />
         )}
@@ -82,9 +88,7 @@ export function Dashboard() {
     <section aria-labelledby="page-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 id="page-title" className="text-2xl font-semibold tracking-tight">
-            Panel
-          </h1>
+          <PageTitle icon={moduleIcon("/")}>Panel</PageTitle>
           <p className="mt-1 text-sm text-muted">Tu resumen del mes: presupuesto contra gasto real, dinero disponible y ahorro.</p>
         </div>
         <div className="w-full min-w-0 max-w-full sm:w-56">

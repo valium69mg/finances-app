@@ -1,5 +1,8 @@
+import { Landmark } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { DashboardTax } from "../../api/dashboard";
+import { CardTitle } from "../../components/CardTitle";
+import { EmptyNote } from "../../components/EmptyNote";
 import { formatMoney, formatRatePercent } from "../expenses/money";
 import { FilingStatusBadge } from "../taxfiling/StatusBadge";
 import { periodLabel } from "../taxfiling/labels";
@@ -12,12 +15,12 @@ import { periodLabel } from "../taxfiling/labels";
 export function TaxCard({ tax }: { tax: DashboardTax | null }) {
   return (
     <section aria-labelledby="tax-title" className="rounded-lg border border-border p-4">
-      <h3 id="tax-title" className="font-semibold">
+      <CardTitle id="tax-title" icon={Landmark}>
         ISR RESICO estimado
-      </h3>
+      </CardTitle>
       {tax ? (
         <>
-          <dl className="mt-1 space-y-1 text-sm">
+          <dl className="mt-3 space-y-1 text-sm">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4">
               <dt className="text-muted">ISR del mes</dt>
               <dd className="font-medium tabular-nums">{formatMoney(tax.estimated_isr)}</dd>
@@ -43,9 +46,7 @@ export function TaxCard({ tax }: { tax: DashboardTax | null }) {
           )}
         </>
       ) : (
-        <p className="mt-1 text-sm text-muted">
-          Sin estimación. Completa los rangos de RESICO en Configuración para calcular tu ISR del mes.
-        </p>
+        <EmptyNote icon={Landmark}>Sin estimación. Completa los rangos de RESICO en Configuración para calcular tu ISR del mes.</EmptyNote>
       )}
     </section>
   );

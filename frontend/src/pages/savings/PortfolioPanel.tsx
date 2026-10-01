@@ -1,6 +1,8 @@
 import { useId } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { CardTitle } from "../../components/CardTitle";
+import { EmptyNote } from "../../components/EmptyNote";
 import { getPortfolio, savingsKeys, type EmergencyProgress, type Portfolio } from "../../api/savings";
 import { formatMoney, formatPercent, percentOf } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
@@ -129,12 +131,12 @@ export function EmergencyCard({ emergency }: { emergency: EmergencyProgress }) {
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
-      <h3 id={titleId} className="font-semibold">
+      <CardTitle id={titleId} icon={ShieldCheck} tone="saving">
         Fondo de emergencia
-      </h3>
+      </CardTitle>
       {hasGoal ? (
         <>
-          <p className="mt-1 text-sm tabular-nums">
+          <p className="mt-3 text-sm tabular-nums">
             {formatMoney(emergency.accumulated)} de {formatMoney(emergency.goal)} ({pct.toFixed(2)}%)
           </p>
           <div
@@ -145,14 +147,12 @@ export function EmergencyCard({ emergency }: { emergency: EmergencyProgress }) {
             aria-valuenow={Math.round(pct)}
             className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border"
           >
-            <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+            <div className="h-full rounded-full bg-saving" style={{ width: `${pct}%` }} />
           </div>
           {pct >= 100 && <p className="mt-2 text-sm font-medium">Meta alcanzada.</p>}
         </>
       ) : (
-        <p className="mt-1 text-sm text-muted">
-          Aún no hay una meta definida. Configura tus meses de fondo de emergencia y tus presupuestos en Configuración.
-        </p>
+        <EmptyNote icon={ShieldCheck}>Aún no hay una meta definida. Configura tus meses de fondo de emergencia y tus presupuestos en Configuración.</EmptyNote>
       )}
     </section>
   );

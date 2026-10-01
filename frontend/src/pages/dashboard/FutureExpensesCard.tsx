@@ -1,6 +1,9 @@
+import { Target } from "lucide-react";
 import { useId } from "react";
 import { Link } from "react-router-dom";
 import type { FutureExpenses } from "../../api/dashboard";
+import { CardTitle } from "../../components/CardTitle";
+import { EmptyNote } from "../../components/EmptyNote";
 import { formatMoney, percentOf } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
 
@@ -15,13 +18,13 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
-      <h3 id={titleId} className="font-semibold">
+      <CardTitle id={titleId} icon={Target} tone="saving">
         Gastos futuros
-      </h3>
+      </CardTitle>
       {future.items.length === 0 ? (
-        <p className="mt-1 text-sm text-muted">
+        <EmptyNote icon={Target}>
           Aún no hay gastos futuros. Regístralos en Configuración, con su monto y fecha de vencimiento, para planear cuánto apartar cada mes.
-        </p>
+        </EmptyNote>
       ) : (
         <>
           <ul className="mt-3 space-y-4">
@@ -41,7 +44,7 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
                     aria-valuenow={Math.round(pct)}
                     className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border"
                   >
-                    <div className="h-full rounded-full bg-accent" style={{ width: `${pct}%` }} />
+                    <div className="h-full rounded-full bg-saving" style={{ width: `${pct}%` }} />
                   </div>
                   <p className="mt-1 text-sm tabular-nums">
                     {formatMoney(f.saved)} de {formatMoney(f.target)} ({Math.round(pct)}%)

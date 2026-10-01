@@ -1,11 +1,20 @@
 import { AlertTriangle } from "lucide-react";
 import type { DashboardCategory } from "../../api/dashboard";
+import { IconChip } from "../../components/IconChip";
+import { categoryIcon } from "../../lib/categoryIcon";
 import { formatMoney, percentOf } from "../expenses/money";
 
 const th = "px-3 py-2 text-left text-sm font-medium text-muted";
 const thNum = "px-3 py-2 text-right text-sm font-medium text-muted";
 const td = "px-3 py-2 align-top";
 const tdNum = "px-3 py-2 text-right align-top tabular-nums";
+
+/** Fill of a usage bar: the Gasto color, red only once the budget is exceeded (the text flag says so as well). */
+const barColor = (row: DashboardCategory) => (row.over_budget ? "bg-destructive" : "bg-expense");
+
+function CategoryChip({ name }: { name: string }) {
+  return <IconChip icon={categoryIcon(name)} tone="expense" size="sm" />;
+}
 
 /** Width of the usage bar: full when over budget (a zero budget has no meaningful share). */
 function usage(row: DashboardCategory): number {
@@ -26,7 +35,7 @@ function UsageBar({ row }: { row: DashboardCategory }) {
         aria-valuenow={Math.round(pct)}
         className="h-2.5 min-w-16 flex-1 overflow-hidden rounded-full bg-border"
       >
-        <div className={`h-full rounded-full ${row.over_budget ? "bg-destructive" : "bg-accent"}`} style={{ width: `${pct}%` }} />
+        <div className={`h-full rounded-full ${barColor(row)}`} style={{ width: `${pct}%` }} />
       </div>
       <span className="w-14 shrink-0 text-right tabular-nums">{Math.round(pct)}%</span>
     </div>
@@ -46,7 +55,7 @@ function CardBar({ row }: { row: DashboardCategory }) {
       aria-valuenow={Math.round(pct)}
       className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-border"
     >
-      <div className={`h-full rounded-full ${row.over_budget ? "bg-destructive" : "bg-accent"}`} style={{ width: `${pct}%` }} />
+      <div className={`h-full rounded-full ${barColor(row)}`} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -57,8 +66,11 @@ function BudgetCards({ categories }: { categories: DashboardCategory[] }) {
     <ul aria-label="Presupuesto contra gasto real por categoría" className="space-y-3 md:hidden">
       {categories.map((c) => (
         <li key={c.category} data-testid="budget-card" className={`rounded-xl border p-3 ${c.over_budget ? "border-destructive/40 bg-destructive/5" : "border-border"}`}>
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="min-w-0 break-words font-medium">{c.category}</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="flex min-w-0 items-center gap-2">
+              <CategoryChip name={c.category} />
+              <span className="min-w-0 break-words font-medium">{c.category}</span>
+            </span>
             {c.budget !== null && <span className="shrink-0 text-sm tabular-nums">{Math.round(usage(c))}%</span>}
           </div>
           <CardBar row={c} />
@@ -120,9 +132,12 @@ function BudgetGrid({ categories }: { categories: DashboardCategory[] }) {
           {categories.map((c) => (
             <tr key={c.category} className={c.over_budget ? "bg-destructive/5" : undefined}>
               <th scope="row" className={`${td} text-left font-medium`}>
-                <span className="break-words">{c.category}</span>
+                <span className="flex items-center gap-2">
+                  <CategoryChip name={c.category} />
+                  <span className="min-w-0 break-words">{c.category}</span>
+                </span>
                 {c.over_budget && (
-                  <span className="mt-0.5 flex items-center gap-1 text-xs font-medium text-destructive">
+                  <span className="mt-1 flex items-center gap-1 text-xs font-medium text-destructive">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                     Presupuesto excedido
                   </span>

@@ -40,3 +40,6 @@ export const modules: ModuleTab[] = [
   { path: "/sistema", label: "Sistema", icon: Activity, description: "Aquí verás el uso actual del servidor: procesador, memoria y disco." },
   { path: "/configuracion", label: "Configuración", icon: Settings, description: "Aquí ajustarás las preferencias de tu cuenta." },
 ];
+
+/** Navigation icon of a module, reused by its page header. */
+export const moduleIcon = (path: string): LucideIcon => modules.find((m) => m.path === path)?.icon ?? LayoutDashboard;
