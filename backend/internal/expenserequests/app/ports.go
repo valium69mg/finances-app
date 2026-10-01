@@ -57,6 +57,13 @@ type Repo interface {
 	// and sets status aprobada with the decision and the link to the created
 	// row. Any error rolls everything back.
 	Approve(ctx context.Context, id int, decidedBy string, a Approval) (domain.Request, error)
+	// Revert is one transaction: it locks the request, returns
+	// domain.ErrNotFound or domain.ErrInvalidState when it is not aprobada,
+	// deletes the Gasto or the active future expense the approval created (a
+	// link whose row is already gone is skipped), returns
+	// domain.ErrFutureExpensePaid when the item is paid, and resets the request
+	// to solicitada counting the revert. Any error rolls everything back.
+	Revert(ctx context.Context, id int) (domain.Request, error)
 	// OwnerEmails returns the email of every active owner.
 	OwnerEmails(ctx context.Context) ([]string, error)
 }

@@ -74,3 +74,14 @@ func (s *Service) notifyRequester(ctx context.Context, r domain.Request) {
 	lines = append(lines, "Ver tus peticiones: "+s.link())
 	s.send(ctx, "notify requester", r.RequesterEmail, subject, lines)
 }
+
+// notifyReverted tells the requester that the approval was undone and the
+// request is pending again.
+func (s *Service) notifyReverted(ctx context.Context, r domain.Request) {
+	lines := []string{
+		fmt.Sprintf("Tu petición de %s (%s) volvió a solicitada.", money(r), r.Description),
+		"Se deshizo la aprobación anterior; el titular la revisará de nuevo.",
+		"Ver tus peticiones: " + s.link(),
+	}
+	s.send(ctx, "notify reverted", r.RequesterEmail, "Tu petición de gasto volvió a solicitada", lines)
+}

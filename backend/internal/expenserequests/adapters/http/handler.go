@@ -1,8 +1,8 @@
 // Package expenserequestshttp exposes the expense requests over HTTP. Every
 // route sits behind the authentication middleware passed to Register. The
 // create, list, cancel and categories routes are on the household allowlist
-// (internal/auth/adapters/http); the budget check, approve and reject routes
-// are owner-only by default deny, and the service checks the role again.
+// (internal/auth/adapters/http); the budget check, approve, reject and revert
+// routes are owner-only by default deny, and the service checks the role again.
 // Money travels as decimal strings, dates as YYYY-MM-DD.
 package expenserequestshttp
 
@@ -35,6 +35,7 @@ type Service interface {
 	BudgetCheck(ctx context.Context, actor session.Identity, id int, category, date string) (domain.BudgetCheck, error)
 	Approve(ctx context.Context, actor session.Identity, id int, in app.ApproveInput) (app.ApproveResult, error)
 	Reject(ctx context.Context, actor session.Identity, id int, comment string) (domain.Request, error)
+	Revert(ctx context.Context, actor session.Identity, id int) (domain.Request, error)
 }
 
 // Handler serves the /expense-requests routes.
@@ -63,6 +64,7 @@ func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) htt
 	route("GET /expense-requests/{id}/budget-check", h.budgetCheck)
 	route("POST /expense-requests/{id}/approve", h.approve)
 	route("POST /expense-requests/{id}/reject", h.reject)
+	route("POST /expense-requests/{id}/revert", h.revert)
 }
 
 // --- DTOs ---------------------------------------------------------------
@@ -107,6 +109,8 @@ type requestDTO struct {
 	ResultMovementID      *int            `json:"result_movement_id"`
 	ResultFutureExpenseID *int            `json:"result_future_expense_id"`
 	CreatedAt             time.Time       `json:"created_at"`
+	RevertCount           int             `json:"revert_count"`
+	RevertedAt            *time.Time      `json:"reverted_at"`
 }
 
 func optional(s string) *string {
@@ -122,6 +126,7 @@ func toDTO(r domain.Request) requestDTO {
 		SuggestedCategory: optional(r.SuggestedCategory), ExpenseDate: r.ExpenseDate, Status: r.Status,
 		DecisionComment: optional(r.DecisionComment), DecidedAt: r.DecidedAt, ResultKind: optional(string(r.ResultKind)),
 		ResultMovementID: r.ResultMovementID, ResultFutureExpenseID: r.ResultFutureExpenseID, CreatedAt: r.CreatedAt,
+		RevertCount: r.RevertCount, RevertedAt: r.RevertedAt,
 	}
 }
 
@@ -297,6 +302,19 @@ func (h *Handler) reject(w http.ResponseWriter, r *http.Request) {
 	httpjson.WriteJSON(w, http.StatusOK, toDTO(got))
 }
 
+func (h *Handler) revert(w http.ResponseWriter, r *http.Request) {
+	id, ok := httpjson.PathID(w, r)
+	if !ok {
+		return
+	}
+	got, err := h.svc.Revert(r.Context(), actor(r), id)
+	if err != nil {
+		h.fail(w, "revert", err)
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, toDTO(got))
+}
+
 // fail maps the use case errors to the JSON envelope; every unmapped error is
 // logged and answered with a generic internal_error.
 func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
@@ -316,6 +334,8 @@ func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 		httpjson.WriteError(w, http.StatusNotFound, "not_found")
 	case errors.Is(err, domain.ErrInvalidState):
 		httpjson.WriteError(w, http.StatusConflict, "invalid_state")
+	case errors.Is(err, domain.ErrFutureExpensePaid):
+		reply(http.StatusConflict, "future_expense_paid")
 	case errors.Is(err, domain.ErrRateLimited):
 		w.Header().Set("Retry-After", "3600")
 		httpjson.WriteError(w, http.StatusTooManyRequests, "rate_limited")

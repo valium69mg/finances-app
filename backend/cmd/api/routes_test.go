@@ -203,8 +203,8 @@ func TestHouseholdAllowlistIsExactlyTheDecidedOne(t *testing.T) {
 }
 
 // The expense request routes are split by role: household may create, list,
-// cancel and read the Gasto category names; the budget check, the approval and
-// the rejection are owner-only (default denied, not on the allowlist).
+// cancel and read the Gasto category names; the budget check, the approval, the
+// rejection and the revert are owner-only (default denied, not on the allowlist).
 func TestExpenseRequestRoutesSplitByRole(t *testing.T) {
 	router := mountAllRoutes(t)
 	householdRoutes := []string{
@@ -212,6 +212,7 @@ func TestExpenseRequestRoutesSplitByRole(t *testing.T) {
 	}
 	ownerOnly := []string{
 		"GET /expense-requests/{id}/budget-check", "POST /expense-requests/{id}/approve", "POST /expense-requests/{id}/reject",
+		"POST /expense-requests/{id}/revert",
 	}
 	for _, pattern := range append(slices.Clone(householdRoutes), ownerOnly...) {
 		if !slices.Contains(router.patterns, pattern) {

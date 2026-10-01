@@ -25,6 +25,10 @@ var (
 	ErrInvalidState = errors.New("the request is not pending")
 	// ErrForbidden is returned when the caller may not do the action (403).
 	ErrForbidden = errors.New("forbidden")
+	// ErrFutureExpensePaid is returned when a revert finds the future expense of
+	// the approval already paid: it became a real expense, so the owner has to
+	// undo that payment first (409).
+	ErrFutureExpensePaid = errors.New("the future expense is already paid")
 	// ErrRateLimited is returned when a user creates too many requests (429).
 	ErrRateLimited = errors.New("too many requests")
 )
@@ -92,6 +96,10 @@ type Request struct {
 	ResultFutureExpenseID *int
 	CreatedAt             time.Time
 	UpdatedAt             time.Time
+	// RevertCount and RevertedAt are the audit trail of the owner reverting an
+	// approval back to solicitada (zero and nil when it never happened).
+	RevertCount int
+	RevertedAt  *time.Time
 }
 
 // Input is the raw data of a new request.

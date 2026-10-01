@@ -18,7 +18,9 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/expenserequests/app"
 	"github.com/valium69mg/finances-app/backend/internal/expenserequests/domain"
 	futureexpensespg "github.com/valium69mg/finances-app/backend/internal/futureexpenses/adapters/postgres"
+	futuredomain "github.com/valium69mg/finances-app/backend/internal/futureexpenses/domain"
 	ledgerpg "github.com/valium69mg/finances-app/backend/internal/ledger/adapters/postgres"
+	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
@@ -30,7 +32,7 @@ func NewRepo(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
 
 const columns = `r.id, r.requester_id::text, u.email, r.amount::text, r.description, r.suggested_category,
 	r.expense_date::text, r.status, r.decision_comment, r.decided_by::text, r.decided_at, r.result_kind,
-	r.result_movement_id, r.result_future_expense_id, r.created_at, r.updated_at`
+	r.result_movement_id, r.result_future_expense_id, r.created_at, r.updated_at, r.revert_count, r.reverted_at`
 
 const from = ` FROM expense_requests r JOIN users u ON u.id = r.requester_id`
 
@@ -44,12 +46,15 @@ func scan(row pgx.Row) (domain.Request, error) {
 		decidedAt            *time.Time
 		movementID, futureID *int64
 		createdAt, updatedAt time.Time
+		revertCount          int
+		revertedAt           *time.Time
 	)
 	if err := row.Scan(&id, &r.RequesterID, &r.RequesterEmail, &amount, &r.Description, &category, &r.ExpenseDate,
-		&status, &comment, &decidedBy, &decidedAt, &kind, &movementID, &futureID, &createdAt, &updatedAt); err != nil {
+		&status, &comment, &decidedBy, &decidedAt, &kind, &movementID, &futureID, &createdAt, &updatedAt, &revertCount, &revertedAt); err != nil {
 		return domain.Request{}, err
 	}
 	r.ID, r.Status, r.DecidedAt, r.CreatedAt, r.UpdatedAt = int(id), domain.Status(status), decidedAt, createdAt, updatedAt
+	r.RevertCount, r.RevertedAt = revertCount, revertedAt
 	var err error
 	if r.Amount, err = decimal.NewFromString(amount); err != nil {
 		return domain.Request{}, fmt.Errorf("parse amount: %w", err)
@@ -236,6 +241,76 @@ func (r *Repo) Approve(ctx context.Context, id int, decidedBy string, a app.Appr
 		    result_movement_id = $4, result_future_expense_id = $5, updated_at = now()
 		WHERE id = $1`,
 		int64(id), decidedBy, string(a.Destination), movementID, futureID); err != nil {
+		return domain.Request{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return domain.Request{}, err
+	}
+	return r.Get(ctx, id)
+}
+
+// Revert is one transaction, locked like Approve: the request row FOR UPDATE
+// (a concurrent revert, approve, cancel or reject waits and then finds the new
+// state), then the undo, then the reset. A Gasto approval deletes the linked
+// movement through the shared ledger delete; a future expense approval deletes
+// the active item (its savings are unlinked by the foreign key, never deleted)
+// and is refused when the item is already paid. A row deleted by hand is not an
+// error: the revert is idempotent over the missing link. The audit columns
+// count the revert.
+func (r *Repo) Revert(ctx context.Context, id int) (domain.Request, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return domain.Request{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var (
+		status               string
+		kind                 *string
+		movementID, futureID *int64
+	)
+	if err := tx.QueryRow(ctx, `
+		SELECT status, result_kind, result_movement_id, result_future_expense_id
+		FROM expense_requests WHERE id = $1 FOR UPDATE`, int64(id)).Scan(&status, &kind, &movementID, &futureID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return domain.Request{}, domain.ErrNotFound
+		}
+		return domain.Request{}, err
+	}
+	if domain.Status(status) != domain.StatusApproved {
+		return domain.Request{}, domain.ErrInvalidState
+	}
+
+	switch {
+	case kind != nil && domain.Destination(*kind) == domain.DestinationExpense && movementID != nil:
+		if _, err := ledgerpg.DeleteOfKind(ctx, tx, int(*movementID), ledger.KindExpense); err != nil {
+			return domain.Request{}, fmt.Errorf("delete the expense: %w", err)
+		}
+	case kind != nil && domain.Destination(*kind) == domain.DestinationFuture && futureID != nil:
+		// Lock the item: a concurrent payment (which locks it too) either
+		// finishes first, and we see it paid, or waits and finds it deleted.
+		var itemStatus string
+		err := tx.QueryRow(ctx, `SELECT status FROM future_expenses WHERE id = $1 FOR UPDATE`, *futureID).Scan(&itemStatus)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			// Already deleted by hand: nothing to undo.
+		case err != nil:
+			return domain.Request{}, err
+		case futuredomain.Status(itemStatus) == futuredomain.StatusPaid:
+			return domain.Request{}, domain.ErrFutureExpensePaid
+		default:
+			if _, err := futureexpensespg.DeleteByID(ctx, tx, int(*futureID)); err != nil {
+				return domain.Request{}, fmt.Errorf("delete the future expense: %w", err)
+			}
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE expense_requests
+		SET status = 'solicitada', decided_by = NULL, decided_at = NULL, decision_comment = NULL, result_kind = NULL,
+		    result_movement_id = NULL, result_future_expense_id = NULL,
+		    revert_count = revert_count + 1, reverted_at = now(), updated_at = now()
+		WHERE id = $1`, int64(id)); err != nil {
 		return domain.Request{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

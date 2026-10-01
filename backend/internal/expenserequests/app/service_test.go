@@ -39,6 +39,8 @@ type fakeRepo struct {
 	lastList app.ListFilter
 	approval app.Approval
 	owners   []string
+	// revertErr makes the next Revert of an approved request fail.
+	revertErr error
 }
 
 func newFakeRepo() *fakeRepo {
@@ -110,6 +112,20 @@ func (f *fakeRepo) Approve(_ context.Context, id int, by string, a app.Approval)
 		}
 		f.approval = a
 		r.Status, r.DecidedBy, r.ResultKind = domain.StatusApproved, by, a.Destination
+		return nil
+	})
+}
+func (f *fakeRepo) Revert(_ context.Context, id int) (domain.Request, error) {
+	return f.decide(id, func(r *domain.Request) error {
+		if r.Status != domain.StatusApproved {
+			return domain.ErrInvalidState
+		}
+		if f.revertErr != nil {
+			return f.revertErr
+		}
+		now := time.Now()
+		r.Status, r.DecidedBy, r.ResultKind = domain.StatusPending, "", ""
+		r.RevertCount, r.RevertedAt = r.RevertCount+1, &now
 		return nil
 	})
 }
@@ -570,5 +586,83 @@ func TestEmailsEscapeUserText(t *testing.T) {
 	}
 	if h := e.mailer.sent[0].html; strings.Contains(h, "<script>") || !strings.Contains(h, "&lt;script&gt;") {
 		t.Errorf("html body is not escaped: %s", h)
+	}
+}
+
+func TestRevertIsOwnerOnlyAndOnlyForApprovedRequests(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	r := e.request(t, "300")
+	if _, err := e.svc.Revert(ctx, owner, r.ID); !errors.Is(err, domain.ErrInvalidState) {
+		t.Errorf("revert of a pending request = %v, want ErrInvalidState", err)
+	}
+	if _, err := e.svc.Approve(ctx, owner, r.ID, app.ApproveInput{Destination: domain.DestinationExpense, Category: "Mandado"}); err != nil {
+		t.Fatal(err)
+	}
+	e.mailer.sent = nil
+	for _, who := range []session.Identity{spouse, otherHome, {}} {
+		if _, err := e.svc.Revert(ctx, who, r.ID); !errors.Is(err, domain.ErrForbidden) {
+			t.Errorf("revert as %+v = %v, want ErrForbidden", who, err)
+		}
+	}
+	if len(e.mailer.sent) != 0 {
+		t.Errorf("a refused revert sent %d emails", len(e.mailer.sent))
+	}
+	got, err := e.svc.Revert(ctx, owner, r.ID)
+	if err != nil || got.Status != domain.StatusPending || got.RevertCount != 1 || got.RevertedAt == nil || got.ResultKind != "" {
+		t.Fatalf("Revert = %+v, %v", got, err)
+	}
+	if _, err := e.svc.Revert(ctx, owner, r.ID); !errors.Is(err, domain.ErrInvalidState) {
+		t.Errorf("second revert = %v, want ErrInvalidState", err)
+	}
+	if _, err := e.svc.Revert(ctx, owner, 999); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("revert unknown = %v", err)
+	}
+	// It is a normal pending request again: it can be approved once more.
+	if _, err := e.svc.Approve(ctx, owner, r.ID, app.ApproveInput{Destination: domain.DestinationFuture, DueDate: "2026-12-20"}); err != nil {
+		t.Errorf("approve after revert = %v", err)
+	}
+}
+
+func TestRevertTellsTheRequesterButNeverFailsOnEmailErrors(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	r := e.request(t, "300")
+	if _, err := e.svc.Approve(ctx, owner, r.ID, app.ApproveInput{Destination: domain.DestinationExpense, Category: "Mandado"}); err != nil {
+		t.Fatal(err)
+	}
+	e.mailer.sent = nil
+	if _, err := e.svc.Revert(ctx, owner, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.mailer.sent) != 1 || e.mailer.sent[0].to != "u-spouse@example.com" || e.mailer.sent[0].subject != "Tu petición de gasto volvió a solicitada" ||
+		!strings.Contains(e.mailer.sent[0].text, "volvió a solicitada") || !strings.Contains(e.mailer.sent[0].text, "https://app.example.com/peticiones") {
+		t.Errorf("email = %+v", e.mailer.sent)
+	}
+
+	// A failing mailer is logged, never an error of the revert.
+	if _, err := e.svc.Approve(ctx, owner, r.ID, app.ApproveInput{Destination: domain.DestinationExpense, Category: "Mandado"}); err != nil {
+		t.Fatal(err)
+	}
+	e.mailer.err = errors.New("resend is down")
+	if got, err := e.svc.Revert(ctx, owner, r.ID); err != nil || got.RevertCount != 2 {
+		t.Errorf("Revert with a failing mailer = %+v, %v", got, err)
+	}
+}
+
+func TestRevertRefusedForAPaidFutureExpenseSendsNoEmail(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	r := e.request(t, "300")
+	if _, err := e.svc.Approve(ctx, owner, r.ID, app.ApproveInput{Destination: domain.DestinationFuture, DueDate: "2026-12-20"}); err != nil {
+		t.Fatal(err)
+	}
+	e.mailer.sent = nil
+	e.repo.revertErr = domain.ErrFutureExpensePaid
+	if _, err := e.svc.Revert(ctx, owner, r.ID); !errors.Is(err, domain.ErrFutureExpensePaid) {
+		t.Errorf("Revert = %v, want ErrFutureExpensePaid", err)
+	}
+	if len(e.mailer.sent) != 0 {
+		t.Errorf("%d emails after a refused revert", len(e.mailer.sent))
 	}
 }

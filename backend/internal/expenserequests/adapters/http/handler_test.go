@@ -84,6 +84,15 @@ func (f *fakeService) Reject(_ context.Context, a session.Identity, id int, comm
 	return r, f.err
 }
 
+func (f *fakeService) Revert(_ context.Context, a session.Identity, id int) (domain.Request, error) {
+	f.actor, f.call, f.id = a, "revert", id
+	r := request()
+	r.RevertCount = 1
+	reverted := created.Add(time.Hour)
+	r.RevertedAt = &reverted
+	return r, f.err
+}
+
 func as(id session.Identity) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +260,7 @@ func TestErrorMapping(t *testing.T) {
 		{domain.ErrForbidden, 403, "forbidden"},
 		{domain.ErrNotFound, 404, "not_found"},
 		{domain.ErrInvalidState, 409, "invalid_state"},
+		{domain.ErrFutureExpensePaid, 409, "future_expense_paid"},
 		{domain.ErrRateLimited, 429, "rate_limited"},
 		{settings.ErrMissingConfig, 422, "settings_incomplete"},
 		{errors.New("boom: secret detail"), 500, "internal_error"},
@@ -277,11 +287,42 @@ func TestHouseholdIdentityIsPassedDownForTheOwnerOnlyRoutes(t *testing.T) {
 		{"GET", "/expense-requests/7/budget-check?category=Ocio", ""},
 		{"POST", "/expense-requests/7/approve", `{"destination":"gasto","category":"Ocio"}`},
 		{"POST", "/expense-requests/7/reject", `{"comment":"x"}`},
+		{"POST", "/expense-requests/7/revert", ""},
 	} {
 		svc := &fakeService{err: domain.ErrForbidden}
 		rec := serve(t, svc, household, r.method, r.path, r.body)
 		if rec.Code != http.StatusForbidden || svc.actor != household {
 			t.Errorf("%s %s = %d as %+v, want 403 with the household identity", r.method, r.path, rec.Code, svc.actor)
+		}
+	}
+}
+
+func TestRevertReturnsTheRefreshedRequestWithItsAuditTrail(t *testing.T) {
+	svc := &fakeService{}
+	rec := serve(t, svc, owner, "POST", "/expense-requests/7/revert", "")
+	got := decode(t, rec)
+	if rec.Code != http.StatusOK || svc.call != "revert" || svc.id != 7 || svc.actor != owner {
+		t.Fatalf("revert = %d %s (call %s id %d as %+v)", rec.Code, rec.Body, svc.call, svc.id, svc.actor)
+	}
+	if got["status"] != "solicitada" || got["revert_count"] != float64(1) || got["reverted_at"] == nil || got["result_kind"] != nil {
+		t.Errorf("body = %v", got)
+	}
+	if rec := serve(t, svc, owner, "POST", "/expense-requests/abc/revert", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("non numeric id = %d", rec.Code)
+	}
+	for _, c := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{domain.ErrInvalidState, 409, "invalid_state"},
+		{domain.ErrFutureExpensePaid, 409, "future_expense_paid"},
+		{domain.ErrNotFound, 404, "not_found"},
+		{domain.ErrForbidden, 403, "forbidden"},
+	} {
+		rec := serve(t, &fakeService{err: c.err}, owner, "POST", "/expense-requests/7/revert", "")
+		if rec.Code != c.status || decode(t, rec)["error"] != c.code {
+			t.Errorf("%v -> %d %s", c.err, rec.Code, rec.Body)
 		}
 	}
 }

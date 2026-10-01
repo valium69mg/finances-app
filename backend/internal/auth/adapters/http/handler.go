@@ -70,7 +70,8 @@ var householdAllowlist = map[string]bool{
 	"GET /expense-requests/categories":   true, // Gasto category names only, no budgets
 	"POST /expense-requests/{id}/cancel": true,
 	// Not listed on purpose (owner-only): GET /expense-requests/{id}/budget-check,
-	// POST /expense-requests/{id}/approve and POST /expense-requests/{id}/reject.
+	// POST /expense-requests/{id}/approve, POST /expense-requests/{id}/reject and
+	// POST /expense-requests/{id}/revert.
 }
 
 // HouseholdAllowed reports whether the household role may call the route

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -62,7 +63,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	t.Cleanup(pool.Close)
 
 	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql",
-		"000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000018_expense_requests.up.sql"} {
+		"000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000018_expense_requests.up.sql", "000019_expense_request_reverts.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -449,5 +450,360 @@ func TestOwnerEmailsAreActiveVerifiedOwnersOnly(t *testing.T) {
 	got, err := f.repo.OwnerEmails(context.Background())
 	if err != nil || len(got) != 2 || got[0] != "owner@example.com" || got[1] != "second-owner@example.com" {
 		t.Errorf("OwnerEmails = %v, %v", got, err)
+	}
+}
+
+// --- revert ---------------------------------------------------------------
+
+func (f fixture) approveExpense(t *testing.T, amount string) domain.Request {
+	t.Helper()
+	r := f.create(t, f.spouse, amount, "Tacos")
+	got, err := f.repo.Approve(context.Background(), r.ID, f.owner, app.Approval{Destination: domain.DestinationExpense, Expense: expense(amount)})
+	if err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	return got
+}
+
+func (f fixture) approveFuture(t *testing.T, amount string) domain.Request {
+	t.Helper()
+	r := f.create(t, f.spouse, amount, "Regalo")
+	got, err := f.repo.Approve(context.Background(), r.ID, f.owner, app.Approval{
+		Destination: domain.DestinationFuture,
+		Future:      &futuredomain.Validated{Name: "Regalo", Target: d(amount), DueDate: "2026-12-20"},
+	})
+	if err != nil {
+		t.Fatalf("Approve: %v", err)
+	}
+	return got
+}
+
+// assertPendingAgain checks the request is a clean solicitada one (the CHECK
+// would reject anything else) with the given audit count.
+func assertPendingAgain(t *testing.T, got domain.Request, reverts int) {
+	t.Helper()
+	if got.Status != domain.StatusPending || got.DecidedBy != "" || got.DecidedAt != nil || got.DecisionComment != "" || got.ResultKind != "" ||
+		got.ResultMovementID != nil || got.ResultFutureExpenseID != nil || got.RevertCount != reverts || got.RevertedAt == nil {
+		t.Errorf("reverted request = %+v, want solicitada with %d revert(s)", got, reverts)
+	}
+}
+
+func TestRevertOfAGastoApprovalDeletesTheMovementAndResetsTheRequest(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	approved := f.approveExpense(t, "250.50")
+	// A neighbour Gasto must survive.
+	other := f.approveExpense(t, "10")
+
+	got, err := f.repo.Revert(ctx, approved.ID)
+	if err != nil {
+		t.Fatalf("Revert: %v", err)
+	}
+	assertPendingAgain(t, got, 1)
+	if got.UpdatedAt.Before(approved.UpdatedAt) || !got.UpdatedAt.After(approved.CreatedAt) {
+		t.Errorf("updated_at = %v, want refreshed (approval %v)", got.UpdatedAt, approved.UpdatedAt)
+	}
+	var n int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM movements WHERE id = $1`, *approved.ResultMovementID).Scan(&n); err != nil || n != 0 {
+		t.Errorf("the reverted Gasto still exists (count %d, %v)", n, err)
+	}
+	if count(t, f.pool, "movements") != 1 {
+		t.Errorf("movements = %d, want only the other request's Gasto", count(t, f.pool, "movements"))
+	}
+	if still, err := f.repo.Get(ctx, other.ID); err != nil || still.Status != domain.StatusApproved || still.ResultMovementID == nil {
+		t.Errorf("the other request = %+v, %v", still, err)
+	}
+
+	// Second revert conflicts and changes nothing.
+	if _, err := f.repo.Revert(ctx, approved.ID); !errors.Is(err, domain.ErrInvalidState) {
+		t.Errorf("double revert = %v, want ErrInvalidState", err)
+	}
+	if again, _ := f.repo.Get(ctx, approved.ID); again.RevertCount != 1 {
+		t.Errorf("revert_count = %d after a refused revert", again.RevertCount)
+	}
+
+	// It is a normal pending request: approve, revert again, the audit counts both.
+	if _, err := f.repo.Approve(ctx, approved.ID, f.owner, app.Approval{Destination: domain.DestinationExpense, Expense: expense("250.50")}); err != nil {
+		t.Fatalf("approve after revert: %v", err)
+	}
+	again, err := f.repo.Revert(ctx, approved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertPendingAgain(t, again, 2)
+}
+
+func TestRevertOnlyAppliesToApprovedRequests(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	pending := f.create(t, f.spouse, "10", "pending")
+	rejected := f.create(t, f.spouse, "10", "rejected")
+	if _, err := f.repo.Reject(ctx, rejected.ID, f.owner, "No"); err != nil {
+		t.Fatal(err)
+	}
+	cancelled := f.create(t, f.spouse, "10", "cancelled")
+	if _, err := f.repo.Cancel(ctx, cancelled.ID, f.spouse); err != nil {
+		t.Fatal(err)
+	}
+	for name, id := range map[string]int{"pending": pending.ID, "rejected": rejected.ID, "cancelled": cancelled.ID} {
+		if _, err := f.repo.Revert(ctx, id); !errors.Is(err, domain.ErrInvalidState) {
+			t.Errorf("revert of a %s request = %v, want ErrInvalidState", name, err)
+		}
+	}
+	if got, _ := f.repo.Get(ctx, rejected.ID); got.Status != domain.StatusRejected || got.DecisionComment != "No" || got.RevertCount != 0 {
+		t.Errorf("a refused revert changed the rejected request: %+v", got)
+	}
+	if _, err := f.repo.Revert(ctx, 9999); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("revert(unknown) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRevertOfAFutureExpenseApprovalDeletesTheItemAndFreesItsSavings(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	approved := f.approveFuture(t, "1800")
+	itemID := *approved.ResultFutureExpenseID
+	// Two savings assigned to the item and one that was already free.
+	for _, amount := range []string{"300", "200"} {
+		if _, err := f.pool.Exec(ctx, `
+			INSERT INTO movements (date, description, category, kind, payment_method, currency, amount, amount_mxn, future_expense_id)
+			VALUES ('2026-10-04', 'Ahorro regalo', 'Gastos futuros', 'Ahorro', 'Débito', 'MXN', $1::numeric, $1::numeric, $2)`, amount, int64(itemID)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.pool.Exec(ctx, `
+		INSERT INTO movements (date, description, category, kind, payment_method, currency, amount, amount_mxn)
+		VALUES ('2026-10-04', 'Libre', 'Gastos futuros', 'Ahorro', 'Débito', 'MXN', 50, 50)`); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := f.repo.Revert(ctx, approved.ID)
+	if err != nil {
+		t.Fatalf("Revert: %v", err)
+	}
+	assertPendingAgain(t, got, 1)
+	if n := count(t, f.pool, "future_expenses"); n != 0 {
+		t.Errorf("%d future expenses left after the revert", n)
+	}
+	var total string
+	var linked int
+	if err := f.pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(amount_mxn), 0)::text, count(*) FILTER (WHERE future_expense_id IS NOT NULL)
+		FROM movements WHERE kind = 'Ahorro' AND category = 'Gastos futuros' AND future_expense_id IS NULL`).Scan(&total, &linked); err != nil {
+		t.Fatal(err)
+	}
+	if total != "550" || linked != 0 {
+		t.Errorf("free balance = %s (linked %d), want the two savings back plus the free one = 550", total, linked)
+	}
+	if n := count(t, f.pool, "movements"); n != 3 {
+		t.Errorf("movements = %d, want the 3 savings kept (never deleted)", n)
+	}
+}
+
+func TestRevertIsRefusedForAPaidFutureExpenseAndChangesNothing(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	approved := f.approveFuture(t, "1800")
+	itemID := *approved.ResultFutureExpenseID
+	var expenseID int64
+	if err := f.pool.QueryRow(ctx, `
+		INSERT INTO movements (date, description, category, kind, payment_method, currency, amount, amount_mxn)
+		VALUES ('2026-12-20', 'Regalo', 'Comida', 'Gasto', 'Débito', 'MXN', 1800, 1800) RETURNING id`).Scan(&expenseID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `
+		UPDATE future_expenses SET status = 'paid', paid_at = '2026-12-20', amount_paid = 1800, expense_movement_id = $2 WHERE id = $1`,
+		int64(itemID), expenseID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := f.repo.Revert(ctx, approved.ID); !errors.Is(err, domain.ErrFutureExpensePaid) {
+		t.Fatalf("Revert = %v, want ErrFutureExpensePaid", err)
+	}
+	got, err := f.repo.Get(ctx, approved.ID)
+	if err != nil || got.Status != domain.StatusApproved || got.ResultFutureExpenseID == nil || *got.ResultFutureExpenseID != itemID ||
+		got.RevertCount != 0 || got.RevertedAt != nil || got.DecidedBy != f.owner {
+		t.Errorf("request after the refusal = %+v, %v; want it untouched", got, err)
+	}
+	if count(t, f.pool, "future_expenses") != 1 || count(t, f.pool, "movements") != 1 {
+		t.Errorf("rows changed by a refused revert: items %d, movements %d", count(t, f.pool, "future_expenses"), count(t, f.pool, "movements"))
+	}
+}
+
+func TestRevertRollsBackWhenTheResetFails(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	approved := f.approveExpense(t, "10")
+	// A trigger-free way to make the final UPDATE fail after the movement was
+	// deleted: a revert_count ceiling the reset would exceed.
+	if _, err := f.pool.Exec(ctx, `ALTER TABLE expense_requests ADD CONSTRAINT revert_cap CHECK (revert_count < 1)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.repo.Revert(ctx, approved.ID); err == nil {
+		t.Fatal("revert with a failing reset succeeded")
+	}
+	got, err := f.repo.Get(ctx, approved.ID)
+	if err != nil || got.Status != domain.StatusApproved || got.ResultMovementID == nil || count(t, f.pool, "movements") != 1 {
+		t.Errorf("after the failed revert: %+v, %v, movements %d; want the Gasto restored by the rollback", got, err, count(t, f.pool, "movements"))
+	}
+}
+
+func TestRevertIsIdempotentWhenTheLinkedRowWasAlreadyDeleted(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	t.Run("the Gasto was deleted by hand", func(t *testing.T) {
+		approved := f.approveExpense(t, "10")
+		if _, err := f.pool.Exec(ctx, `DELETE FROM movements WHERE id = $1`, *approved.ResultMovementID); err != nil {
+			t.Fatal(err)
+		}
+		got, err := f.repo.Revert(ctx, approved.ID)
+		if err != nil {
+			t.Fatalf("Revert: %v", err)
+		}
+		assertPendingAgain(t, got, 1)
+	})
+	t.Run("the future expense was deleted by hand", func(t *testing.T) {
+		approved := f.approveFuture(t, "10")
+		if _, err := f.pool.Exec(ctx, `DELETE FROM future_expenses WHERE id = $1`, *approved.ResultFutureExpenseID); err != nil {
+			t.Fatal(err)
+		}
+		got, err := f.repo.Revert(ctx, approved.ID)
+		if err != nil {
+			t.Fatalf("Revert: %v", err)
+		}
+		assertPendingAgain(t, got, 1)
+	})
+}
+
+func TestRevertNeverDeletesAMovementOfAnotherKind(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	approved := f.approveExpense(t, "10")
+	// The link was repointed (by hand) to an Ahorro: the Gasto-only delete skips it.
+	var savingID int64
+	if err := f.pool.QueryRow(ctx, `
+		INSERT INTO movements (date, description, category, kind, payment_method, currency, amount, amount_mxn)
+		VALUES ('2026-10-04', 'Ahorro', 'Gastos futuros', 'Ahorro', 'Débito', 'MXN', 5, 5) RETURNING id`).Scan(&savingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, `UPDATE expense_requests SET result_movement_id = $2 WHERE id = $1`, int64(approved.ID), savingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.repo.Revert(ctx, approved.ID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := f.pool.QueryRow(ctx, `SELECT count(*) FROM movements WHERE id = $1`, savingID).Scan(&n); err != nil || n != 1 {
+		t.Errorf("the Ahorro was deleted by a revert (count %d, %v)", n, err)
+	}
+}
+
+func TestConcurrentRevertsHaveOneWinner(t *testing.T) {
+	f := setup(t)
+	approved := f.approveExpense(t, "10")
+	const workers = 5
+	errs := make(chan error, workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			_, err := f.repo.Revert(context.Background(), approved.ID)
+			errs <- err
+		}()
+	}
+	ok, conflicts := 0, 0
+	for i := 0; i < workers; i++ {
+		switch err := <-errs; {
+		case err == nil:
+			ok++
+		case errors.Is(err, domain.ErrInvalidState):
+			conflicts++
+		default:
+			t.Errorf("unexpected error %v", err)
+		}
+	}
+	got, _ := f.repo.Get(context.Background(), approved.ID)
+	if ok != 1 || conflicts != workers-1 || got.RevertCount != 1 || count(t, f.pool, "movements") != 0 {
+		t.Errorf("ok=%d conflicts=%d revert_count=%d movements=%d, want exactly one winner", ok, conflicts, got.RevertCount, count(t, f.pool, "movements"))
+	}
+}
+
+// Reverts and approvals race on the same request. Whatever the interleaving,
+// every success is one legal transition, and the final state is consistent:
+// aprobada has exactly one live Gasto linked, solicitada has none.
+func TestConcurrentRevertAndApproveStayConsistent(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	approved := f.approveExpense(t, "10")
+	const workers = 6
+	var (
+		wg                 sync.WaitGroup
+		mu                 sync.Mutex
+		reverts, approvals int
+		unexpected         []error
+	)
+	for i := 0; i < workers; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, err := f.repo.Revert(ctx, approved.ID)
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				reverts++
+			case !errors.Is(err, domain.ErrInvalidState):
+				unexpected = append(unexpected, err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			_, err := f.repo.Approve(ctx, approved.ID, f.owner, app.Approval{Destination: domain.DestinationExpense, Expense: expense("10")})
+			mu.Lock()
+			defer mu.Unlock()
+			switch {
+			case err == nil:
+				approvals++
+			case !errors.Is(err, domain.ErrInvalidState):
+				unexpected = append(unexpected, err)
+			}
+		}()
+	}
+	wg.Wait()
+	if len(unexpected) > 0 {
+		t.Fatalf("unexpected errors: %v", unexpected)
+	}
+	got, err := f.repo.Get(ctx, approved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	live := count(t, f.pool, "movements")
+	switch got.Status {
+	case domain.StatusApproved:
+		if live != 1 || got.ResultMovementID == nil || approvals != reverts {
+			t.Errorf("approved: live Gastos %d, link %v, approvals %d, reverts %d", live, got.ResultMovementID, approvals, reverts)
+		}
+	case domain.StatusPending:
+		if live != 0 || approvals+1 != reverts {
+			t.Errorf("pending: live Gastos %d, approvals %d, reverts %d", live, approvals, reverts)
+		}
+	default:
+		t.Errorf("final status %s", got.Status)
+	}
+	if got.RevertCount != reverts {
+		t.Errorf("revert_count = %d, successful reverts = %d", got.RevertCount, reverts)
+	}
+}
+
+func TestRevertAuditConstraint(t *testing.T) {
+	f := setup(t)
+	r := f.create(t, f.spouse, "10", "x")
+	for name, sql := range map[string]string{
+		"count without a time": `UPDATE expense_requests SET revert_count = 1 WHERE id = %d`,
+		"time without a count": `UPDATE expense_requests SET reverted_at = now() WHERE id = %d`,
+		"negative count":       `UPDATE expense_requests SET revert_count = -1, reverted_at = now() WHERE id = %d`,
+	} {
+		if _, err := f.pool.Exec(context.Background(), fmt.Sprintf(sql, r.ID)); err == nil {
+			t.Errorf("%s: the CHECK did not reject it", name)
+		}
 	}
 }

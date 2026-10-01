@@ -286,3 +286,19 @@ func (s *Service) Reject(ctx context.Context, actor Identity, id int, comment st
 	s.notifyRequester(ctx, req)
 	return req, nil
 }
+
+// Revert undoes an approval: the Gasto or the active future expense it created
+// is deleted and the request goes back to solicitada, in one transaction. Only
+// an aprobada request can be reverted (409 otherwise) and a future expense that
+// is already paid refuses it. The requester is told, best-effort.
+func (s *Service) Revert(ctx context.Context, actor Identity, id int) (domain.Request, error) {
+	if err := requireOwner(actor); err != nil {
+		return domain.Request{}, err
+	}
+	req, err := s.Repo.Revert(ctx, id)
+	if err != nil {
+		return domain.Request{}, err
+	}
+	s.notifyReverted(ctx, req)
+	return req, nil
+}
