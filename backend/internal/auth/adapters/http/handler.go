@@ -12,6 +12,8 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/app"
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
+	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
 const maxBodyBytes = 1 << 20
@@ -23,7 +25,7 @@ type Service interface {
 	Refresh(ctx context.Context, refreshToken, ip string) (*app.Session, error)
 	Logout(ctx context.Context, refreshToken string) error
 	CompleteVerification(ctx context.Context, token, newPassword, ip string) error
-	Authenticate(accessToken string) (userID string, err error)
+	Authenticate(accessToken string) (session.Identity, error)
 	Me(ctx context.Context, userID string) (domain.User, error)
 }
 
@@ -42,7 +44,7 @@ func New(svc Service, logger *slog.Logger) *Handler {
 }
 
 // Register mounts the auth routes on mux.
-func (h *Handler) Register(mux *http.ServeMux) {
+func (h *Handler) Register(mux httpmw.Router) {
 	mux.HandleFunc("POST /auth/identify", h.identify)
 	mux.HandleFunc("POST /auth/login", h.login)
 	mux.HandleFunc("POST /auth/refresh", h.refresh)
@@ -51,16 +53,43 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.Handle("GET /auth/me", h.RequireAuth(http.HandlerFunc(h.me)))
 }
 
-type ctxKey struct{}
+// householdAllowlist is the complete set of authenticated routes the household
+// role may call, keyed by the ServeMux pattern. It is DEFAULT DENY: a route that
+// is not listed here answers 403 forbidden to a household session, so a route
+// added later (settings, system, a new module) is owner-only until it is added
+// on purpose. The session-keeping routes (/auth/refresh, /auth/logout) are
+// public and need no entry; /auth/me is how the client reads its own account.
+var householdAllowlist = map[string]bool{
+	"GET /auth/me":   true,
+	"GET /dashboard": true, // answered with the reduced, budget-only payload
+}
+
+// HouseholdAllowed reports whether the household role may call the route
+// registered under pattern.
+func HouseholdAllowed(pattern string) bool { return householdAllowlist[pattern] }
+
+// HouseholdAllowlist returns a copy of the allowlist patterns, for tests.
+func HouseholdAllowlist() []string {
+	out := make([]string, 0, len(householdAllowlist))
+	for p := range householdAllowlist {
+		out = append(out, p)
+	}
+	return out
+}
 
 // UserIDFromContext returns the authenticated user id set by RequireAuth.
 func UserIDFromContext(ctx context.Context) (string, bool) {
-	id, ok := ctx.Value(ctxKey{}).(string)
-	return id, ok
+	id, ok := session.From(ctx)
+	return id.UserID, ok
 }
 
-// RequireAuth rejects requests without a valid Bearer access token and stores
-// the user id in the request context for next.
+// RequireAuth rejects requests without a valid Bearer access token, stores the
+// identity (user id and role) in the request context for next and enforces the
+// role: the owner passes everywhere, the household role only on the allowlist.
+// The matched pattern comes from the router (Request.Pattern), so a handler
+// reached without the router has no pattern and is denied to a household
+// session. Every module mounts its authenticated routes through this wrapper,
+// which makes the denial the default for routes added in the future.
 func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -68,12 +97,16 @@ func (h *Handler) RequireAuth(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		userID, err := h.svc.Authenticate(token)
+		id, err := h.svc.Authenticate(token)
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, userID)))
+		if id.Role != session.RoleOwner && !(id.Role == session.RoleHousehold && HouseholdAllowed(r.Pattern)) {
+			writeError(w, http.StatusForbidden, "forbidden")
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(session.With(r.Context(), id)))
 	})
 }
 
@@ -100,12 +133,15 @@ type sessionResponse struct {
 	RefreshToken string `json:"refresh_token"`
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
+	// Role lets the client shape its navigation; the backend enforces it anyway.
+	Role session.Role `json:"role"`
 }
 
 type meResponse struct {
-	ID       string `json:"id"`
-	Email    string `json:"email"`
-	Verified bool   `json:"verified"`
+	ID       string       `json:"id"`
+	Email    string       `json:"email"`
+	Verified bool         `json:"verified"`
+	Role     session.Role `json:"role"`
 }
 
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
@@ -212,7 +248,7 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		h.internalError(w, "me", err)
 	default:
-		writeJSON(w, http.StatusOK, meResponse{ID: user.ID, Email: user.Email, Verified: user.Verified})
+		writeJSON(w, http.StatusOK, meResponse{ID: user.ID, Email: user.Email, Verified: user.Verified, Role: user.Role})
 	}
 }
 
@@ -237,6 +273,7 @@ func writeSession(w http.ResponseWriter, s *app.Session) {
 		RefreshToken: s.RefreshToken,
 		TokenType:    "Bearer",
 		ExpiresIn:    int(s.ExpiresIn.Seconds()),
+		Role:         s.Role,
 	})
 }
 

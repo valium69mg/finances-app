@@ -23,6 +23,7 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/invoices/app"
 	invoices "github.com/valium69mg/finances-app/backend/internal/invoices/domain"
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpjson"
+	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
 )
 
@@ -56,7 +57,7 @@ func New(svc Service, logger *slog.Logger) *Handler {
 }
 
 // Register mounts the invoice routes on mux, each wrapped by requireAuth.
-func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) http.Handler) {
 	route := func(pattern string, fn http.HandlerFunc) {
 		mux.Handle(pattern, requireAuth(fn))
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpjson"
+	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
 	"github.com/valium69mg/finances-app/backend/internal/system/app"
 )
 
@@ -36,7 +37,7 @@ func New(svc Service, logger *slog.Logger) *Handler {
 //
 // TODO(phase 9, Household): there are no roles yet, so any authenticated user
 // can read this. When Household lands, restrict it to the owner role.
-func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("GET /system/status", requireAuth(http.HandlerFunc(h.status)))
 }
 

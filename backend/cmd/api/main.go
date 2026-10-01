@@ -20,24 +20,17 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/ratelimit"
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/resend"
 	authapp "github.com/valium69mg/finances-app/backend/internal/auth/app"
-	billshttp "github.com/valium69mg/finances-app/backend/internal/bills/adapters/http"
 	billspg "github.com/valium69mg/finances-app/backend/internal/bills/adapters/postgres"
 	billsapp "github.com/valium69mg/finances-app/backend/internal/bills/app"
-	dashboardhttp "github.com/valium69mg/finances-app/backend/internal/dashboard/adapters/http"
 	dashboardapp "github.com/valium69mg/finances-app/backend/internal/dashboard/app"
-	expenseshttp "github.com/valium69mg/finances-app/backend/internal/expenses/adapters/http"
 	expensesapp "github.com/valium69mg/finances-app/backend/internal/expenses/app"
-	futureexpenseshttp "github.com/valium69mg/finances-app/backend/internal/futureexpenses/adapters/http"
 	futureexpensespg "github.com/valium69mg/finances-app/backend/internal/futureexpenses/adapters/postgres"
 	futureexpensesapp "github.com/valium69mg/finances-app/backend/internal/futureexpenses/app"
-	incomehttp "github.com/valium69mg/finances-app/backend/internal/income/adapters/http"
 	incomeapp "github.com/valium69mg/finances-app/backend/internal/income/app"
-	invoiceshttp "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/http"
 	invoicespg "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/postgres"
 	invoicess3 "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/s3"
 	invoicesapp "github.com/valium69mg/finances-app/backend/internal/invoices/app"
 	ledgerpg "github.com/valium69mg/finances-app/backend/internal/ledger/adapters/postgres"
-	monthclosehttp "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/http"
 	monthclosepg "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/postgres"
 	monthcloseapp "github.com/valium69mg/finances-app/backend/internal/monthclose/app"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
@@ -49,18 +42,16 @@ import (
 	remindersdisk "github.com/valium69mg/finances-app/backend/internal/reminders/adapters/disk"
 	reminderspg "github.com/valium69mg/finances-app/backend/internal/reminders/adapters/postgres"
 	remindersapp "github.com/valium69mg/finances-app/backend/internal/reminders/app"
-	savingshttp "github.com/valium69mg/finances-app/backend/internal/savings/adapters/http"
 	savingspg "github.com/valium69mg/finances-app/backend/internal/savings/adapters/postgres"
 	savingsapp "github.com/valium69mg/finances-app/backend/internal/savings/app"
-	settingshttp "github.com/valium69mg/finances-app/backend/internal/settings/adapters/http"
 	settingspg "github.com/valium69mg/finances-app/backend/internal/settings/adapters/postgres"
 	settingsapp "github.com/valium69mg/finances-app/backend/internal/settings/app"
-	systemhttp "github.com/valium69mg/finances-app/backend/internal/system/adapters/http"
 	systemprocfs "github.com/valium69mg/finances-app/backend/internal/system/adapters/procfs"
 	systemapp "github.com/valium69mg/finances-app/backend/internal/system/app"
-	taxfilinghttp "github.com/valium69mg/finances-app/backend/internal/taxfiling/adapters/http"
 	taxfilingpg "github.com/valium69mg/finances-app/backend/internal/taxfiling/adapters/postgres"
 	taxfilingapp "github.com/valium69mg/finances-app/backend/internal/taxfiling/app"
+	userspg "github.com/valium69mg/finances-app/backend/internal/users/adapters/postgres"
+	usersapp "github.com/valium69mg/finances-app/backend/internal/users/app"
 )
 
 const (
@@ -162,45 +153,33 @@ func run() error {
 	now := func() time.Time { return time.Now().In(loc) }
 
 	resendMailer := resend.New(cfg.ResendAPIKey, cfg.ResendFrom, "", nil)
+	limiter := ratelimit.New(nil)
 	authSvc := authapp.NewService(authapp.Deps{
 		Users:              authpg.NewUserRepo(pool),
 		RefreshTokens:      authpg.NewRefreshTokenRepo(pool),
 		VerificationTokens: authpg.NewVerificationTokenRepo(pool),
 		Mailer:             resendMailer,
-		Limiter:            ratelimit.New(nil),
+		Limiter:            limiter,
 		JWTSecret:          []byte(cfg.JWTSecret),
 		AppBaseURL:         cfg.AppBaseURL,
 	})
-
-	mux := http.NewServeMux()
-	mux.Handle("GET /healthz", health.Handler(pool))
 	auth := authhttp.New(authSvc, slog.Default())
-	auth.Register(mux)
 
 	settingsSvc := settingsapp.NewService(settingspg.NewRepo(pool))
-	settingshttp.New(settingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	movements := ledgerpg.NewRepo(pool)
 	expensesSvc := expensesapp.NewService(movements, settingsSvc, now)
-	expenseshttp.New(expensesSvc, slog.Default()).Register(mux, auth.RequireAuth)
-
 	incomeSvc := incomeapp.NewService(movements, settingsSvc, nil)
-	incomehttp.New(incomeSvc, slog.Default()).Register(mux, auth.RequireAuth)
-
 	savingsSvc := savingsapp.NewService(movements, savingspg.NewRepo(pool), settingsSvc, nil)
-	savingshttp.New(savingsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	store := invoiceStore(ctx, cfg.S3)
 	invoicesSvc := invoicesapp.NewService(invoicespg.NewRepo(pool), store, movements, settingsSvc, nil, slog.Default())
-	invoiceshttp.New(invoicesSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, nil, slog.Default())
-	taxfilinghttp.New(taxfilingSvc, slog.Default()).Register(mux, auth.RequireAuth)
 	// Issuing an invoice in an already filed period warns (period_already_filed).
 	invoicesSvc.WithFilings(taxfilingSvc)
 
 	billsSvc := billsapp.NewService(billspg.NewRepo(pool), expensesSvc, settingsSvc, now, slog.Default())
-	billshttp.New(billsSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	// Stopped before the pool is closed (deferred after it, so it runs first).
 	remindersCtx, stopReminders := context.WithCancel(ctx)
@@ -221,20 +200,28 @@ func run() error {
 	}
 
 	futureSvc := futureexpensesapp.NewService(futureexpensespg.NewRepo(pool), savingsSvc, expensesSvc, settingsSvc, now)
-	futureexpenseshttp.New(futureSvc, slog.Default()).Register(mux, auth.RequireAuth)
-
 	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, billsSvc, futureSvc, now)
-	dashboardhttp.New(dashboardSvc, slog.Default()).Register(mux, auth.RequireAuth)
-
 	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, nil, slog.Default())
-	monthclosehttp.New(monthcloseSvc, slog.Default()).Register(mux, auth.RequireAuth)
 
 	// View-only server status. The disk comes from the same probe path as the
 	// e-mail alert (nil-safe: an unmeasurable path just yields disk: null).
 	systemSvc := systemapp.NewService(systemprocfs.New(""), remindersdisk.NewProbe(cfg.DiskProbePath), systemapp.Options{
 		DiskAlertPercent: cfg.DiskAlertPct, RemindersEnabled: cfg.RemindersEnabled, Logger: slog.Default(),
 	})
-	systemhttp.New(systemSvc, slog.Default()).Register(mux, auth.RequireAuth)
+
+	// Owner-only user administration. Invitations reuse the verification token
+	// flow of the auth service; sharing the limiter keeps one in-memory budget
+	// table (the keys never collide).
+	usersSvc := usersapp.NewService(usersapp.Deps{
+		Repo: userspg.NewRepo(pool), Sessions: authSvc, Inviter: authSvc, Limiter: limiter,
+	})
+
+	mux := http.NewServeMux()
+	registerRoutes(mux, routeDeps{
+		Health: health.Handler(pool), Auth: auth, Settings: settingsSvc, Expenses: expensesSvc, Income: incomeSvc,
+		Savings: savingsSvc, Invoices: invoicesSvc, TaxFiling: taxfilingSvc, Bills: billsSvc, FutureExpense: futureSvc,
+		Dashboard: dashboardSvc, MonthClose: monthcloseSvc, System: systemSvc, Users: usersSvc,
+	}, auth.RequireAuth, slog.Default())
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)
 	if err != nil {

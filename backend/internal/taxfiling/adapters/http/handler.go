@@ -18,6 +18,7 @@ import (
 	invoices "github.com/valium69mg/finances-app/backend/internal/invoices/domain"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpjson"
+	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
 	"github.com/valium69mg/finances-app/backend/internal/taxfiling/app"
 	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
@@ -50,7 +51,7 @@ func New(svc Service, logger *slog.Logger) *Handler {
 }
 
 // Register mounts the tax filing routes on mux, each wrapped by requireAuth.
-func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) http.Handler) {
 	route := func(pattern string, fn http.HandlerFunc) {
 		mux.Handle(pattern, requireAuth(fn))
 	}

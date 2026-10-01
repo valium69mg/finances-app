@@ -52,6 +52,15 @@ type Overview struct {
 	Recent []ledger.Movement
 }
 
+// BudgetView is the reduced dashboard of the household role: the budget cycle
+// and the expense categories against their budgets, nothing else.
+type BudgetView struct {
+	Month       string
+	PeriodStart string
+	PeriodEnd   string
+	Rows        []Row
+}
+
 // ExpenseRows returns one row per Gasto budget, in order, with what the
 // month's movements spent in it. Other kinds are skipped, and an expense in a
 // category without a budget entry only counts in the totals.

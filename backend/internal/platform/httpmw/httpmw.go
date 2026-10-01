@@ -169,3 +169,11 @@ func newRequestID() string {
 	_, _ = rand.Read(b[:])
 	return hex.EncodeToString(b[:])
 }
+
+// Router is the part of *http.ServeMux the module adapters use to mount their
+// routes. Taking the interface lets a test record every route registered by
+// the application (see cmd/api).
+type Router interface {
+	Handle(pattern string, handler http.Handler)
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}

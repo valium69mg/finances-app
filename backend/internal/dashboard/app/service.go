@@ -95,22 +95,9 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 	if err != nil {
 		return dashboard.Overview{}, err
 	}
-	cycle := cfg.Cycle()
-	if month == "" {
-		month = cycle.Current(s.now())
-	}
-	from, to, err := cycle.Range(month)
-	if err != nil {
-		return dashboard.Overview{}, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
-	}
-
-	resolved, err := s.settings.MonthBudgets(ctx, month)
+	month, from, to, budgets, err := s.cycleBudgets(ctx, cfg, month)
 	if err != nil {
 		return dashboard.Overview{}, err
-	}
-	budgets := make([]dashboard.Budget, len(resolved))
-	for i, b := range resolved {
-		budgets[i] = dashboard.Budget{Name: b.Name, Kind: ledger.Kind(b.Kind), Amount: b.Budget}
 	}
 
 	expenses, err := s.movements.ListByRange(ctx, from, to, ledger.KindExpense, 0)
@@ -179,6 +166,48 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 		out.Tax = &dashboard.TaxCard{Rate: summary.Resico.Rate, EstimatedISR: summary.Resico.EstimatedISR, Filing: status}
 	}
 	return out, nil
+}
+
+// Budget builds the reduced dashboard of the household role: only the cycle
+// and the per-category budget rows (what was spent against each budget). It
+// never reads the income, savings, tax, bills, future expenses or recent
+// movements, so nothing else can leak through the payload.
+func (s *Service) Budget(ctx context.Context, month string) (dashboard.BudgetView, error) {
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return dashboard.BudgetView{}, err
+	}
+	month, from, to, budgets, err := s.cycleBudgets(ctx, cfg, month)
+	if err != nil {
+		return dashboard.BudgetView{}, err
+	}
+	expenses, err := s.movements.ListByRange(ctx, from, to, ledger.KindExpense, 0)
+	if err != nil {
+		return dashboard.BudgetView{}, err
+	}
+	return dashboard.BudgetView{Month: month, PeriodStart: from, PeriodEnd: to, Rows: dashboard.ExpenseRows(budgets, expenses)}, nil
+}
+
+// cycleBudgets resolves the budget cycle of month (the current one when empty)
+// and the budgets of that month.
+func (s *Service) cycleBudgets(ctx context.Context, cfg settings.Config, month string) (resolvedMonth, from, to string, budgets []dashboard.Budget, err error) {
+	cycle := cfg.Cycle()
+	if month == "" {
+		month = cycle.Current(s.now())
+	}
+	from, to, err = cycle.Range(month)
+	if err != nil {
+		return "", "", "", nil, fmt.Errorf("%w: month %q must be YYYY-MM", ledger.ErrInvalid, month)
+	}
+	resolved, err := s.settings.MonthBudgets(ctx, month)
+	if err != nil {
+		return "", "", "", nil, err
+	}
+	budgets = make([]dashboard.Budget, len(resolved))
+	for i, b := range resolved {
+		budgets[i] = dashboard.Budget{Name: b.Name, Kind: ledger.Kind(b.Kind), Amount: b.Budget}
+	}
+	return month, from, to, budgets, nil
 }
 
 // Bounds of the recent movements query: every movement, whatever its date.

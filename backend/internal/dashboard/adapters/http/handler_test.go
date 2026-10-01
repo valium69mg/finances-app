@@ -17,6 +17,7 @@ import (
 	dashboard "github.com/valium69mg/finances-app/backend/internal/dashboard/domain"
 	future "github.com/valium69mg/finances-app/backend/internal/futureexpenses/domain"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 	savings "github.com/valium69mg/finances-app/backend/internal/savings/domain"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
 	taxfiling "github.com/valium69mg/finances-app/backend/internal/taxfiling/domain"
@@ -30,30 +31,51 @@ func p(s string) *decimal.Decimal {
 
 type fakeService struct {
 	out      dashboard.Overview
+	budget   dashboard.BudgetView
 	err      error
 	gotMonth string
+	// monthCalls and budgetCalls tell which use case the handler picked.
+	monthCalls, budgetCalls int
+}
+
+func (f *fakeService) Budget(_ context.Context, month string) (dashboard.BudgetView, error) {
+	f.gotMonth = month
+	f.budgetCalls++
+	return f.budget, f.err
 }
 
 func (f *fakeService) Month(_ context.Context, month string) (dashboard.Overview, error) {
 	f.gotMonth = month
+	f.monthCalls++
 	return f.out, f.err
 }
 
+// requireToken stands in for the auth middleware: "Bearer good" is the owner,
+// "Bearer household" the household role, "Bearer anon" a caller without identity.
 func requireGoodToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer good" {
+		switch r.Header.Get("Authorization") {
+		case "Bearer good":
+			next.ServeHTTP(w, r.WithContext(session.With(r.Context(), session.Identity{UserID: "u1", Role: session.RoleOwner})))
+		case "Bearer household":
+			next.ServeHTTP(w, r.WithContext(session.With(r.Context(), session.Identity{UserID: "u2", Role: session.RoleHousehold})))
+		case "Bearer anon":
+			next.ServeHTTP(w, r)
+		default:
 			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
-			return
 		}
-		next.ServeHTTP(w, r)
 	})
 }
 
 func get(svc *fakeService, path string) *httptest.ResponseRecorder {
+	return getAs(svc, path, "Bearer good")
+}
+
+func getAs(svc *fakeService, path, auth string) *httptest.ResponseRecorder {
 	mux := http.NewServeMux()
 	dashboardhttp.New(svc, slog.New(slog.NewTextHandler(io.Discard, nil))).Register(mux, requireGoodToken)
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	req.Header.Set("Authorization", "Bearer good")
+	req.Header.Set("Authorization", auth)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -172,5 +194,63 @@ func TestErrorMapping(t *testing.T) {
 				t.Errorf("body\n got %s\nwant %s", got, tt.body)
 			}
 		})
+	}
+}
+
+func TestHouseholdGetsOnlyTheBudgetRows(t *testing.T) {
+	svc := &fakeService{
+		out: sample(), // the full overview must never be built for household
+		budget: dashboard.BudgetView{
+			Month: "2026-10", PeriodStart: "2026-09-30", PeriodEnd: "2026-10-30",
+			Rows: []dashboard.Row{
+				{Name: "Mandado", Kind: ledger.KindExpense, Real: d("1500"), Budget: p("1000"), Diff: p("-500")},
+				{Name: "Ocio", Kind: ledger.KindExpense, Real: d("200")},
+			},
+		},
+	}
+	rec := getAs(svc, "/dashboard?month=2026-10", "Bearer household")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	if svc.monthCalls != 0 || svc.budgetCalls != 1 || svc.gotMonth != "2026-10" {
+		t.Errorf("monthCalls=%d budgetCalls=%d month=%q; household must use the reduced use case", svc.monthCalls, svc.budgetCalls, svc.gotMonth)
+	}
+	// Exact body: any extra key (income, savings, tax, recent...) fails this.
+	want := `{"month":"2026-10","period_start":"2026-09-30","period_end":"2026-10-30","categories":[` +
+		`{"category":"Mandado","spent":"1500","budget":"1000","remaining":"-500","over_budget":true},` +
+		`{"category":"Ocio","spent":"200","budget":null,"remaining":null,"over_budget":false}]}`
+	if got := strings.TrimSpace(rec.Body.String()); got != want {
+		t.Errorf("body\n got %s\nwant %s", got, want)
+	}
+	for _, leaked := range []string{"income", "expenses", "savings", "available", "emergency", "tax", "cycle", "future_expenses", "upcoming_bills", "recent_movements"} {
+		if strings.Contains(rec.Body.String(), `"`+leaked+`"`) {
+			t.Errorf("household payload leaks %q", leaked)
+		}
+	}
+}
+
+func TestOwnerStillGetsTheFullDashboard(t *testing.T) {
+	svc := &fakeService{out: sample()}
+	rec := get(svc, "/dashboard?month=2026-10")
+	if rec.Code != http.StatusOK || svc.monthCalls != 1 || svc.budgetCalls != 0 {
+		t.Fatalf("status %d monthCalls=%d budgetCalls=%d", rec.Code, svc.monthCalls, svc.budgetCalls)
+	}
+	if !strings.Contains(rec.Body.String(), `"income":"50000"`) {
+		t.Errorf("owner payload lost the totals: %s", rec.Body)
+	}
+}
+
+func TestCallerWithoutIdentityIsRefused(t *testing.T) {
+	svc := &fakeService{out: sample()}
+	rec := getAs(svc, "/dashboard", "Bearer anon")
+	if rec.Code != http.StatusForbidden || svc.monthCalls+svc.budgetCalls != 0 {
+		t.Fatalf("status %d, calls %d; a caller without a role must get nothing", rec.Code, svc.monthCalls+svc.budgetCalls)
+	}
+}
+
+func TestHouseholdErrorMapping(t *testing.T) {
+	svc := &fakeService{err: ledger.ErrInvalid}
+	if rec := getAs(svc, "/dashboard?month=bad", "Bearer household"); rec.Code != http.StatusBadRequest {
+		t.Errorf("status %d, want 400", rec.Code)
 	}
 }

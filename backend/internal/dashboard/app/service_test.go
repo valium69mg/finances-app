@@ -460,3 +460,40 @@ func TestMonthPropagatesBillsErrors(t *testing.T) {
 		t.Error("want the bills error")
 	}
 }
+
+func TestBudgetIsTheReducedHouseholdView(t *testing.T) {
+	// Every collaborator the reduced view must NOT read fails loudly: if Budget
+	// touched the income, the filings, the bills or the future plan it would error.
+	boom := errors.New("must not be read")
+	svc, _, inc, _, filings := buildServiceWith(&fakeBills{err: boom}, &fakeFuture{err: boom})
+	inc.err = boom
+	filings.err = boom
+
+	got, err := svc.Budget(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatalf("Budget read data outside the budget rows: %v", err)
+	}
+	if got.Month != "2026-10" || got.PeriodStart == "" || got.PeriodEnd == "" {
+		t.Errorf("period = %+v", got)
+	}
+	if len(got.Rows) != 3 {
+		t.Fatalf("rows = %+v, want the 3 Gasto categories", got.Rows)
+	}
+	if got.Rows[1].Name != "Mandado" || !got.Rows[1].Real.Equal(d("1500")) || !got.Rows[1].OverBudget() {
+		t.Errorf("Mandado = %+v", got.Rows[1])
+	}
+	if filings.calls != 0 {
+		t.Error("the filings port must not be called")
+	}
+}
+
+func TestBudgetDefaultsToTheCurrentMonthAndRejectsABadOne(t *testing.T) {
+	svc, _, _, _ := newService()
+	got, err := svc.Budget(context.Background(), "")
+	if err != nil || got.Month != "2026-10" {
+		t.Fatalf("got %q, %v; want the current month 2026-10", got.Month, err)
+	}
+	if _, err := svc.Budget(context.Background(), "nope"); !errors.Is(err, ledger.ErrInvalid) {
+		t.Fatalf("err = %v, want ledger.ErrInvalid", err)
+	}
+}

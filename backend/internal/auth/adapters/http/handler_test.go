@@ -16,6 +16,7 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/app"
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
 type fakeService struct {
@@ -62,11 +63,18 @@ func (f *fakeService) CompleteVerification(_ context.Context, tok, pw, ip string
 	return f.verifyErr
 }
 
-func (f *fakeService) Authenticate(token string) (string, error) {
-	if token == "good" {
-		return "u1", nil
+// Authenticate knows three tokens: "good" and "owner" are the owner, "household"
+// is a household account, anything else is invalid.
+func (f *fakeService) Authenticate(token string) (session.Identity, error) {
+	switch token {
+	case "good", "owner":
+		return session.Identity{UserID: "u1", Role: session.RoleOwner}, nil
+	case "household":
+		return session.Identity{UserID: "u2", Role: session.RoleHousehold}, nil
+	case "norole":
+		return session.Identity{UserID: "u3"}, nil
 	}
-	return "", domain.ErrInvalidToken
+	return session.Identity{}, domain.ErrInvalidToken
 }
 
 func (f *fakeService) Me(context.Context, string) (domain.User, error) { return f.me, f.meErr }
@@ -401,7 +409,7 @@ func TestVerify(t *testing.T) {
 }
 
 func TestMe(t *testing.T) {
-	user := domain.User{ID: "u1", Email: "a@b.co", Verified: true, PasswordHash: "secret-hash"}
+	user := domain.User{ID: "u1", Email: "a@b.co", Verified: true, PasswordHash: "secret-hash", Role: session.RoleOwner, Active: true}
 	tests := []struct {
 		name       string
 		svc        fakeService
@@ -424,7 +432,7 @@ func TestMe(t *testing.T) {
 			}
 			if tt.wantStatus == 200 {
 				m := decodeMap(t, rec)
-				if m["email"] != "a@b.co" || m["verified"] != true || m["id"] != "u1" {
+				if m["email"] != "a@b.co" || m["verified"] != true || m["id"] != "u1" || m["role"] != "owner" {
 					t.Fatalf("body = %v", m)
 				}
 				if strings.Contains(rec.Body.String(), "secret-hash") {
@@ -439,5 +447,109 @@ func TestMethodNotAllowed(t *testing.T) {
 	rec := do(t, newServer(&fakeService{}), "GET", "/auth/login", "", "")
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestSessionResponsesCarryTheRole(t *testing.T) {
+	hh := &app.Session{AccessToken: "acc", RefreshToken: "ref", ExpiresIn: 15 * time.Minute, Role: session.RoleHousehold}
+	tests := []struct {
+		path, body string
+		svc        *fakeService
+	}{
+		{"/auth/login", `{"email":"a@b.co","password":"pw"}`, &fakeService{loginSession: hh}},
+		{"/auth/refresh", `{"refresh_token":"r"}`, &fakeService{refreshSess: hh}},
+	}
+	for _, tt := range tests {
+		rec := do(t, newServer(tt.svc), "POST", tt.path, tt.body, "")
+		if rec.Code != 200 || decodeMap(t, rec)["role"] != "household" {
+			t.Errorf("%s: status %d body %s; want role household", tt.path, rec.Code, rec.Body)
+		}
+	}
+}
+
+// echoRoute mounts an authenticated route under the given pattern that records
+// whether it was reached and which identity it saw.
+func echoRoute(pattern string, h *authhttp.Handler, reached *session.Identity) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle(pattern, h.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		*reached, _ = session.From(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	return mux
+}
+
+func TestRequireAuthEnforcesTheRole(t *testing.T) {
+	h := authhttp.New(&fakeService{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tests := []struct {
+		name    string
+		pattern string
+		path    string
+		method  string
+		token   string
+		want    int
+	}{
+		{"owner on an allowlisted route", "GET /dashboard", "/dashboard", "GET", "owner", 204},
+		{"owner on any other route", "GET /settings", "/settings", "GET", "owner", 204},
+		{"household on the allowlisted dashboard", "GET /dashboard", "/dashboard", "GET", "household", 204},
+		{"household on me", "GET /auth/me", "/auth/me", "GET", "household", 204},
+		{"household on settings", "GET /settings", "/settings", "GET", "household", 403},
+		{"household on system", "GET /system/status", "/system/status", "GET", "household", 403},
+		{"household on a route added later", "GET /brand-new", "/brand-new", "GET", "household", 403},
+		{"household on a write of an allowlisted path", "POST /dashboard", "/dashboard", "POST", "household", 403},
+		{"household with a wildcard route", "POST /users/{id}/invite", "/users/abc/invite", "POST", "household", 403},
+		{"token without a role", "GET /dashboard", "/dashboard", "GET", "norole", 403},
+		{"invalid token", "GET /dashboard", "/dashboard", "GET", "bad", 401},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var reached session.Identity
+			rec := do(t, echoRoute(tt.pattern, h, &reached), tt.method, tt.path, "", "Bearer "+tt.token)
+			if rec.Code != tt.want {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tt.want, rec.Body)
+			}
+			if tt.want == 403 {
+				if decodeMap(t, rec)["error"] != "forbidden" {
+					t.Errorf("body = %s, want the forbidden envelope", rec.Body)
+				}
+				if reached.UserID != "" {
+					t.Error("a denied request must not reach the handler")
+				}
+			}
+			if tt.want == 204 && reached.UserID == "" {
+				t.Error("the handler must see the identity in the context")
+			}
+		})
+	}
+}
+
+func TestRequireAuthDeniesHouseholdWithoutARouterPattern(t *testing.T) {
+	h := authhttp.New(&fakeService{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	called := false
+	wrapped := h.RequireAuth(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	req := httptest.NewRequest("GET", "/dashboard", nil) // not routed: Request.Pattern is empty
+	req.Header.Set("Authorization", "Bearer household")
+	rec := httptest.NewRecorder()
+	wrapped.ServeHTTP(rec, req)
+	if rec.Code != 403 || called {
+		t.Fatalf("status %d called=%v; an unrouted request must be denied to household", rec.Code, called)
+	}
+}
+
+func TestHouseholdAllowlistIsExplicit(t *testing.T) {
+	got := map[string]bool{}
+	for _, p := range authhttp.HouseholdAllowlist() {
+		got[p] = true
+	}
+	want := map[string]bool{"GET /auth/me": true, "GET /dashboard": true}
+	if len(got) != len(want) {
+		t.Fatalf("allowlist = %v, want exactly %v", got, want)
+	}
+	for p := range want {
+		if !got[p] || !authhttp.HouseholdAllowed(p) {
+			t.Errorf("%q must be allowed", p)
+		}
+	}
+	if authhttp.HouseholdAllowed("GET /system/status") || authhttp.HouseholdAllowed("") {
+		t.Error("system and the empty pattern must be denied")
 	}
 }

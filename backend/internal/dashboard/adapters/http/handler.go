@@ -14,12 +14,16 @@ import (
 	dashboard "github.com/valium69mg/finances-app/backend/internal/dashboard/domain"
 	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpjson"
+	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 	settings "github.com/valium69mg/finances-app/backend/internal/settings/domain"
 )
 
 // Service is the use case the handler needs.
 type Service interface {
 	Month(ctx context.Context, month string) (dashboard.Overview, error)
+	// Budget is the reduced view of the household role.
+	Budget(ctx context.Context, month string) (dashboard.BudgetView, error)
 }
 
 // Handler serves the /dashboard route.
@@ -37,7 +41,7 @@ func New(svc Service, logger *slog.Logger) *Handler {
 }
 
 // Register mounts the dashboard route on mux, wrapped by requireAuth.
-func (h *Handler) Register(mux *http.ServeMux, requireAuth func(http.Handler) http.Handler) {
+func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) http.Handler) {
 	mux.Handle("GET /dashboard", requireAuth(http.HandlerFunc(h.get)))
 }
 
@@ -182,9 +186,7 @@ func toDTO(d dashboard.Overview) dashboardDTO {
 			ID: m.ID, Date: m.Date, Kind: string(m.Kind), Description: m.Description, Category: m.Category, AmountMXN: m.AmountMXN,
 		}
 	}
-	for i, r := range d.Rows {
-		out.Categories[i] = categoryDTO{Category: r.Name, Spent: r.Real, Budget: r.Budget, Remaining: r.Diff, OverBudget: r.OverBudget()}
-	}
+	out.Categories = toCategoryDTOs(d.Rows)
 	if d.Tax != nil {
 		out.Tax = &taxDTO{
 			Rate: d.Tax.Rate, EstimatedISR: d.Tax.EstimatedISR, FilingStatus: string(d.Tax.Filing.Payment),
@@ -194,15 +196,52 @@ func toDTO(d dashboard.Overview) dashboardDTO {
 	return out
 }
 
+// budgetDTO is the body of GET /dashboard for the household role: the cycle and
+// the per-category budget rows, built server-side. It is a separate type so no
+// other figure can be added to it by accident.
+type budgetDTO struct {
+	Month       string        `json:"month"`
+	PeriodStart string        `json:"period_start"`
+	PeriodEnd   string        `json:"period_end"`
+	Categories  []categoryDTO `json:"categories"`
+}
+
+func toCategoryDTOs(rows []dashboard.Row) []categoryDTO {
+	out := make([]categoryDTO, len(rows))
+	for i, r := range rows {
+		out[i] = categoryDTO{Category: r.Name, Spent: r.Real, Budget: r.Budget, Remaining: r.Diff, OverBudget: r.OverBudget()}
+	}
+	return out
+}
+
 // --- handlers -----------------------------------------------------------
 
+// get answers the owner with the full dashboard and the household role with the
+// reduced, budget-only one. Any other caller (no identity) is refused: the
+// role decides the payload on the server, never the client.
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
-	d, err := h.svc.Month(r.Context(), r.URL.Query().Get("month"))
-	if err != nil {
-		h.fail(w, err)
-		return
+	id, _ := session.From(r.Context())
+	month := r.URL.Query().Get("month")
+	switch id.Role {
+	case session.RoleOwner:
+		d, err := h.svc.Month(r.Context(), month)
+		if err != nil {
+			h.fail(w, err)
+			return
+		}
+		httpjson.WriteJSON(w, http.StatusOK, toDTO(d))
+	case session.RoleHousehold:
+		v, err := h.svc.Budget(r.Context(), month)
+		if err != nil {
+			h.fail(w, err)
+			return
+		}
+		httpjson.WriteJSON(w, http.StatusOK, budgetDTO{
+			Month: v.Month, PeriodStart: v.PeriodStart, PeriodEnd: v.PeriodEnd, Categories: toCategoryDTOs(v.Rows),
+		})
+	default:
+		httpjson.WriteError(w, http.StatusForbidden, "forbidden")
 	}
-	httpjson.WriteJSON(w, http.StatusOK, toDTO(d))
 }
 
 func (h *Handler) fail(w http.ResponseWriter, err error) {
