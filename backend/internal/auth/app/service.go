@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
 // Rate limits. All windows are fixed windows measured by the limiter's clock.
@@ -77,6 +78,9 @@ type Session struct {
 	AccessToken  string
 	RefreshToken string
 	ExpiresIn    time.Duration
+	// Role is the role read from the database when the session was issued; the
+	// client uses it to shape the navigation (the backend enforces it anyway).
+	Role session.Role
 }
 
 // Deps are the collaborators of Service.
@@ -117,8 +121,8 @@ func NewService(d Deps) *Service {
 
 // Identify is step one of the email-first login. It reports whether the email
 // belongs to a verified account (password step next). For an unverified account
-// it triggers the verification email in the background; for an unknown email it
-// does nothing but answers exactly like the unverified case. Enumeration of
+// it triggers the verification email in the background; for an unknown email (or a
+// deactivated account) it does nothing but answers exactly like the unverified case. Enumeration of
 // verified accounts is an accepted trade-off (see PLAN.md §5).
 func (s *Service) Identify(ctx context.Context, rawEmail, ip string) (IdentifyStatus, error) {
 	if !s.Limiter.Allow(keyIdentifyIP+ip, IdentifyIPLimit, IdentifyIPWindow) {
@@ -135,6 +139,9 @@ func (s *Service) Identify(ctx context.Context, rawEmail, ip string) (IdentifySt
 	}
 	if err != nil {
 		return "", fmt.Errorf("find user: %w", err)
+	}
+	if !user.Active {
+		return IdentifyVerificationSent, nil
 	}
 	if user.Verified {
 		return IdentifyPasswordRequired, nil
@@ -166,8 +173,8 @@ func (s *Service) sendVerificationInBackground(ctx context.Context, user domain.
 	})
 }
 
-// Login is step two: it only authenticates. Unknown, unverified and wrong-password
-// cases all return domain.ErrInvalidCredentials, and no email is ever sent.
+// Login is step two: it only authenticates. Unknown, unverified, deactivated and
+// wrong-password cases all return domain.ErrInvalidCredentials, and no email is ever sent.
 // Only failed attempts consume the per-email and per-IP budgets.
 func (s *Service) Login(ctx context.Context, rawEmail, password, ip string) (*Session, error) {
 	email, err := domain.NormalizeEmail(rawEmail)
@@ -184,16 +191,40 @@ func (s *Service) Login(ctx context.Context, rawEmail, password, ip string) (*Se
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
 		return nil, fmt.Errorf("find user: %w", err)
 	}
-	if err != nil || !user.Verified || !domain.CheckPassword(user.PasswordHash, password) {
+	if err != nil || !user.Verified || !user.Active || !domain.CheckPassword(user.PasswordHash, password) {
 		s.Limiter.Record(emailKey, LoginFailWindow)
 		s.Limiter.Record(ipKey, LoginFailWindow)
 		return nil, domain.ErrInvalidCredentials
 	}
-	return s.issueSession(ctx, user.ID)
+	return s.issueSession(ctx, user)
 }
 
 // RequestVerification creates a verification token for user and emails the link.
 func (s *Service) RequestVerification(ctx context.Context, user domain.User) error {
+	return s.sendLink(ctx, user, s.Mailer.SendVerification)
+}
+
+// SendInvitation emails the invitation to the user with the given id. It reuses
+// the verification token flow (1 hour, single use, a new token per call) with
+// the invitation text. The caller (the users module) owns authorization and the
+// invitation rate limits.
+func (s *Service) SendInvitation(ctx context.Context, userID string) error {
+	user, err := s.Users.FindByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("find user: %w", err)
+	}
+	return s.sendLink(ctx, user, s.Mailer.SendInvitation)
+}
+
+// RevokeSessions revokes every live refresh token of the user.
+func (s *Service) RevokeSessions(ctx context.Context, userID string) error {
+	if err := s.RefreshTokens.RevokeAllForUser(ctx, userID, s.Clock.Now()); err != nil {
+		return fmt.Errorf("revoke refresh tokens: %w", err)
+	}
+	return nil
+}
+
+func (s *Service) sendLink(ctx context.Context, user domain.User, send func(ctx context.Context, to, link string) error) error {
 	raw, hash, err := domain.GenerateToken()
 	if err != nil {
 		return fmt.Errorf("generate token: %w", err)
@@ -207,7 +238,7 @@ func (s *Service) RequestVerification(ctx context.Context, user domain.User) err
 		return fmt.Errorf("store verification token: %w", err)
 	}
 	link := s.AppBaseURL + verifyLinkSuffix + "?" + verifyLinkParam + "=" + url.QueryEscape(raw)
-	if err := s.Mailer.SendVerification(ctx, user.Email, link); err != nil {
+	if err := send(ctx, user.Email, link); err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
 	return nil
@@ -283,10 +314,12 @@ func (s *Service) Refresh(ctx context.Context, rawToken, ip string) (*Session, e
 	if err != nil {
 		return nil, fmt.Errorf("find user: %w", err)
 	}
-	if !user.Verified {
+	// The role and the active flag are read from the database on every refresh,
+	// so a deactivation or a role change takes effect within one refresh cycle.
+	if !user.Verified || !user.Active {
 		return nil, domain.ErrInvalidToken
 	}
-	return s.issueSession(ctx, user.ID)
+	return s.issueSession(ctx, user)
 }
 
 func (s *Service) handleReuse(ctx context.Context, userID string, now time.Time) error {
@@ -305,8 +338,8 @@ func (s *Service) Logout(ctx context.Context, rawToken string) error {
 	return nil
 }
 
-// Authenticate validates an access token and returns the user id.
-func (s *Service) Authenticate(accessToken string) (string, error) {
+// Authenticate validates an access token and returns the identity it carries.
+func (s *Service) Authenticate(accessToken string) (session.Identity, error) {
 	return domain.ParseAccessToken(s.JWTSecret, accessToken, s.Clock.Now())
 }
 
@@ -322,9 +355,9 @@ func (s *Service) Me(ctx context.Context, id string) (domain.User, error) {
 	return user, nil
 }
 
-func (s *Service) issueSession(ctx context.Context, userID string) (*Session, error) {
+func (s *Service) issueSession(ctx context.Context, user domain.User) (*Session, error) {
 	now := s.Clock.Now()
-	access, err := domain.IssueAccessToken(s.JWTSecret, userID, now)
+	access, err := domain.IssueAccessToken(s.JWTSecret, user.ID, user.Role, now)
 	if err != nil {
 		return nil, fmt.Errorf("issue access token: %w", err)
 	}
@@ -334,11 +367,11 @@ func (s *Service) issueSession(ctx context.Context, userID string) (*Session, er
 	}
 	err = s.RefreshTokens.Create(ctx, domain.RefreshToken{
 		Hash:      hash,
-		UserID:    userID,
+		UserID:    user.ID,
 		ExpiresAt: now.Add(domain.RefreshTokenTTL),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("store refresh token: %w", err)
 	}
-	return &Session{AccessToken: access, RefreshToken: raw, ExpiresIn: domain.AccessTokenTTL}, nil
+	return &Session{AccessToken: access, RefreshToken: raw, ExpiresIn: domain.AccessTokenTTL, Role: user.Role}, nil
 }

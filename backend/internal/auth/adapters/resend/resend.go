@@ -46,11 +46,20 @@ type emailRequest struct {
 	Text    string   `json:"text"`
 }
 
-const subject = "Verifica tu correo y define tu contraseña"
+const (
+	subject           = "Verifica tu correo y define tu contraseña"
+	invitationSubject = "Te invitaron a Finanzas: define tu contraseña"
+)
 
 // SendVerification emails the verification link to the recipient.
 func (m *Mailer) SendVerification(ctx context.Context, to, link string) error {
 	return m.Send(ctx, to, subject, verificationHTML(link), verificationText(link))
+}
+
+// SendInvitation emails the invitation to a new household account. The link is
+// the same verification link; only the text differs.
+func (m *Mailer) SendInvitation(ctx context.Context, to, link string) error {
+	return m.Send(ctx, to, invitationSubject, invitationHTML(link), invitationText(link))
 }
 
 // Send emails one message with an HTML and a plain text body to the recipient.
@@ -103,4 +112,22 @@ func verificationHTML(link string) string {
 		`<p><a href="` + safe + `">Verificar correo y definir contraseña</a></p>` +
 		"<p>El enlace es válido durante 1 hora y solo puede usarse una vez. " +
 		"Si no solicitaste este correo, puedes ignorarlo.</p>"
+}
+
+func invitationText(link string) string {
+	return "Hola,\n\n" +
+		"Te invitaron a usar Finanzas. Para activar tu cuenta, verifica tu correo " +
+		"y define tu contraseña abriendo el siguiente enlace:\n\n" + link + "\n\n" +
+		"El enlace es válido durante 1 hora y solo puede usarse una vez. " +
+		"Si caduca, pide que te envíen otra invitación. Si no esperabas este correo, puedes ignorarlo.\n"
+}
+
+func invitationHTML(link string) string {
+	safe := html.EscapeString(link)
+	return "<p>Hola,</p>" +
+		"<p>Te invitaron a usar Finanzas. Para activar tu cuenta, verifica tu correo " +
+		"y define tu contraseña con el siguiente enlace:</p>" +
+		`<p><a href="` + safe + `">Activar mi cuenta</a></p>` +
+		"<p>El enlace es válido durante 1 hora y solo puede usarse una vez. " +
+		"Si caduca, pide que te envíen otra invitación. Si no esperabas este correo, puedes ignorarlo.</p>"
 }

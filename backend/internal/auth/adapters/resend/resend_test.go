@@ -138,3 +138,33 @@ func TestSendVerificationUnreachable(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestSendInvitation(t *testing.T) {
+	const link = "https://app.example.com/verify?token=abc&x=1"
+
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := resend.New("re_test_key", "avisos@example.com", srv.URL, srv.Client())
+	if err := m.SendInvitation(context.Background(), "her@example.com", link); err != nil {
+		t.Fatal(err)
+	}
+	if got["from"] != "avisos@example.com" {
+		t.Errorf("from = %v", got["from"])
+	}
+	if s, _ := got["subject"].(string); !strings.Contains(s, "invitaron") {
+		t.Errorf("subject = %q, want the invitation copy", s)
+	}
+	text, _ := got["text"].(string)
+	if !strings.Contains(text, link) || !strings.Contains(text, "invitaron") {
+		t.Errorf("text body = %q", text)
+	}
+	htmlBody, _ := got["html"].(string)
+	if !strings.Contains(htmlBody, "token=abc&amp;x=1") {
+		t.Errorf("html body must contain the escaped link: %q", htmlBody)
+	}
+}

@@ -18,12 +18,12 @@ type UserRepo struct{ pool *pgxpool.Pool }
 // NewUserRepo builds a UserRepo.
 func NewUserRepo(pool *pgxpool.Pool) *UserRepo { return &UserRepo{pool: pool} }
 
-const userColumns = `id::text, email, password_hash, verified`
+const userColumns = `id::text, email, password_hash, verified, role, active`
 
 func (r *UserRepo) find(ctx context.Context, where string, arg any) (domain.User, error) {
 	var u domain.User
 	err := r.pool.QueryRow(ctx, `SELECT `+userColumns+` FROM users WHERE `+where, arg).
-		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Verified)
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Verified, &u.Role, &u.Active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.User{}, domain.ErrNotFound
 	}

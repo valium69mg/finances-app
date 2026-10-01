@@ -40,9 +40,11 @@ type VerificationTokenRepo interface {
 	Consume(ctx context.Context, hash string, now time.Time) (userID string, err error)
 }
 
-// Mailer sends the verification email.
+// Mailer sends the verification and invitation emails.
 type Mailer interface {
 	SendVerification(ctx context.Context, to, link string) error
+	// SendInvitation sends the same link with the invitation text.
+	SendInvitation(ctx context.Context, to, link string) error
 }
 
 // Clock provides the current time.

@@ -3,6 +3,8 @@ package domain
 import (
 	"net/mail"
 	"strings"
+
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
 const maxEmailLength = 254
@@ -13,6 +15,9 @@ type User struct {
 	Email        string
 	PasswordHash string
 	Verified     bool
+	// Role is what the account may do; Active=false blocks login and refresh.
+	Role   session.Role
+	Active bool
 }
 
 // NormalizeEmail trims and lower-cases an email and rejects anything that is not a bare address.

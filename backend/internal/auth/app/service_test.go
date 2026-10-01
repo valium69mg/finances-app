@@ -14,6 +14,7 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/auth/adapters/ratelimit"
 	"github.com/valium69mg/finances-app/backend/internal/auth/app"
 	"github.com/valium69mg/finances-app/backend/internal/auth/domain"
+	"github.com/valium69mg/finances-app/backend/internal/platform/session"
 )
 
 var t0 = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
@@ -122,7 +123,17 @@ type sentMail struct{ to, link string }
 
 type fakeMailer struct {
 	sent []sentMail
-	err  error
+	// invited records the invitation variant separately from the verification one.
+	invited []sentMail
+	err     error
+}
+
+func (f *fakeMailer) SendInvitation(_ context.Context, to, link string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.invited = append(f.invited, sentMail{to, link})
+	return nil
 }
 
 func (f *fakeMailer) SendVerification(_ context.Context, to, link string) error {
@@ -158,9 +169,9 @@ func newEnv(t *testing.T) *env {
 	e := &env{
 		clock: &fakeClock{now: t0},
 		users: &fakeUsers{byID: map[string]domain.User{
-			"u1": {ID: "u1", Email: verifiedEmail, PasswordHash: hash, Verified: true},
-			"u2": {ID: "u2", Email: unverifiedEmail, PasswordHash: hash, Verified: false},
-			"u3": {ID: "u3", Email: otherUnverifiedEmail, PasswordHash: hash, Verified: false},
+			"u1": {ID: "u1", Email: verifiedEmail, PasswordHash: hash, Verified: true, Role: session.RoleOwner, Active: true},
+			"u2": {ID: "u2", Email: unverifiedEmail, PasswordHash: hash, Verified: false, Role: session.RoleHousehold, Active: true},
+			"u3": {ID: "u3", Email: otherUnverifiedEmail, PasswordHash: hash, Verified: false, Role: session.RoleHousehold, Active: true},
 		}},
 		refresh: &fakeRefresh{tokens: map[string]*domain.RefreshToken{}},
 		verif:   &fakeVerification{tokens: map[string]*domain.VerificationToken{}},
@@ -519,9 +530,9 @@ func TestLogin(t *testing.T) {
 				t.Fatalf("login must never send email: mails=%d tokens=%d", len(e.mailer.sent), len(e.verif.tokens))
 			}
 			if sess != nil {
-				uid, err := e.svc.Authenticate(sess.AccessToken)
-				if err != nil || uid != "u1" {
-					t.Errorf("access token invalid: %q, %v", uid, err)
+				id, err := e.svc.Authenticate(sess.AccessToken)
+				if err != nil || id.UserID != "u1" {
+					t.Errorf("access token invalid: %+v, %v", id, err)
 				}
 				if sess.RefreshToken == "" || sess.ExpiresIn != domain.AccessTokenTTL {
 					t.Errorf("bad session: %+v", sess)
@@ -942,7 +953,7 @@ func TestWeakPasswordDoesNotBurnToken(t *testing.T) {
 
 func TestCompleteVerificationRevokesRefreshTokens(t *testing.T) {
 	e := newEnv(t)
-	e.users.byID["u2"] = domain.User{ID: "u2", Email: unverifiedEmail, PasswordHash: "x"}
+	e.users.byID["u2"] = domain.User{ID: "u2", Email: unverifiedEmail, PasswordHash: "x", Role: session.RoleHousehold, Active: true}
 	e.refresh.tokens["h"] = &domain.RefreshToken{Hash: "h", UserID: "u2", ExpiresAt: t0.Add(time.Hour)}
 	raw := requestToken(t, e)
 	if err := e.svc.CompleteVerification(context.Background(), raw, "brand new passphrase", testIP); err != nil {
@@ -957,11 +968,11 @@ func TestAuthenticateAndMe(t *testing.T) {
 	e := newEnv(t)
 	sess := loginSession(t, e)
 
-	uid, err := e.svc.Authenticate(sess.AccessToken)
-	if err != nil || uid != "u1" {
-		t.Fatalf("authenticate: %q, %v", uid, err)
+	id, err := e.svc.Authenticate(sess.AccessToken)
+	if err != nil || id.UserID != "u1" || id.Role != session.RoleOwner {
+		t.Fatalf("authenticate: %+v, %v", id, err)
 	}
-	me, err := e.svc.Me(context.Background(), uid)
+	me, err := e.svc.Me(context.Background(), id.UserID)
 	if err != nil || me.Email != verifiedEmail {
 		t.Fatalf("me: %+v, %v", me, err)
 	}
@@ -973,4 +984,158 @@ func TestAuthenticateAndMe(t *testing.T) {
 	if _, err := e.svc.Authenticate(sess.AccessToken); !errors.Is(err, domain.ErrInvalidToken) {
 		t.Errorf("expired token err = %v", err)
 	}
+}
+
+// --- roles, deactivation and invitations ---------------------------------
+
+func setUser(e *env, id string, edit func(*domain.User)) {
+	u := e.users.byID[id]
+	edit(&u)
+	e.users.byID[id] = u
+}
+
+func TestSessionCarriesTheRoleFromTheDatabase(t *testing.T) {
+	e := newEnv(t)
+	setUser(e, "u2", func(u *domain.User) { u.Verified = true })
+
+	sess, err := e.svc.Login(ctx, unverifiedEmail, password, "ip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Role != session.RoleHousehold {
+		t.Errorf("session role = %q, want household", sess.Role)
+	}
+	id, err := e.svc.Authenticate(sess.AccessToken)
+	if err != nil || id.Role != session.RoleHousehold || id.UserID != "u2" {
+		t.Errorf("token identity = %+v, %v; want u2 household", id, err)
+	}
+}
+
+func TestRefreshRereadsTheRole(t *testing.T) {
+	e := newEnv(t)
+	first := loginSession(t, e)
+	if first.Role != session.RoleOwner {
+		t.Fatalf("login role = %q", first.Role)
+	}
+
+	setUser(e, "u1", func(u *domain.User) { u.Role = session.RoleHousehold })
+	second, err := e.svc.Refresh(ctx, first.RefreshToken, testIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Role != session.RoleHousehold {
+		t.Errorf("refreshed role = %q, want the new household role", second.Role)
+	}
+	if id, err := e.svc.Authenticate(second.AccessToken); err != nil || id.Role != session.RoleHousehold {
+		t.Errorf("new access token = %+v, %v; want household", id, err)
+	}
+}
+
+func TestInactiveUserCannotLogIn(t *testing.T) {
+	e := newEnv(t)
+	setUser(e, "u1", func(u *domain.User) { u.Active = false })
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "ip"); !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Fatalf("err = %v, want the generic ErrInvalidCredentials", err)
+	}
+}
+
+func TestInactiveUserCannotRefresh(t *testing.T) {
+	e := newEnv(t)
+	sess := loginSession(t, e)
+	setUser(e, "u1", func(u *domain.User) { u.Active = false })
+	if got, err := e.svc.Refresh(ctx, sess.RefreshToken, testIP); got != nil || !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("got %v, %v; want ErrInvalidToken", got, err)
+	}
+}
+
+func TestIdentifyTreatsInactiveLikeUnknown(t *testing.T) {
+	for _, email := range []string{verifiedEmail, unverifiedEmail} {
+		e := newEnv(t)
+		for id := range e.users.byID {
+			setUser(e, id, func(u *domain.User) { u.Active = false })
+		}
+		status, err := e.svc.Identify(ctx, email, "ip")
+		if err != nil || status != app.IdentifyVerificationSent {
+			t.Fatalf("%s: %q, %v; want verification_sent", email, status, err)
+		}
+		if len(e.mailer.sent) != 0 || len(e.verif.tokens) != 0 {
+			t.Fatalf("%s: a deactivated account must receive nothing", email)
+		}
+	}
+}
+
+func TestRevokeSessions(t *testing.T) {
+	e := newEnv(t)
+	a, b := loginSession(t, e), loginSession(t, e)
+	if err := e.svc.RevokeSessions(ctx, "u1"); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.refresh.liveCount("u1"); n != 0 {
+		t.Fatalf("live tokens = %d, want 0", n)
+	}
+	for _, tok := range []string{a.RefreshToken, b.RefreshToken} {
+		if _, err := e.svc.Refresh(ctx, tok, testIP); !errors.Is(err, domain.ErrInvalidToken) {
+			t.Errorf("revoked token still works: %v", err)
+		}
+	}
+}
+
+func TestSendInvitation(t *testing.T) {
+	e := newEnv(t)
+	if err := e.svc.SendInvitation(ctx, "u2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.mailer.invited) != 1 || len(e.mailer.sent) != 0 {
+		t.Fatalf("invited=%d verification=%d; want the invitation variant only", len(e.mailer.invited), len(e.mailer.sent))
+	}
+	m := e.mailer.invited[0]
+	if m.to != unverifiedEmail {
+		t.Errorf("to = %q", m.to)
+	}
+	u, err := url.Parse(m.link)
+	if err != nil || u.Host != "app.example.com" || u.Path != "/verify" {
+		t.Fatalf("link = %q (%v): want the existing verification page", m.link, err)
+	}
+	stored, ok := e.verif.tokens[domain.HashToken(u.Query().Get("token"))]
+	if !ok {
+		t.Fatal("the token hash must be stored")
+	}
+	if want := t0.Add(time.Hour); !stored.ExpiresAt.Equal(want) {
+		t.Errorf("expires %v, want %v: the lifetime stays 1 hour", stored.ExpiresAt, want)
+	}
+
+	// Resending issues a new single-use token; the invitation link completes the
+	// same verification flow.
+	if err := e.svc.SendInvitation(ctx, "u2"); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.verif.tokens) != 2 || e.mailer.invited[0].link == e.mailer.invited[1].link {
+		t.Fatal("a resend must issue a new token")
+	}
+	token := mustToken(t, e.mailer.invited[1].link)
+	if err := e.svc.CompleteVerification(ctx, token, "a long enough password", testIP); err != nil {
+		t.Fatalf("the invitation link must complete verification: %v", err)
+	}
+	if !e.users.byID["u2"].Verified {
+		t.Fatal("the user must be verified after accepting")
+	}
+	if err := e.svc.CompleteVerification(ctx, token, "a long enough password", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("second use: %v, want ErrInvalidToken", err)
+	}
+}
+
+func TestSendInvitationUnknownUser(t *testing.T) {
+	e := newEnv(t)
+	if err := e.svc.SendInvitation(ctx, "ghost"); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func mustToken(t *testing.T, link string) string {
+	t.Helper()
+	u, err := url.Parse(link)
+	if err != nil || u.Query().Get("token") == "" {
+		t.Fatalf("link %q has no token (%v)", link, err)
+	}
+	return u.Query().Get("token")
 }
