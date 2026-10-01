@@ -36,6 +36,7 @@ import (
 	monthclosepg "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/postgres"
 	monthcloseapp "github.com/valium69mg/finances-app/backend/internal/monthclose/app"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
+	"github.com/valium69mg/finances-app/backend/internal/platform/clock"
 	"github.com/valium69mg/finances-app/backend/internal/platform/config"
 	"github.com/valium69mg/finances-app/backend/internal/platform/cors"
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
@@ -152,7 +153,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("load TZ_NAME: %w", err)
 	}
-	now := func() time.Time { return time.Now().In(loc) }
+	now := clock.In(loc)
 
 	resendMailer := resend.New(cfg.ResendAPIKey, cfg.ResendFrom, "", nil)
 	limiter := ratelimit.New(nil)
@@ -171,13 +172,13 @@ func run() error {
 
 	movements := ledgerpg.NewRepo(pool)
 	expensesSvc := expensesapp.NewService(movements, settingsSvc, now)
-	incomeSvc := incomeapp.NewService(movements, settingsSvc, nil)
-	savingsSvc := savingsapp.NewService(movements, savingspg.NewRepo(pool), settingsSvc, nil)
+	incomeSvc := incomeapp.NewService(movements, settingsSvc, now)
+	savingsSvc := savingsapp.NewService(movements, savingspg.NewRepo(pool), settingsSvc, now)
 
 	store := invoiceStore(ctx, cfg.S3)
-	invoicesSvc := invoicesapp.NewService(invoicespg.NewRepo(pool), store, movements, settingsSvc, nil, slog.Default())
+	invoicesSvc := invoicesapp.NewService(invoicespg.NewRepo(pool), store, movements, settingsSvc, now, slog.Default())
 
-	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, nil, slog.Default())
+	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, now, slog.Default())
 	// Issuing an invoice in an already filed period warns (period_already_filed).
 	invoicesSvc.WithFilings(taxfilingSvc)
 
@@ -203,7 +204,7 @@ func run() error {
 
 	futureSvc := futureexpensesapp.NewService(futureexpensespg.NewRepo(pool), savingsSvc, expensesSvc, settingsSvc, now)
 	dashboardSvc := dashboardapp.NewService(movements, settingsSvc, incomeSvc, taxfilingSvc, billsSvc, futureSvc, now)
-	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, nil, slog.Default())
+	monthcloseSvc := monthcloseapp.NewService(monthclosepg.NewRepo(pool), movements, settingsSvc, taxfilingSvc, now, slog.Default())
 
 	// View-only server status. The disk comes from the same probe path as the
 	// e-mail alert (nil-safe: an unmeasurable path just yields disk: null).
