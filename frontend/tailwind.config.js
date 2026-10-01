@@ -18,6 +18,12 @@ export default {
         destructive: token("destructive"),
         warning: token("warning"),
         ring: token("ring"),
+        income: token("income"),
+        "income-soft": token("income-soft"),
+        expense: token("expense"),
+        "expense-soft": token("expense-soft"),
+        saving: token("saving"),
+        "saving-soft": token("saving-soft"),
       },
       fontFamily: {
         sans: ['"IBM Plex Sans"', "ui-sans-serif", "system-ui", "sans-serif"],

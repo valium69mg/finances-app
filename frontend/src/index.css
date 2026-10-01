@@ -22,6 +22,13 @@
     --color-destructive: 220 38 38; /* #DC2626 */
     --color-warning: 217 119 6; /* #D97706 (bars and borders, not text: 3.2:1 on surface) */
     --color-ring: 59 130 246; /* #3B82F6 */
+    /* Movement kinds: strong = icons, bars and text; soft = 10% of strong over the surface (chip and card backgrounds). */
+    --color-income: 4 120 87; /* #047857 emerald */
+    --color-income-soft: 230 242 238;
+    --color-expense: 109 40 217; /* #6D28D9 violet (Gasto is never red: red means over budget or error) */
+    --color-expense-soft: 240 234 251;
+    --color-saving: 3 105 161; /* #0369A1 sky */
+    --color-saving-soft: 230 240 246;
   }
 
   /* Follow the OS unless the user forced light via data-theme="light". */
@@ -40,6 +47,12 @@
       --color-destructive: 248 113 113; /* #F87171 */
       --color-warning: 251 191 36; /* #FBBF24 (bars and borders, not text: 8.6:1 on surface) */
       --color-ring: 96 165 250; /* #60A5FA */
+      --color-income: 52 211 153; /* #34D399 */
+      --color-income-soft: 32 58 68;
+      --color-expense: 167 139 250; /* #A78BFA */
+      --color-expense-soft: 44 51 78;
+      --color-saving: 56 189 248; /* #38BDF8 */
+      --color-saving-soft: 33 56 78;
     }
   }
 
@@ -58,6 +71,17 @@
     --color-destructive: 248 113 113;
     --color-warning: 251 191 36;
     --color-ring: 96 165 250;
+    --color-income: 52 211 153;
+    --color-income-soft: 32 58 68;
+    --color-expense: 167 139 250;
+    --color-expense-soft: 44 51 78;
+    --color-saving: 56 189 248;
+    --color-saving-soft: 33 56 78;
+  }
+
+  /* One stroke weight for every lucide icon (CSS wins over the stroke-width attribute). */
+  svg.lucide {
+    stroke-width: 1.75;
   }
 
   body {
