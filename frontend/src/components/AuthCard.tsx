@@ -42,9 +42,11 @@ interface FieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
   hint?: string;
   /** Lets the parent move focus to the input (e.g. to the first invalid field). */
   inputRef?: Ref<HTMLInputElement>;
+  /** Short unit shown inside the input on the right, such as "%". Decorative: put the unit in the label too. */
+  suffix?: string;
 }
 
-export function TextField({ label, error, hint, inputRef, ...input }: FieldProps) {
+export function TextField({ label, error, hint, inputRef, suffix, ...input }: FieldProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
@@ -54,7 +56,21 @@ export function TextField({ label, error, hint, inputRef, ...input }: FieldProps
       <label htmlFor={id} className="mb-1.5 block text-sm font-medium">
         {label}
       </label>
-      <input {...input} ref={inputRef} id={id} aria-invalid={error ? true : undefined} aria-describedby={describedBy} className={inputClass} />
+      <div className="relative">
+        <input
+          {...input}
+          ref={inputRef}
+          id={id}
+          aria-invalid={error ? true : input["aria-invalid"]}
+          aria-describedby={describedBy}
+          className={suffix ? `${inputClass} pr-9` : inputClass}
+        />
+        {suffix && (
+          <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted">
+            {suffix}
+          </span>
+        )}
+      </div>
       {hint && (
         <p id={hintId} className="mt-1.5 text-sm text-muted">
           {hint}

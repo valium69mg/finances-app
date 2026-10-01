@@ -15,7 +15,7 @@ import { moduleIcon } from "../modules";
 
 const SECTIONS = [
   { id: "general", label: "General", render: (s: AllSettings) => <GeneralSection data={s.general} /> },
-  { id: "categorias", label: "Categorías y presupuestos", render: (s: AllSettings) => <CategoriesSection data={s.categories} /> },
+  { id: "categorias", label: "Categorías y presupuestos", render: (s: AllSettings) => <CategoriesSection data={s.categories} general={s.general} /> },
   { id: "clientes", label: "Clientes", render: (s: AllSettings) => <ClientsSection data={s.clients} /> },
   { id: "instrumentos", label: "Instrumentos", render: (s: AllSettings) => <InstrumentsSection data={s.instruments} /> },
   { id: "resico", label: "Rangos de RESICO", render: (s: AllSettings) => <BracketsSection data={s.brackets} /> },

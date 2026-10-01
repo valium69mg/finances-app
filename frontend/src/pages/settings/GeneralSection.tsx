@@ -1,9 +1,33 @@
 import { useState } from "react";
 import { updateGeneral, type General } from "../../api/settings";
-import { TextField } from "../../components/AuthCard";
+import { FieldError, TextField } from "../../components/AuthCard";
+import { isHundred } from "../../lib/planning";
 import { SelectField } from "../expenses/SelectField";
+import { PercentField } from "./PercentField";
 import { Checkbox, SectionForm, fieldGrid, useDraft, useSave } from "./ui";
-import { validateGeneral, type Errors } from "./validation";
+import { allocationTotal, fromGeneralDraft, splitDestinationsTotal, toGeneralDraft, validateGeneral, SPLIT_DESTINATIONS, type Errors } from "./validation";
+
+/** Spanish names of the extra-income split keys. */
+const SPLIT_LABELS: Record<string, string> = {
+  sat_reserve_rate: "Reserva SAT",
+  fondo_emergencia: "Fondo de emergencia",
+  inversiones: "Inversiones",
+  aguinaldo_vacaciones: "Aguinaldo y vacaciones",
+};
+
+const SPLIT_KEYS = ["sat_reserve_rate", ...SPLIT_DESTINATIONS];
+const orderedKeys = (split: Record<string, string>) => [...SPLIT_KEYS.filter((k) => k in split), ...Object.keys(split).filter((k) => !SPLIT_KEYS.includes(k))];
+
+/** Live "Suma: X %" line; it turns destructive (and says so) while the parts do not add up to 100 %. */
+function SumLine({ total, label }: { total: string | null; label: string }) {
+  if (total === null) return null;
+  const ok = isHundred(total);
+  return (
+    <p aria-live="polite" className={`text-sm ${ok ? "text-muted" : "font-medium text-destructive"}`}>
+      {label}: {total} %{ok ? "" : " (debe sumar 100 %)"}
+    </p>
+  );
+}
 
 const FIELDS = [
   { key: "salary_usd", label: "Salario mensual (USD)" },
@@ -14,7 +38,7 @@ const FIELDS = [
 ] as const;
 
 export function GeneralSection({ data }: { data: General }) {
-  const [draft, setDraft] = useDraft(data, (d) => d);
+  const [draft, setDraft] = useDraft(data, toGeneralDraft);
   const [errors, setErrors] = useState<Errors>({});
   const save = useSave(updateGeneral);
 
@@ -22,7 +46,7 @@ export function GeneralSection({ data }: { data: General }) {
     const found = validateGeneral(draft);
     setErrors(found);
     if (Object.keys(found).length > 0) return false;
-    save.mutate(draft);
+    save.mutate(fromGeneralDraft(draft));
     return true;
   }
 
@@ -62,18 +86,23 @@ export function GeneralSection({ data }: { data: General }) {
       {Object.keys(draft.extra_income_split).length > 0 && (
         <fieldset className="space-y-3">
           <legend className="text-sm font-semibold">Reparto del ingreso extra</legend>
+          <p className="text-sm text-muted">
+            La reserva SAT se aparta primero; lo demás se reparte entre fondo de emergencia, inversiones y aguinaldo y vacaciones, que deben sumar 100 %.
+          </p>
           <div className={fieldGrid}>
-            {Object.entries(draft.extra_income_split).map(([key, value]) => (
-              <TextField
+            {orderedKeys(draft.extra_income_split).map((key) => (
+              <PercentField
                 key={key}
-                label={`Reparto: ${key}`}
-                inputMode="decimal"
-                value={value}
+                label={`${SPLIT_LABELS[key] ?? key} (%)`}
+                value={draft.extra_income_split[key]}
                 onChange={(e) => setDraft({ ...draft, extra_income_split: { ...draft.extra_income_split, [key]: e.target.value } })}
                 error={errors[`split.${key}`]}
+                aria-invalid={errors["split"] && key === SPLIT_DESTINATIONS[0] ? true : undefined}
               />
             ))}
           </div>
+          <SumLine total={splitDestinationsTotal(draft.extra_income_split)} label="Suma de los tres destinos" />
+          {errors["split"] && <FieldError id="split-sum-error">{errors["split"]}</FieldError>}
         </fieldset>
       )}
 
@@ -82,10 +111,9 @@ export function GeneralSection({ data }: { data: General }) {
           <legend className="text-sm font-semibold">Distribución de inversiones</legend>
           <div className={fieldGrid}>
             {draft.investment_allocation.map((w, i) => (
-              <TextField
+              <PercentField
                 key={w.key}
-                label={`Inversión: ${w.key}`}
-                inputMode="decimal"
+                label={`Inversión: ${w.key} (%)`}
                 value={w.value}
                 onChange={(e) =>
                   setDraft({
@@ -94,9 +122,12 @@ export function GeneralSection({ data }: { data: General }) {
                   })
                 }
                 error={errors[`alloc.${i}`]}
+                aria-invalid={errors["alloc"] && i === 0 ? true : undefined}
               />
             ))}
           </div>
+          <SumLine total={allocationTotal(draft.investment_allocation)} label="Suma de la distribución" />
+          {errors["alloc"] && <FieldError id="alloc-sum-error">{errors["alloc"]}</FieldError>}
         </fieldset>
       )}
     </SectionForm>

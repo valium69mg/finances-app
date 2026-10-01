@@ -77,11 +77,13 @@ interface SectionFormProps {
   onSubmit: () => boolean;
   submitLabel?: string;
   extraActions?: ReactNode;
+  /** Blocking validation message shown right above the save button (it must be visible where the user acts). */
+  notice?: ReactNode;
   children: ReactNode;
 }
 
 /** Shared frame for a settings section: heading, fields, save button and feedback. */
-export function SectionForm({ title, description, save, onSubmit, submitLabel = "Guardar cambios", extraActions, children }: SectionFormProps) {
+export function SectionForm({ title, description, save, onSubmit, submitLabel = "Guardar cambios", extraActions, notice, children }: SectionFormProps) {
   const formRef = useRef<HTMLFormElement>(null);
   const [attempt, setAttempt] = useState(0);
   const headingId = useId();
@@ -106,6 +108,7 @@ export function SectionForm({ title, description, save, onSubmit, submitLabel = 
         {description && <p className="mt-1 text-sm text-muted">{description}</p>}
       </div>
       {children}
+      {notice}
       {save.isError && <ErrorBanner>{describeSaveError(save.error)}</ErrorBanner>}
       <div className="flex flex-wrap items-center gap-3">
         <button type="submit" disabled={save.isPending} aria-busy={save.isPending} className={primaryButton}>
