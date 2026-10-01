@@ -1,10 +1,13 @@
 import { ApiError, api } from "./client";
-import { tokenStore, type TokenPair } from "./tokens";
+import { tokenStore, type Role, type TokenPair } from "./tokens";
+
+export type { Role } from "./tokens";
 
 export interface Me {
   id: string;
   email: string;
   verified: boolean;
+  role: Role;
 }
 
 /**

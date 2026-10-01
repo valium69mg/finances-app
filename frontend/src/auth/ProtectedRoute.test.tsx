@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -6,16 +7,18 @@ import { ProtectedRoute } from "./ProtectedRoute";
 
 function renderGuard() {
   render(
-    <AuthProvider>
-      <MemoryRouter initialEntries={["/secret"]}>
-        <Routes>
-          <Route path="/login" element={<p>login page</p>} />
-          <Route element={<ProtectedRoute />}>
-            <Route path="/secret" element={<p>secret page</p>} />
-          </Route>
-        </Routes>
-      </MemoryRouter>
-    </AuthProvider>,
+    <QueryClientProvider client={new QueryClient()}>
+      <AuthProvider>
+        <MemoryRouter initialEntries={["/secret"]}>
+          <Routes>
+            <Route path="/login" element={<p>login page</p>} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="/secret" element={<p>secret page</p>} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </AuthProvider>
+    </QueryClientProvider>,
   );
 }
 

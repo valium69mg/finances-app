@@ -92,13 +92,20 @@ export interface RecentMovement {
   amount_mxn: string;
 }
 
-export interface Dashboard {
+/**
+ * What the household role receives: only the period and the budget by category (the server drops everything
+ * else). The owner's payload extends it.
+ */
+export interface BudgetDashboard {
   /** YYYY-MM */
   month: string;
   /** First and last day (YYYY-MM-DD, inclusive) of the personal period the month label stands for. */
   period_start: string;
   period_end: string;
   categories: DashboardCategory[];
+}
+
+export interface Dashboard extends BudgetDashboard {
   income: string;
   expenses: string;
   /** Ahorro contributed in the month, net of withdrawals. */
@@ -118,16 +125,31 @@ export interface Dashboard {
 export const dashboardKeys = {
   all: ["dashboard"] as const,
   month: (month: string) => ["dashboard", month] as const,
+  /** The household view; an empty month lets the server pick the current cycle. */
+  budget: (month: string) => ["dashboard", "budget", month] as const,
 };
+
+/**
+ * The full payload carries the owner's figures; a reduced one (household role, or a session whose role changed)
+ * has only the budget rows. Pages decide by the payload they got, never by assuming fields exist.
+ */
+export function isFullDashboard(d: BudgetDashboard | Dashboard): d is Dashboard {
+  const full = d as Partial<Dashboard>;
+  return typeof full.income === "string" && typeof full.expenses === "string" && full.cycle !== undefined && full.future_expenses !== undefined;
+}
 
 type Client = Pick<typeof api, "request">;
 
 export function createDashboardApi(client: Client = api) {
   return {
-    get: (month: string) => client.request<Dashboard>(`/dashboard?month=${encodeURIComponent(month)}`),
+    /** The owner's dashboard. A reduced payload is possible (the role is the server's call): see isFullDashboard. */
+    get: (month: string) => client.request<Dashboard | BudgetDashboard>(`/dashboard?month=${encodeURIComponent(month)}`),
+    /** The household view. An empty month asks for the current cycle, so the page needs no settings. */
+    getBudget: (month: string) => client.request<BudgetDashboard>(`/dashboard?month=${encodeURIComponent(month)}`),
   };
 }
 
 const defaultApi = createDashboardApi();
 
 export const getDashboard = defaultApi.get;
+export const getBudgetDashboard = defaultApi.getBudget;

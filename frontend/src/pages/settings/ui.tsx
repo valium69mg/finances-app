@@ -21,6 +21,7 @@ export function describeSaveError(err: unknown): string {
       return "Faltan parámetros fiscales. Completa los rangos de RESICO y los datos generales antes de continuar.";
     }
     if (err.status === 401) return "Tu sesión expiró. Inicia sesión de nuevo.";
+    if (err.status === 403) return "Tu cuenta no tiene permiso para esta sección.";
     if (err.status >= 500) return "El servidor tuvo un problema. Intenta de nuevo en unos minutos.";
     return "No se pudo completar la operación. Revisa los datos e intenta de nuevo.";
   }

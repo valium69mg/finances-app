@@ -3,16 +3,18 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CircleUser, LogOut, Menu, Wallet, X } from "lucide-react";
 import { fetchMe } from "../api/auth";
+import { tokenStore } from "../api/tokens";
 import { useAuth } from "../auth/AuthContext";
-import { modules } from "../modules";
+import { canOpen, modules } from "../modules";
 
 const DESKTOP_QUERY = "(min-width: 1024px)";
 
 function ModuleNav({ onNavigate }: { onNavigate?: () => void }) {
+  const { role } = useAuth();
   return (
     <nav aria-label="Módulos" className="min-h-0 flex-1 overflow-y-auto p-3">
       <ul className="space-y-1">
-        {modules.map((m) => {
+        {modules.filter((m) => canOpen(role, m.path)).map((m) => {
           const Icon = m.icon;
           return (
             <li key={m.path}>
@@ -55,6 +57,12 @@ export function Layout() {
   const drawerRef = useRef<HTMLDivElement>(null);
   const shownPath = useRef(location.pathname);
   const me = useQuery({ queryKey: ["me"], queryFn: fetchMe, retry: false, staleTime: 5 * 60_000 });
+
+  // The server's word on the role wins over what the session stored (e.g. a role changed since the last refresh).
+  const serverRole = me.data?.role;
+  useEffect(() => {
+    if (serverRole) tokenStore.setRole(serverRole);
+  }, [serverRole]);
 
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);

@@ -43,5 +43,14 @@ export const modules: ModuleTab[] = [
   { path: "/configuracion", label: "Configuración", icon: Settings, description: "Aquí ajustarás las preferencias de tu cuenta." },
 ];
 
+/**
+ * Tabs the household role may open. Everything else is owner-only (the backend answers 403 for it, so hiding
+ * the tab and redirecting the route are only conveniences). A new module is owner-only until it is listed here.
+ */
+const HOUSEHOLD_PATHS: readonly string[] = ["/"];
+
+/** True when a session with this role may open the module at `path`. */
+export const canOpen = (role: "owner" | "household", path: string): boolean => role === "owner" || HOUSEHOLD_PATHS.includes(path);
+
 /** Navigation icon of a module, reused by its page header. */
 export const moduleIcon = (path: string): LucideIcon => modules.find((m) => m.path === path)?.icon ?? LayoutDashboard;

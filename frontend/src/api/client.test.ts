@@ -48,6 +48,17 @@ describe("api client", () => {
     expect(fetchFn).toHaveBeenCalledTimes(3);
   });
 
+  it("hands the role of the refreshed session to the store", async () => {
+    const { client, store } = setup((url, init) => {
+      if (url.endsWith("/auth/refresh")) return json(200, { access_token: "new", refresh_token: "r2", role: "household" });
+      const auth = (init.headers as Record<string, string>).Authorization;
+      return auth === "Bearer new" ? json(200, {}) : json(401, { error: "unauthorized" });
+    });
+    const set = vi.spyOn(store, "set");
+    await client.request("/auth/me");
+    expect(set).toHaveBeenCalledWith({ access_token: "new", refresh_token: "r2", role: "household" });
+  });
+
   it("shares one refresh call between concurrent 401s (single-flight)", async () => {
     const { client, fetchFn } = setup((url, init) => {
       if (url.endsWith("/auth/refresh")) return json(200, { access_token: "new", refresh_token: "r2" });

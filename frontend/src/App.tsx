@@ -1,7 +1,8 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { useAuth } from "./auth/AuthContext";
 import { ProtectedRoute } from "./auth/ProtectedRoute";
 import { Layout } from "./components/Layout";
-import { modules } from "./modules";
+import { canOpen, modules } from "./modules";
 import { Bills } from "./pages/Bills";
 import { Dashboard } from "./pages/Dashboard";
 import { Expenses } from "./pages/Expenses";
@@ -35,6 +36,7 @@ function pageFor(path: string) {
 }
 
 export function App() {
+  const { role } = useAuth();
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
@@ -42,7 +44,11 @@ export function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           {modules.map((m) => (
-            <Route key={m.path} path={m.path} element={pageFor(m.path) ?? <Placeholder module={m} />} />
+            <Route
+              key={m.path}
+              path={m.path}
+              element={canOpen(role, m.path) ? (pageFor(m.path) ?? <Placeholder module={m} />) : <Navigate to="/" replace />}
+            />
           ))}
         </Route>
       </Route>

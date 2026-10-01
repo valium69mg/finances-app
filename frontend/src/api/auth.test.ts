@@ -81,6 +81,18 @@ describe("login", () => {
     expect(localStorage.getItem("refresh_token")).toBe("r1");
   });
 
+  it("stores the role of the session next to the tokens", async () => {
+    mockFetch(() => json(200, { access_token: "a1", refresh_token: "r1", role: "household" }));
+    await login("a@b.co", "pw");
+    expect(localStorage.getItem("role")).toBe("household");
+  });
+
+  it("keeps a session without a role usable (the role arrives with the next refresh)", async () => {
+    mockFetch(() => json(200, { access_token: "a1", refresh_token: "r1" }));
+    await login("a@b.co", "pw");
+    expect(localStorage.getItem("role")).toBeNull();
+  });
+
   it.each([
     [401, "invalid_credentials"],
     [429, "rate_limited"],
