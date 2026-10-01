@@ -35,10 +35,10 @@ async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expa
   await page.goto("/ingresos");
   await expect(page.getByRole("heading", { level: 1, name: "Ingresos" })).toBeVisible();
   if (expanded) {
-    await page.getByRole("button", { name: "+ Nuevo ingreso" }).click();
+    await page.getByRole("button", { name: "Nuevo ingreso" }).click();
     await expect(page.getByLabel("Categoría")).toBeVisible();
   } else {
-    await expect(page.getByRole("button", { name: "+ Nuevo ingreso" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Nuevo ingreso" })).toBeVisible();
   }
   return api;
 }
@@ -46,7 +46,7 @@ async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expa
 test.describe("income page", () => {
   test("the create form is collapsed by default and expands inline from the button", async ({ page }) => {
     await open(page, { income: [seeded()] }, { expanded: false });
-    const toggle = page.getByRole("button", { name: "+ Nuevo ingreso" });
+    const toggle = page.getByRole("button", { name: "Nuevo ingreso" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(toggle).toHaveAttribute("aria-controls", "income-form-panel");
     await expect(page.getByRole("form")).toHaveCount(0);
@@ -71,7 +71,7 @@ test.describe("income page", () => {
     await page.getByRole("button", { name: "Agregar ingreso" }).click();
     await expect(page.getByText("Ingreso guardado.")).toBeVisible();
     await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "+ Nuevo ingreso" })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: "Nuevo ingreso" })).toHaveAttribute("aria-expanded", "false");
   });
 
   test("starting to edit a row opens the form, keeps the green highlight and collapses on cancel", async ({ page }) => {
@@ -120,7 +120,7 @@ test.describe("income page", () => {
     expect(body.payment_method).toBe("Transferencia");
     // The form collapses after the save and opens empty again.
     await expect(page.getByRole("form")).toHaveCount(0);
-    await page.getByRole("button", { name: "+ Nuevo ingreso" }).click();
+    await page.getByRole("button", { name: "Nuevo ingreso" }).click();
     await expect(page.getByLabel("Descripción")).toHaveValue("");
     await expect(page.getByLabel("Monto")).toHaveValue("");
   });
@@ -193,7 +193,7 @@ test.describe("income page", () => {
     await expect(page.getByText("Ingreso guardado.")).toBeVisible();
     // The form collapses after saving.
     await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "+ Nuevo ingreso" })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: "Nuevo ingreso" })).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByRole("listitem").filter({ hasText: "Sueldo octubre" })).toContainText("$21,000.75 MXN");
     const put = api.writes.find((w) => w.method === "PUT" && w.path === "/income/1");
     expect((put?.body as { amount: string }).amount).toBe("21000.75");

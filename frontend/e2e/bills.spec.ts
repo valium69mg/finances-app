@@ -45,7 +45,7 @@ async function openBills(page: Page, opts: Parameters<typeof mockApi>[1] = {}, {
   await seedSession(page);
   await page.goto("/pagos-recurrentes");
   await expect(page.getByRole("heading", { level: 1, name: "Pagos recurrentes" })).toBeVisible();
-  if (expanded) await page.getByRole("button", { name: "+ Nuevo pago recurrente" }).click();
+  if (expanded) await page.getByRole("button", { name: "Nuevo pago recurrente" }).click();
   return api;
 }
 
@@ -54,7 +54,7 @@ const rowOf = (page: Page, name: string) => page.getByRole("list", { name: "Pago
 test.describe("bills page", () => {
   test("the bill form is collapsed by default, expands inline and opens by itself on edit", async ({ page }) => {
     await openBills(page, { bills: BILLS }, { expanded: false });
-    const toggle = page.getByRole("button", { name: "+ Nuevo pago recurrente" });
+    const toggle = page.getByRole("button", { name: "Nuevo pago recurrente" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(toggle).toHaveAttribute("aria-controls", "bill-form-panel");
     await expect(page.getByRole("form")).toHaveCount(0);
@@ -131,7 +131,7 @@ test.describe("bills page", () => {
     await expect(rowOf(page, "Megacable")).toContainText("$550.00 MXN");
     // The form collapses after the save and opens empty again.
     await expect(page.getByRole("form")).toHaveCount(0);
-    await page.getByRole("button", { name: "+ Nuevo pago recurrente" }).click();
+    await page.getByRole("button", { name: "Nuevo pago recurrente" }).click();
     await expect(page.getByLabel("Nombre")).toHaveValue("");
   });
 

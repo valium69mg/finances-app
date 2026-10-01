@@ -22,7 +22,7 @@ function ModuleNav({ onNavigate }: { onNavigate?: () => void }) {
                 onClick={onNavigate}
                 className={({ isActive }) =>
                   `focus-ring flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors duration-200 ${
-                    isActive ? "bg-primary/10 font-semibold text-primary" : "text-muted hover:bg-primary/5 hover:text-foreground"
+                    isActive ? "bg-primary/10 font-semibold text-primary shadow-[inset_3px_0_0_rgb(var(--color-primary))]" : "text-muted hover:bg-primary/5 hover:text-foreground"
                   }`
                 }
               >

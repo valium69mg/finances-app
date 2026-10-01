@@ -1,3 +1,4 @@
+import { Plus } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 import { secondaryButton } from "../pages/settings/ui";
 
@@ -6,7 +7,7 @@ const FIRST_FIELD = "input:not([disabled]):not([type=hidden]), select:not([disab
 interface Props {
   /** Id of the panel, referenced by the toggle's aria-controls. */
   id: string;
-  /** Text of the toggle, e.g. "+ Nuevo ingreso". */
+  /** Text of the toggle, e.g. "Nuevo ingreso". A leading "+ " is dropped: the Plus icon replaces it. */
   label: string;
   /** The create form is open. */
   open: boolean;
@@ -40,7 +41,8 @@ export function InlineFormPanel({ id, label, open, onToggle, editing, children }
     <div>
       {!editing && (
         <button ref={toggleRef} type="button" onClick={onToggle} aria-expanded={expanded} aria-controls={id} className={secondaryButton}>
-          {label}
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {label.replace(/^\+\s*/, "")}
         </button>
       )}
       <div id={id} ref={panelRef} hidden={!expanded} className={expanded && !editing ? "mt-5" : undefined}>

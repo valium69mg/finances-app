@@ -35,10 +35,10 @@ async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expa
   await page.goto("/gastos");
   await expect(page.getByRole("heading", { level: 1, name: "Gastos" })).toBeVisible();
   if (expanded) {
-    await page.getByRole("button", { name: "+ Nuevo gasto" }).click();
+    await page.getByRole("button", { name: "Nuevo gasto" }).click();
     await expect(page.getByLabel("Categoría")).toBeVisible();
   } else {
-    await expect(page.getByRole("button", { name: "+ Nuevo gasto" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Nuevo gasto" })).toBeVisible();
   }
   return api;
 }
@@ -46,7 +46,7 @@ async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expa
 test.describe("expenses page", () => {
   test("the create form is collapsed by default and expands inline from the button", async ({ page }) => {
     await open(page, { expenses: [seeded()] }, { expanded: false });
-    const toggle = page.getByRole("button", { name: "+ Nuevo gasto" });
+    const toggle = page.getByRole("button", { name: "Nuevo gasto" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(toggle).toHaveAttribute("aria-controls", "expense-form-panel");
     await expect(page.getByRole("form")).toHaveCount(0);
@@ -80,7 +80,7 @@ test.describe("expenses page", () => {
 
     await page.getByRole("button", { name: "Cancelar edición" }).click();
     await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "+ Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: "Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
   });
 
   test("with a pay cycle starting on the last day, a 2026-09-30 expense lists under 2026-10, not 2026-09", async ({ page }) => {
@@ -121,7 +121,7 @@ test.describe("expenses page", () => {
     expect(body.date).toBe(today());
     // The form collapses after a successful save and opens empty again.
     await expect(page.getByRole("form")).toHaveCount(0);
-    await page.getByRole("button", { name: "+ Nuevo gasto" }).click();
+    await page.getByRole("button", { name: "Nuevo gasto" }).click();
     await expect(page.getByLabel("Descripción")).toHaveValue("");
     await expect(page.getByLabel("Monto")).toHaveValue("");
   });
@@ -192,7 +192,7 @@ test.describe("expenses page", () => {
     await expect(page.getByText("Gasto guardado.")).toBeVisible();
     // The form collapses after saving.
     await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "+ Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("button", { name: "Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByRole("listitem").filter({ hasText: "Tacos del centro" })).toContainText("$220.75 MXN");
     const put = api.writes.find((w) => w.method === "PUT" && w.path === "/expenses/1");
     expect((put?.body as { amount: string }).amount).toBe("220.75");

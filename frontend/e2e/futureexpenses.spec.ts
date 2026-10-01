@@ -51,7 +51,7 @@ test.describe("future expenses in the configuration", () => {
 
   test("the create form is collapsed, validates and sends the decimal string", async ({ page }) => {
     const api = await openSection(page);
-    const toggle = page.getByRole("button", { name: "+ Nuevo gasto futuro" });
+    const toggle = page.getByRole("button", { name: "Nuevo gasto futuro" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(page.getByText("Aún no tienes gastos futuros")).toBeVisible();
     await toggle.click();
@@ -173,7 +173,7 @@ test.describe("future expenses in the configuration", () => {
     const long: MockFutureExpense = { id: 9, name: "Compra muy grande con un nombre bastante largo para probar el ajuste de línea en pantallas angostas", target_amount: "999999999.99", due_date: day(200), saved: "123456789.12" };
     await openSection(page, { futureExpenses: [LAPTOP, long, PHONE], futureFreeBalance: "1234567.89" });
     await expectNoHorizontalOverflow(page, "long names");
-    await page.getByRole("button", { name: "+ Nuevo gasto futuro" }).click();
+    await page.getByRole("button", { name: "Nuevo gasto futuro" }).click();
     await expectNoHorizontalOverflow(page, "create form");
     await rowOf(page, "Compra muy grande").getByRole("button", { name: /Asignar saldo libre/ }).click();
     await expectNoHorizontalOverflow(page, "assign dialog");

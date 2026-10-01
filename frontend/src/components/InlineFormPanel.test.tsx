@@ -13,7 +13,7 @@ function Harness({ startEditing = false }: { startEditing?: boolean }) {
       <button type="button" onClick={() => setEditing(true)}>
         editar
       </button>
-      <InlineFormPanel id="panel" label="+ Nuevo ingreso" open={open} onToggle={() => setOpen((o) => !o)} editing={editing}>
+      <InlineFormPanel id="panel" label="Nuevo ingreso" open={open} onToggle={() => setOpen((o) => !o)} editing={editing}>
         <form aria-label="form">
           <input aria-label="Descripción" />
           <button
@@ -34,7 +34,7 @@ function Harness({ startEditing = false }: { startEditing?: boolean }) {
 describe("InlineFormPanel", () => {
   it("is collapsed by default, without rendering the form", () => {
     render(<Harness />);
-    const toggle = screen.getByRole("button", { name: "+ Nuevo ingreso" });
+    const toggle = screen.getByRole("button", { name: "Nuevo ingreso" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle).toHaveAttribute("aria-controls", "panel");
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
@@ -42,7 +42,7 @@ describe("InlineFormPanel", () => {
 
   it("expands inline, moves focus to the first field and toggles closed again", () => {
     render(<Harness />);
-    const toggle = screen.getByRole("button", { name: "+ Nuevo ingreso" });
+    const toggle = screen.getByRole("button", { name: "Nuevo ingreso" });
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("textbox", { name: "Descripción" })).toHaveFocus();
@@ -56,10 +56,10 @@ describe("InlineFormPanel", () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole("button", { name: "editar" }));
     expect(screen.getByRole("form")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "+ Nuevo ingreso" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Nuevo ingreso" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "guardar" }));
     expect(screen.queryByRole("form")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "+ Nuevo ingreso" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Nuevo ingreso" })).toHaveFocus();
   });
 });

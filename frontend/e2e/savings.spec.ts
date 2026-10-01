@@ -41,10 +41,10 @@ async function open(page: Page, opts: Parameters<typeof mockApi>[1] = {}, { expa
   await page.goto("/ahorros");
   await expect(page.getByRole("heading", { level: 1, name: "Ahorros" })).toBeVisible();
   if (expanded) {
-    await page.getByRole("button", { name: "+ Nuevo ahorro" }).click();
+    await page.getByRole("button", { name: "Nuevo ahorro" }).click();
     await expect(page.getByRole("form", { name: "Nuevo ahorro" })).toBeVisible();
   } else {
-    await expect(page.getByRole("button", { name: "+ Nuevo ahorro" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Nuevo ahorro" })).toBeVisible();
   }
   return api;
 }
@@ -56,7 +56,7 @@ const valuationForm = (page: Page) => page.getByRole("form", { name: "Registrar 
 test.describe("savings page", () => {
   test("the saving form is collapsed by default, expands inline and opens by itself on edit", async ({ page }) => {
     await open(page, { savings: [seeded()] }, { expanded: false });
-    const toggle = page.getByRole("button", { name: "+ Nuevo ahorro" });
+    const toggle = page.getByRole("button", { name: "Nuevo ahorro" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(toggle).toHaveAttribute("aria-controls", "saving-form-panel");
     await expect(page.getByRole("form", { name: /ahorro$/ })).toHaveCount(0);
@@ -137,7 +137,7 @@ test.describe("savings page", () => {
     expect(body.instrument).toBe("i1");
     // The form collapses after the save and opens empty again.
     await expect(page.getByRole("form", { name: /ahorro$/ })).toHaveCount(0);
-    await page.getByRole("button", { name: "+ Nuevo ahorro" }).click();
+    await page.getByRole("button", { name: "Nuevo ahorro" }).click();
     await expect(savingForm(page).getByLabel("Descripción")).toHaveValue("");
     await expect(savingForm(page).getByLabel("Monto")).toHaveValue("");
   });

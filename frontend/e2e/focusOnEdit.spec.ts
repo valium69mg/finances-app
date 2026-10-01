@@ -51,7 +51,7 @@ test.describe("focus on edit (inline form)", () => {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     // The create form is collapsed: its toggle sits at the top of the page, far from the last row.
     await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "+ Nuevo ingreso" })).not.toBeInViewport();
+    await expect(page.getByRole("button", { name: "Nuevo ingreso" })).not.toBeInViewport();
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
 
     await edit.click();
