@@ -4,7 +4,7 @@ import { cycleOf } from "../src/pages/cycle";
 /**
  * In-memory stand-in for the /expense-requests endpoints, used by helpers.ts. It keeps what the backend
  * guarantees: a household user sees only her own requests, only the requester cancels and only while the request
- * is pending, decided requests are immutable (409 invalid_state), approving as a Gasto registers the expense
+ * is pending, decided requests are immutable (409 invalid_state) except for the owner's revert of an approval, approving as a Gasto registers the expense
  * (a request that does not fit its budget is still approved) and approving as a future expense creates the item
  * without touching the budget. All examples are fake: the repository is public.
  */
@@ -19,6 +19,10 @@ export interface MockExpenseRequest {
   status?: "solicitada" | "aprobada" | "rechazada" | "cancelada";
   decision_comment?: string | null;
   result_kind?: "gasto" | "gasto_futuro" | null;
+  /** The Gasto or the future expense an approved request points to (seeded by the test). */
+  result_movement_id?: number | null;
+  result_future_expense_id?: number | null;
+  revert_count?: number;
 }
 
 export type ExpenseRequestsFail = "list" | "create" | "rate_limit" | "approve";
@@ -44,6 +48,8 @@ interface Stored {
   result_movement_id: number | null;
   result_future_expense_id: number | null;
   created_at: string;
+  revert_count: number;
+  reverted_at: string | null;
 }
 
 export interface ExpenseRequestsDeps {
@@ -56,6 +62,10 @@ export interface ExpenseRequestsDeps {
   recordExpense: (body: Record<string, unknown>) => { id: number; amount_mxn: string };
   /** Adds an active future expense and returns its id. */
   recordFuture: (name: string, target: string, due: string) => number;
+  /** Deletes a Gasto of the shared in-memory expenses (a missing one is fine). */
+  removeExpense: (id: number) => void;
+  /** Deletes an active future expense; a paid one is refused and a missing one is fine. */
+  removeFuture: (id: number) => "removed" | "paid" | "missing";
   json: Json;
 }
 
@@ -76,9 +86,11 @@ export function createExpenseRequestsMock(seed: MockExpenseRequest[], fail: Expe
     decision_comment: s.decision_comment ?? null,
     decided_at: s.status && s.status !== "solicitada" ? "2026-10-04T12:00:00Z" : null,
     result_kind: s.result_kind ?? null,
-    result_movement_id: null,
-    result_future_expense_id: null,
+    result_movement_id: s.result_movement_id ?? null,
+    result_future_expense_id: s.result_future_expense_id ?? null,
     created_at: `2026-10-0${Math.min(9, s.id)}T12:00:00Z`,
+    revert_count: s.revert_count ?? 0,
+    reverted_at: s.revert_count ? "2026-10-05T12:00:00Z" : null,
   }));
   let nextId = seed.reduce((max, s) => Math.max(max, s.id), 0) + 1;
   /** Every write the page sent: method, path and JSON body. */
@@ -168,12 +180,14 @@ export function createExpenseRequestsMock(seed: MockExpenseRequest[], fail: Expe
         result_movement_id: null,
         result_future_expense_id: null,
         created_at: "2026-10-05T12:00:00Z",
+        revert_count: 0,
+        reverted_at: null,
       };
       requests.push(row);
       return reply(201, dto(row));
     }
 
-    const match = /^\/expense-requests\/(\d+)\/(cancel|budget-check|approve|reject)$/.exec(pathname);
+    const match = /^\/expense-requests\/(\d+)\/(cancel|budget-check|approve|reject|revert)$/.exec(pathname);
     if (!match) return false;
     const id = Number(match[1]);
     const action = match[2];
@@ -197,6 +211,24 @@ export function createExpenseRequestsMock(seed: MockExpenseRequest[], fail: Expe
       if (row.status !== "solicitada") return reply(409, { error: "invalid_state" });
       row.status = "cancelada";
       row.decided_at = "2026-10-05T12:00:00Z";
+      return reply(200, dto(row));
+    }
+
+    if (action === "revert") {
+      // Owner only (the household role never reaches here: helpers.ts answers 403). Only an approved request.
+      if (row.status !== "aprobada") return reply(409, { error: "invalid_state" });
+      if (row.result_kind === "gasto_futuro" && row.result_future_expense_id !== null) {
+        if (deps.removeFuture(row.result_future_expense_id) === "paid") return reply(409, { error: "future_expense_paid", message: "the future expense is already paid" });
+      } else if (row.result_kind === "gasto" && row.result_movement_id !== null) {
+        deps.removeExpense(row.result_movement_id);
+      }
+      row.status = "solicitada";
+      row.decided_at = null;
+      row.result_kind = null;
+      row.result_movement_id = null;
+      row.result_future_expense_id = null;
+      row.revert_count += 1;
+      row.reverted_at = "2026-10-06T12:00:00Z";
       return reply(200, dto(row));
     }
     if (row.status !== "solicitada") return reply(409, { error: "invalid_state" });

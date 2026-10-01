@@ -281,6 +281,11 @@ export async function mockApi(
       return { id: expense.id, amount_mxn: expense.amount_mxn };
     },
     recordFuture: (name, target, due) => futureMock.add(name, target, due),
+    removeExpense: (id) => {
+      const at = expenses.findIndex((e) => e.id === id);
+      if (at >= 0) expenses.splice(at, 1);
+    },
+    removeFuture: (id) => futureMock.removeForRevert(id),
     json,
   });
   const monthCloseMock = createMonthCloseMock(opts.closes ?? [], opts.monthCloseFail, {
@@ -304,7 +309,7 @@ export async function mockApi(
     // The backend denies the household role everything but its dashboard and its own session routes.
     // denyAll refuses every module route even for the owner: a session whose role changed on the server.
     // The expense request routes of the household role: create, list, cancel and the category names. The budget
-    // check, the approval and the rejection are owner-only.
+    // check, the approval, the rejection and the revert are owner-only.
     const householdRequestRoute =
       (pathname === "/expense-requests" && ["GET", "POST"].includes(request.method())) ||
       (pathname === "/expense-requests/categories" && request.method() === "GET") ||

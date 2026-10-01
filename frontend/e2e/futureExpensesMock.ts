@@ -234,5 +234,18 @@ export function createFutureExpensesMock(seed: MockFutureExpense[], initialFreeB
     return id;
   }
 
-  return { handle, dashboard, add, writes, freeBalance: () => money(freeCents) };
+  /**
+   * Deletes an item as reverting an expense request does: an active item goes away and its savings return to the
+   * free balance, a paid one is refused, a missing one is fine (idempotent).
+   */
+  function removeForRevert(id: number): "removed" | "paid" | "missing" {
+    const item = items.find((f) => f.id === id);
+    if (!item) return "missing";
+    if (item.status === "paid") return "paid";
+    freeCents += item.savedCents;
+    items.splice(items.indexOf(item), 1);
+    return "removed";
+  }
+
+  return { handle, dashboard, add, removeForRevert, writes, freeBalance: () => money(freeCents) };
 }

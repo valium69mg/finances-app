@@ -132,10 +132,11 @@ test.describe("household: expense requests", () => {
         budgetCheck: await call("GET", "/expense-requests/1/budget-check?category=Servicios"),
         approve: await call("POST", "/expense-requests/1/approve", { destination: "gasto", category: "Servicios" }),
         reject: await call("POST", "/expense-requests/1/reject", { comment: "x" }),
+        revert: await call("POST", "/expense-requests/1/revert"),
         settings: await call("GET", "/settings"),
       };
     }, API_ORIGIN);
-    expect(statuses).toEqual({ budgetCheck: 403, approve: 403, reject: 403, settings: 403 });
+    expect(statuses).toEqual({ budgetCheck: 403, approve: 403, reject: 403, revert: 403, settings: 403 });
   });
 
   test("explains the rate limit instead of failing silently", async ({ page }) => {
@@ -169,6 +170,17 @@ test.describe("household: expense requests", () => {
       const box = await button.boundingBox();
       if (box) expect(box.height, `touch target of "${await button.innerText()}"`).toBeGreaterThanOrEqual(43);
     }
+  });
+});
+
+test.describe("household: a reverted request", () => {
+  test("shows the request as Solicitada again, with its history, and she can cancel it", async ({ page }) => {
+    await openAsHousehold(page, { expenseRequests: [{ id: 1, amount: "100.00", description: "Mía", revert_count: 1 }] });
+    const card = cardOf(page, "Mía");
+    await expect(card.getByTestId("request-state")).toHaveText("Solicitada");
+    await expect(card.getByTestId("revert-history")).toContainText("la aprobación se deshizo una vez");
+    await expect(card.getByRole("button", { name: /^Cancelar la petición/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Volver a solicitada/ })).toHaveCount(0);
   });
 });
 
@@ -326,6 +338,105 @@ test.describe("owner: expense requests", () => {
     await openAsOwner(page, { expenseRequests: [TACOS], expenseRequestsFail: "list" });
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
+  });
+
+  test("reverts a Gasto approval: the dialog says what is deleted and the request goes back to the pending list", async ({ page }) => {
+    const api = await openAsOwner(page, {
+      expenses: [spentOn(1, "Servicios", "500.00")],
+      expenseRequests: [{ ...TACOS, status: "aprobada", result_kind: "gasto", result_movement_id: 1 }, NETFLIX],
+    });
+    await expect(cards(page)).toHaveCount(1); // only Netflix is pending
+    await page.getByRole("button", { name: "Aprobadas" }).click();
+    await cardOf(page, "Tacos del sábado").getByRole("button", { name: "Volver a solicitada la petición Tacos del sábado" }).click();
+    const dialog = page.getByRole("dialog", { name: "Volver a solicitada" });
+    await expect(dialog).toContainText("Se eliminará el gasto registrado de $500.00.");
+
+    // Cancelling the dialog changes nothing.
+    await dialog.getByRole("button", { name: "Cancelar" }).click();
+    expect(api.requestWrites).toHaveLength(0);
+    expect(api.expenses).toHaveLength(1);
+
+    await cardOf(page, "Tacos del sábado").getByRole("button", { name: /Volver a solicitada/ }).click();
+    await dialog.getByRole("button", { name: "Volver a solicitada" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText(/Tacos del sábado volvió a solicitada/)).toBeVisible();
+    expect(api.requestWrites.at(-1)).toMatchObject({ method: "POST", path: "/expense-requests/1/revert" });
+    expect(api.expenses).toHaveLength(0);
+    await expect(cards(page)).toHaveCount(0); // it left the Aprobadas list
+
+    await page.getByRole("button", { name: "Solicitadas" }).click();
+    await expect(cards(page)).toHaveCount(2);
+    await expect(cardOf(page, "Tacos del sábado").getByTestId("request-state")).toHaveText("Solicitada");
+    await expect(cardOf(page, "Tacos del sábado").getByTestId("revert-history")).toContainText("una vez");
+    await expect(cardOf(page, "Tacos del sábado").getByRole("button", { name: /Aprobar/ })).toBeVisible();
+    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
+    await expect(page.getByRole("navigation", { name: "Módulos" }).getByTestId("pending-requests-badge").first()).toHaveText("2");
+  });
+
+  test("reverts a future expense approval: the item disappears and its savings go back to the free balance", async ({ page }) => {
+    const api = await openAsOwner(page, {
+      futureExpenses: [{ id: 1, name: "Regalo de aniversario", target_amount: "1800.00", due_date: "2026-12-20", saved: "300.00" }],
+      futureFreeBalance: "50.00",
+      expenseRequests: [{ ...GIFT, status: "aprobada", result_kind: "gasto_futuro", result_future_expense_id: 1 }],
+    });
+    await page.getByRole("button", { name: "Aprobadas" }).click();
+    await cardOf(page, "Regalo de aniversario").getByRole("button", { name: /Volver a solicitada/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Volver a solicitada" });
+    await expect(dialog).toContainText("Se eliminará el gasto futuro «Regalo de aniversario»; su ahorro asignado vuelve al saldo libre.");
+    await dialog.getByRole("button", { name: "Volver a solicitada" }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.requestWrites.at(-1)).toMatchObject({ path: "/expense-requests/3/revert" });
+
+    await page.goto("/gastos-futuros");
+    await expect(page.getByRole("region", { name: "Saldo libre" })).toContainText("$350.00");
+    await expect(page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("listitem").filter({ hasText: "Regalo de aniversario" })).toHaveCount(0);
+  });
+
+  test("refuses to revert a future expense that was already paid and explains why", async ({ page }) => {
+    const api = await openAsOwner(page, {
+      futureExpenses: [{ id: 1, name: "Regalo de aniversario", target_amount: "1800.00", due_date: "2026-12-20", status: "paid", paid_at: "2026-12-20", amount_paid: "1800.00" }],
+      expenseRequests: [{ ...GIFT, status: "aprobada", result_kind: "gasto_futuro", result_future_expense_id: 1 }],
+    });
+    await page.getByRole("button", { name: "Aprobadas" }).click();
+    await cardOf(page, "Regalo de aniversario").getByRole("button", { name: /Volver a solicitada/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Volver a solicitada" });
+    await dialog.getByRole("button", { name: "Volver a solicitada" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("ese gasto futuro ya se pagó");
+    await expect(dialog.getByRole("alert")).toContainText("deshaz ese pago");
+    expect(api.expenseRequests[0].status).toBe("aprobada");
+
+    // The page is alive: close the dialog and the request is still approved.
+    await dialog.getByRole("button", { name: "Cancelar" }).click();
+    await expect(cardOf(page, "Regalo de aniversario").getByTestId("request-state")).toHaveText("Aprobada");
+  });
+
+  test("a request that is no longer approved is a conflict, not a crash", async ({ page }) => {
+    const api = await openAsOwner(page, { expenseRequests: [{ ...TACOS, status: "aprobada", result_kind: "gasto" }] });
+    await page.getByRole("button", { name: "Aprobadas" }).click();
+    await cardOf(page, "Tacos del sábado").getByRole("button", { name: /Volver a solicitada/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Volver a solicitada" });
+    api.expenseRequests[0].status = "solicitada"; // reverted from another tab meanwhile
+    await dialog.getByRole("button", { name: "Volver a solicitada" }).click();
+    await expect(dialog.getByRole("alert")).toContainText("ya no está aprobada");
+    await expect(page.getByRole("heading", { level: 1, name: "Peticiones" })).toBeVisible();
+  });
+
+  test("has no horizontal overflow at 375px with the revert dialog open, and keeps 44px touch targets", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    const long = { ...TACOS, description: "Una descripción larguísima ".repeat(4).trim(), amount: "99999999.99", status: "aprobada" as const, result_kind: "gasto" as const };
+    await openAsOwner(page, { expenseRequests: [long] });
+    await page.getByRole("button", { name: "Aprobadas" }).click();
+    await expectNoHorizontalOverflow(page, "approved requests at 375px");
+    const action = cards(page).first().getByRole("button", { name: /Volver a solicitada/ });
+    expect((await action.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(43);
+    await action.click();
+    const dialog = page.getByRole("dialog", { name: "Volver a solicitada" });
+    await expect(dialog).toBeVisible();
+    await expectNoHorizontalOverflow(page, "revert dialog at 375px");
+    for (const control of await dialog.getByRole("button").all()) {
+      const b = await control.boundingBox();
+      if (b) expect(b.height, `touch target of "${await control.innerText()}"`).toBeGreaterThanOrEqual(43);
+    }
   });
 
   test("has no horizontal overflow at 375px, with the approve dialog open", async ({ page }) => {
