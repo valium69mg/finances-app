@@ -7,6 +7,7 @@ import { formatMoney } from "../expenses/money";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import { Breakdown } from "./Breakdown";
 import { describeTaxFilingError } from "./errors";
+import { FilingDocuments } from "./FilingDocuments";
 import { InvoiceRefs } from "./InvoiceRefs";
 import { dateLabel, periodLabel } from "./labels";
 import { FilingStatusBadge } from "./StatusBadge";
@@ -107,6 +108,8 @@ export function FilingDetail({ period, onClose, onPay, onDeleted }: Props) {
             </h3>
             <InvoiceRefs invoices={filing.invoices} clients={settings.data?.clients ?? []} />
           </section>
+
+          <FilingDocuments filing={filing} />
 
           {filing.status === "pendiente" && (
             <div className="space-y-3 border-t border-border pt-5">

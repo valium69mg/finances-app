@@ -13,6 +13,7 @@ import { describeTaxFilingError } from "./taxfiling/errors";
 import { InvoiceRefs, TaxWarnings } from "./taxfiling/InvoiceRefs";
 import { dateLabel, periodLabel, previousPeriod } from "./taxfiling/labels";
 import { isPaidAmount } from "./taxfiling/payment";
+import { uploadFailureMessage, type UploadFailure } from "./taxfiling/documents";
 import { RegisterForm } from "./taxfiling/RegisterForm";
 import { FilingStatusBadge } from "./taxfiling/StatusBadge";
 import { PageTitle } from "../components/PageTitle";
@@ -25,7 +26,12 @@ interface Applied {
   iva: string;
 }
 
-function PreviewBody({ preview, onRegistered }: { preview: TaxPreview; onRegistered: (r: FilingResult) => void }) {
+interface Registered {
+  result: FilingResult;
+  failures: UploadFailure[];
+}
+
+function PreviewBody({ preview, onRegistered }: { preview: TaxPreview; onRegistered: (r: FilingResult, failures: UploadFailure[]) => void }) {
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
   const clients = settings.data?.clients ?? [];
   return (
@@ -75,7 +81,7 @@ export function TaxFiling() {
   const [iva, setIva] = useState("");
   const [errors, setErrors] = useState<{ period?: string; iva?: string }>({});
   const [applied, setApplied] = useState<Applied>({ period: initial, iva: "" });
-  const [registered, setRegistered] = useState<FilingResult | null>(null);
+  const [registered, setRegistered] = useState<Registered | null>(null);
 
   const preview = useQuery({
     queryKey: taxFilingKeys.preview(applied.period, applied.iva),
@@ -121,17 +127,24 @@ export function TaxFiling() {
       </form>
 
       {registered && (
-        <p role="status" className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-          <span>
-            Declaración de {periodLabel(registered.filing.period)} registrada
-            {registered.filing.status === "pagada" ? " y pagada" : " con el pago pendiente"}.
-            {registered.filing.expense_movement_id !== null && " Se registró el gasto de Impuestos."}
-          </span>
-          <Link to="/declaraciones-presentadas" className="font-medium underline">
-            Ver declaraciones presentadas
-          </Link>
-        </p>
+        <>
+          <p role="status" className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+            <span>
+              Declaración de {periodLabel(registered.result.filing.period)} registrada
+              {registered.result.filing.status === "pagada" ? " y pagada" : " con el pago pendiente"}.
+              {registered.result.filing.expense_movement_id !== null && " Se registró el gasto de Impuestos."}
+            </span>
+            <Link to="/declaraciones-presentadas" className="font-medium underline">
+              Ver declaraciones presentadas
+            </Link>
+          </p>
+          {registered.failures.length > 0 && (
+            <div className="mt-3">
+              <ErrorBanner>{uploadFailureMessage("La declaración se guardó", registered.failures)}</ErrorBanner>
+            </div>
+          )}
+        </>
       )}
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
@@ -156,7 +169,7 @@ export function TaxFiling() {
             </div>
           </div>
         )}
-        {preview.data && <PreviewBody preview={preview.data} onRegistered={setRegistered} />}
+        {preview.data && <PreviewBody preview={preview.data} onRegistered={(result, failures) => setRegistered({ result, failures })} />}
       </div>
     </section>
   );

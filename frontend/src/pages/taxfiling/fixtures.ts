@@ -20,6 +20,7 @@ export const FILING: Filing = {
   payment: null,
   expense_movement_id: null,
   invoice_ids: [1, 2],
+  documents: [],
   created_at: "2026-11-05T12:00:00Z",
 };
 

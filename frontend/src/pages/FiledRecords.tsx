@@ -9,6 +9,7 @@ import { secondaryButton } from "./settings/ui";
 import { FilingDetail } from "./taxfiling/FilingDetail";
 import { FilingHistory } from "./taxfiling/FilingHistory";
 import { FILING_STATUS_LABEL, periodLabel } from "./taxfiling/labels";
+import { uploadFailureMessage, type UploadFailure } from "./taxfiling/documents";
 import { PaymentDialog } from "./taxfiling/PaymentDialog";
 import { PendingPeriods } from "./taxfiling/PendingPeriods";
 import { UnfiledInvoices } from "./taxfiling/UnfiledInvoices";
@@ -32,11 +33,11 @@ export function FiledRecords() {
     setSelected(period);
   }
 
-  function onPaid(result: FilingResult) {
+  function onPaid(result: FilingResult, failures: UploadFailure[]) {
     setPaying(null);
-    setNotice(
-      `Pago de ${periodLabel(result.filing.period)} registrado.${result.filing.expense_movement_id !== null ? " Se registró el gasto de Impuestos." : ""}`,
-    );
+    const expense = result.filing.expense_movement_id !== null ? " Se registró el gasto de Impuestos." : "";
+    const saved = `Pago de ${periodLabel(result.filing.period)} registrado`;
+    setNotice(failures.length > 0 ? `${uploadFailureMessage(saved, failures)}${expense}` : `${saved}.${expense}`);
   }
 
   return (

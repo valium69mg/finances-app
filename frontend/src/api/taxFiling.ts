@@ -41,6 +41,19 @@ export interface FilingPayment {
   total_paid: string;
 }
 
+/** Optional file attached to a filing: the SAT acuse (PDF) or the payment proof (PDF or image). */
+export type FilingDocumentKind = "acuse" | "comprobante";
+
+/** Metadata of an attached file; the bytes are fetched through `downloadDocument`. */
+export interface FilingDocument {
+  kind: FilingDocumentKind;
+  filename: string;
+  content_type: string;
+  size: number;
+  /** RFC 3339 UTC. */
+  uploaded_at: string;
+}
+
 export interface Filing {
   /** YYYY-MM */
   period: string;
@@ -68,6 +81,8 @@ export interface Filing {
   /** Movement id of the Impuestos expense recorded for the payment, if the user chose to. */
   expense_movement_id: number | null;
   invoice_ids: number[];
+  /** At most one document per kind. */
+  documents: FilingDocument[];
   created_at: string;
 }
 
@@ -174,6 +189,15 @@ export function createTaxFilingApi(client: Client = api) {
     pending: () => client.request<PendingPeriod[]>("/tax-filing/pending-periods"),
     /** Issued invoices left out of an already filed period. */
     unfiledInvoices: () => client.request<UnfiledInvoice[]>("/tax-filing/unfiled-invoices"),
+    /** Attaches or replaces the acuse or the comprobante of a filing, pending or paid. Answers the updated filing. */
+    attachDocument: (period: string, kind: FilingDocumentKind, file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return client.request<Filing>(`/tax-filing/${encodeURIComponent(period)}/documents/${kind}`, { method: "PUT", body: form });
+    },
+    /** Downloads a stored document through the authenticated API. */
+    downloadDocument: (period: string, kind: FilingDocumentKind) =>
+      client.request<Blob>(`/tax-filing/${encodeURIComponent(period)}/documents/${kind}`, { blob: true }),
     /** Deletes a filing whose payment is still pending (a paid one is refused). */
     remove: (period: string) => client.request<void>(`/tax-filing/${encodeURIComponent(period)}`, { method: "DELETE" }),
   };
@@ -189,3 +213,5 @@ export const payTaxFiling = defaultApi.pay;
 export const listPendingPeriods = defaultApi.pending;
 export const listUnfiledInvoices = defaultApi.unfiledInvoices;
 export const deleteTaxFiling = defaultApi.remove;
+export const attachTaxFilingDocument = defaultApi.attachDocument;
+export const downloadTaxFilingDocument = defaultApi.downloadDocument;

@@ -3,6 +3,7 @@ import { Eye, Loader2, Wallet } from "lucide-react";
 import { listTaxFilings, taxFilingKeys, type Filing, type FilingFilter } from "../../api/taxFiling";
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
+import { DOCUMENT_LABEL } from "./documents";
 import { describeTaxFilingError } from "./errors";
 import { periodLabel } from "./labels";
 import { FilingStatusBadge } from "./StatusBadge";
@@ -57,7 +58,7 @@ export function FilingHistory({ filter, selectedPeriod, onSelect, onPay }: Props
 
   return (
     <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full min-w-[52rem] border-collapse text-sm">
+      <table className="w-full min-w-[60rem] border-collapse text-sm">
         <caption className="sr-only">Historial de declaraciones presentadas</caption>
         <thead>
           <tr className="border-b border-border">
@@ -83,6 +84,9 @@ export function FilingHistory({ filter, selectedPeriod, onSelect, onPay }: Props
               Pagado
             </th>
             <th scope="col" className={th}>
+              Documentos
+            </th>
+            <th scope="col" className={th}>
               Acciones
             </th>
           </tr>
@@ -102,6 +106,13 @@ export function FilingHistory({ filter, selectedPeriod, onSelect, onPay }: Props
               <td className={tdNum}>{formatMoney(f.isr_due)}</td>
               <td className={tdNum}>{ivaCell(f.iva_due)}</td>
               <td className={tdNum}>{f.payment ? formatMoney(f.payment.total_paid) : <span className="text-muted">—</span>}</td>
+              <td className={td}>
+                {f.documents.length > 0 ? (
+                  <span>{f.documents.map((d) => DOCUMENT_LABEL[d.kind]).join(", ")}</span>
+                ) : (
+                  <span className="text-muted">—</span>
+                )}
+              </td>
               <td className={td}>
                 <div className="flex flex-wrap gap-2">
                   <button

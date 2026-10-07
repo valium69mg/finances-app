@@ -105,4 +105,33 @@ describe("tax filing api", () => {
     const { taxFiling } = setup(() => json(409, { error: "already_filed", message: "period already filed: 2026-10" }));
     await expect(taxFiling.register({ period: "2026-10" })).rejects.toMatchObject({ status: 409, code: "already_filed" } satisfies Partial<ApiError>);
   });
+
+  it("uploads a document with PUT and a multipart body, never JSON", async () => {
+    const { taxFiling, call } = setup(() => json(200, { period: "2026-10", documents: [] }));
+    const file = new File(["%PDF-1.4"], "acuse.pdf", { type: "application/pdf" });
+    await taxFiling.attachDocument("2026-10", "acuse", file);
+    const { url, init, headers } = call();
+    expect(url).toBe("http://x/tax-filing/2026-10/documents/acuse");
+    expect(init.method).toBe("PUT");
+    expect(init.body).toBeInstanceOf(FormData);
+    expect((init.body as FormData).get("file")).toBeInstanceOf(File);
+    expect(((init.body as FormData).get("file") as File).name).toBe("acuse.pdf");
+    expect(headers["Content-Type"]).toBeUndefined();
+    expect(headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("downloads a document as a blob through the authenticated API", async () => {
+    const { taxFiling, call } = setup(() => new Response("%PDF-1.4", { status: 200, headers: { "Content-Type": "application/pdf" } }));
+    const blob = await taxFiling.downloadDocument("2026-10", "comprobante");
+    expect(blob.size).toBe(8);
+    expect(blob.type).toBe("application/pdf");
+    expect(call().url).toBe("http://x/tax-filing/2026-10/documents/comprobante");
+    expect(call().init.method).toBe("GET");
+    expect(call().headers.Authorization).toBe("Bearer tok");
+  });
+
+  it("surfaces the upload error codes", async () => {
+    const { taxFiling } = setup(() => json(400, { error: "invalid_document", message: "the acuse must be a PDF" }));
+    await expect(taxFiling.attachDocument("2026-10", "acuse", new File(["x"], "a.pdf"))).rejects.toMatchObject({ status: 400, code: "invalid_document" } satisfies Partial<ApiError>);
+  });
 });

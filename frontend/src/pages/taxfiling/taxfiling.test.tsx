@@ -200,7 +200,7 @@ describe("RegisterForm", () => {
     fireEvent.change(screen.getByLabelText("Fecha de presentación"), { target: { value: "2026-11-05" } });
     fireEvent.click(screen.getByRole("button", { name: "Registrar declaración" }));
 
-    await waitFor(() => expect(onRegistered).toHaveBeenCalledWith(registered));
+    await waitFor(() => expect(onRegistered).toHaveBeenCalledWith(registered, []));
     expect(api.registerTaxFiling).toHaveBeenCalledWith({ period: "2026-10", filing_date: "2026-11-05", folio: "ACUSE-1" });
   });
 
@@ -262,7 +262,7 @@ describe("PaymentDialog", () => {
     fireEvent.change(within(dialog).getByLabelText("Fecha de pago"), { target: { value: "2026-11-12" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Registrar pago" }));
 
-    await waitFor(() => expect(onPaid).toHaveBeenCalledWith(result));
+    await waitFor(() => expect(onPaid).toHaveBeenCalledWith(result, []));
     expect(api.payTaxFiling).toHaveBeenCalledWith("2026-10", { date: "2026-11-12", isr_paid: "591.25", iva_paid: "1600.00" });
   });
 
