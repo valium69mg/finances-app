@@ -1,7 +1,17 @@
 import type { Request, Route } from "@playwright/test";
-import type { MockInvoice } from "./invoicesMock";
+import { parseMultipart, type MockInvoice } from "./invoicesMock";
 
 /** In-memory stand-in for the /tax-filing endpoints, used by helpers.ts. */
+
+export interface MockFilingDocument {
+  kind: "acuse" | "comprobante";
+  filename: string;
+  content_type: string;
+  size: number;
+  uploaded_at: string;
+  /** File content served back by the download endpoint. */
+  content?: string;
+}
 
 export interface MockFiling {
   period: string;
@@ -23,9 +33,11 @@ export interface MockFiling {
   expense_movement_id: number | null;
   invoice_ids: number[];
   created_at: string;
+  /** Attached files; omitted means none. */
+  documents?: MockFilingDocument[];
 }
 
-export type TaxFilingFail = "preview" | "incomplete" | "list" | "pending" | "register" | "pay";
+export type TaxFilingFail = "preview" | "incomplete" | "list" | "pending" | "register" | "pay" | "upload" | "download";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Settings = any;
@@ -57,6 +69,17 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
   const filings: MockFiling[] = structuredClone(seed);
   /** Every write the page sent: method, path and JSON body. */
   const writes: { method: string; path: string; body: unknown }[] = [];
+  /** Every document upload the page sent: period, kind, file name and text content. */
+  const uploads: { period: string; kind: string; filename: string; contentType: string; content: string }[] = [];
+
+  /** The filing as the API serializes it: documents always an array, never their content. */
+  const dto = (f: MockFiling) => ({
+    ...f,
+    documents: (f.documents ?? []).map(({ content: _c, ...d }) => {
+      void _c;
+      return d;
+    }),
+  });
 
   const toMxn = (inv: MockInvoice, value: string) => (inv.currency === "USD" ? Number(value) * Number(inv.exchange_rate ?? 1) : Number(value));
   const invoiceRef = (inv: MockInvoice) => ({
@@ -137,7 +160,7 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
       const warnings: unknown[] = [];
       if (prepared.length) warnings.push({ code: "prepared_invoices", message: "the period includes invoices still in state preparada", invoice_ids: prepared });
       if (filed) warnings.push({ code: "already_filed", message: `the period ${period} was already filed on ${filed.filing_date}` });
-      await json(route, 200, { ...amounts, export_base: exportBase, invoices: included.map(invoiceRef), warnings, filing: filed });
+      await json(route, 200, { ...amounts, export_base: exportBase, invoices: included.map(invoiceRef), warnings, filing: filed ? dto(filed) : null });
       return true;
     }
 
@@ -167,7 +190,7 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
       const rows = filings
         .filter((f) => (!year || f.period.startsWith(`${year}-`)) && (!status || f.status === status))
         .sort((a, b) => (a.period < b.period ? 1 : -1));
-      await json(route, 200, rows);
+      await json(route, 200, rows.map(dto));
       return true;
     }
 
@@ -201,8 +224,49 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
       filings.push(filing);
       for (const inv of link(filing)) inv.declaration_period = filing.period;
       const warnings = prepared.length ? [{ code: "prepared_invoices", message: "the period includes invoices still in state preparada", invoice_ids: prepared }] : [];
-      await json(route, 201, { filing, warnings });
+      await json(route, 201, { filing: dto(filing), warnings });
       return true;
+    }
+
+    const docMatch = /^\/tax-filing\/(\d{4}-\d{2})\/documents\/([^/]+)$/.exec(pathname);
+    if (docMatch) {
+      const target = filings.find((f) => f.period === docMatch[1]);
+      const kind = docMatch[2];
+      if (kind !== "acuse" && kind !== "comprobante") {
+        await json(route, 400, { error: "invalid_document", message: "kind must be acuse or comprobante" });
+        return true;
+      }
+      if (method === "PUT") {
+        const file = parseMultipart(request).find((p) => p.name === "file" && p.filename !== undefined);
+        if (fail === "upload") return json(route, 503, { error: "storage_unavailable", message: "document storage unavailable" }).then(() => true);
+        if (!target) {
+          await json(route, 404, { error: "not_found" });
+          return true;
+        }
+        if (!file) {
+          await json(route, 400, { error: "invalid_document", message: "the file field is required" });
+          return true;
+        }
+        const contentType = /\.pdf$/i.test(file.filename ?? "") ? "application/pdf" : "image/jpeg";
+        uploads.push({ period: target.period, kind, filename: file.filename ?? "", contentType, content: file.content });
+        const doc: MockFilingDocument = { kind, filename: file.filename ?? "", content_type: contentType, size: file.content.length, uploaded_at: "2026-11-06T09:00:00Z", content: file.content };
+        target.documents = [...(target.documents ?? []).filter((d) => d.kind !== kind), doc].sort((a, b) => (a.kind < b.kind ? -1 : 1));
+        await json(route, 200, dto(target));
+        return true;
+      }
+      if (method === "GET") {
+        const doc = target?.documents?.find((d) => d.kind === kind);
+        if (!doc) await json(route, 404, { error: "not_found" });
+        else if (fail === "download") await json(route, 503, { error: "storage_unavailable" });
+        else {
+          await route.fulfill({
+            status: 200,
+            headers: { "Access-Control-Allow-Origin": "*", "Content-Type": doc.content_type, "Content-Disposition": `attachment; filename="${doc.filename}"` },
+            body: doc.content ?? "",
+          });
+        }
+        return true;
+      }
     }
 
     const m = /^\/tax-filing\/(\d{4}-\d{2})(\/payment)?$/.exec(pathname);
@@ -226,7 +290,7 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
       filing.payment = { date: paidDate, isr_paid: body.isr_paid, iva_paid: body.iva_paid, total_paid: money(total) };
       filing.status = "pagada";
       if (body.record_expense) filing.expense_movement_id = deps.recordExpense(paidDate, `Pago SAT ISR+IVA periodo ${filing.period}`, money(total));
-      await json(route, 200, { filing, warnings: [] });
+      await json(route, 200, { filing: dto(filing), warnings: [] });
       return true;
     }
 
@@ -235,7 +299,7 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
         await json(route, 404, { error: "not_found" });
         return true;
       }
-      await json(route, 200, { ...filing, invoices: link(filing).map(invoiceRef) });
+      await json(route, 200, { ...dto(filing), invoices: link(filing).map(invoiceRef) });
       return true;
     }
 
@@ -257,5 +321,5 @@ export function createTaxFilingMock(seed: MockFiling[], fail: TaxFilingFail | un
     return false;
   }
 
-  return { filings, writes, handle, monthStatus };
+  return { filings, writes, uploads, handle, monthStatus };
 }

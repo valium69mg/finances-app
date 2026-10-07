@@ -521,3 +521,126 @@ test.describe("dashboard integration", () => {
     await expect(tax).toContainText("sigue pendiente");
   });
 });
+
+const pdfFile = (name = "acuse.pdf", body = "%PDF-1.4 acuse") => ({ name, mimeType: "application/pdf", buffer: Buffer.from(body) });
+const photoFile = (name = "IMG_0042.JPG") => ({ name, mimeType: "image/jpeg", buffer: Buffer.from("fake-jpeg-bytes") });
+
+test.describe("tax filing documents", () => {
+  test("uploads the acuse and the payment proof after registering a paid filing", async ({ page }) => {
+    const api = await openTaxFiling(page);
+    // The comprobante only makes sense once the filing is paid.
+    await expect(page.getByLabel("Acuse (PDF)")).toHaveAttribute("accept", /\.pdf/);
+    await expect(page.getByLabel("Comprobante de pago (imagen o PDF)")).toHaveCount(0);
+    await page.getByLabel("Acuse (PDF)").setInputFiles(pdfFile());
+    await page.getByRole("checkbox", { name: "Ya pagué esta declaración al SAT" }).check();
+    await expect(page.getByLabel("Comprobante de pago (imagen o PDF)")).toHaveAttribute("accept", /image\/heic/);
+    await page.getByLabel("Comprobante de pago (imagen o PDF)").setInputFiles(photoFile());
+    await page.getByRole("button", { name: "Registrar declaración" }).click();
+
+    await expect(page.getByRole("status").filter({ hasText: "registrada y pagada" })).toBeVisible();
+    // The filing request stays JSON; the files go in their own calls afterwards.
+    expect(api.taxWrites.find((w) => w.path === "/tax-filing")?.body).toMatchObject({ period: PERIOD });
+    expect(api.taxUploads.map((u) => [u.kind, u.filename])).toEqual([
+      ["acuse", "acuse.pdf"],
+      ["comprobante", "IMG_0042.JPG"],
+    ]);
+    expect(api.filings[0].documents?.map((d) => d.kind)).toEqual(["acuse", "comprobante"]);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
+  test("keeps the saved declaration and says the file was not uploaded", async ({ page }) => {
+    const api = await openTaxFiling(page, { taxFilingFail: "upload" });
+    await page.getByLabel("Acuse (PDF)").setInputFiles(pdfFile());
+    await page.getByRole("button", { name: "Registrar declaración" }).click();
+
+    await expect(page.getByRole("status").filter({ hasText: "registrada con el pago pendiente" })).toBeVisible();
+    const alert = page.getByRole("alert");
+    await expect(alert).toContainText("La declaración se guardó, pero no se pudo subir el acuse");
+    await expect(alert).toContainText("almacenamiento de documentos no está disponible");
+    await expect(alert).toContainText("Declaraciones presentadas");
+    expect(api.filings).toHaveLength(1);
+    expect(api.filings[0].documents ?? []).toHaveLength(0);
+  });
+
+  test("rejects a wrong file type before registering anything", async ({ page }) => {
+    const api = await openTaxFiling(page);
+    await page.getByLabel("Acuse (PDF)").setInputFiles(photoFile("foto.jpg"));
+    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await expect(page.getByText("El acuse debe ser un PDF (extensión .pdf).")).toBeVisible();
+    expect(api.filings).toHaveLength(0);
+  });
+
+  test("uploads, downloads and replaces the acuse of a pending filing in Declaraciones presentadas", async ({ page }) => {
+    const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()] });
+    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
+    const docs = page.getByRole("region", { name: "Documentos" });
+    await expect(docs).toContainText("Acuse del SAT");
+    await expect(docs.getByRole("button", { name: "Subir acuse" })).toBeVisible();
+    await expect(docs.getByRole("button", { name: "Subir comprobante" })).toBeVisible();
+    await expect(docs.getByRole("button", { name: /Descargar/ })).toHaveCount(0);
+
+    await docs.getByLabel("Archivo del acuse").setInputFiles(pdfFile("acuse-oct.pdf", "%PDF-1.4 uno"));
+    await expect(docs.getByRole("status")).toContainText("Acuse del SAT guardado.");
+    await expect(docs).toContainText("acuse-oct.pdf");
+    expect(api.taxUploads).toHaveLength(1);
+
+    // The authenticated download saves the stored file under its name.
+    const [download] = await Promise.all([page.waitForEvent("download"), docs.getByRole("button", { name: "Descargar acuse" }).click()]);
+    expect(download.suggestedFilename()).toBe("acuse-oct.pdf");
+
+    // Uploading again replaces it: still one acuse, new name.
+    await expect(docs.getByRole("button", { name: "Reemplazar" })).toBeVisible();
+    await docs.getByLabel("Archivo del acuse").setInputFiles(pdfFile("acuse-corregido.pdf", "%PDF-1.4 dos"));
+    await expect(docs).toContainText("acuse-corregido.pdf");
+    await expect(docs).not.toContainText("acuse-oct.pdf");
+    expect(api.taxUploads.map((u) => u.filename)).toEqual(["acuse-oct.pdf", "acuse-corregido.pdf"]);
+    expect(api.filings[0].documents).toHaveLength(1);
+    // The history lists which documents each filing has.
+    await expect(row(page, /octubre de 2026/).last()).toContainText("Acuse del SAT");
+  });
+
+  test("attaches the payment proof to a paid filing", async ({ page }) => {
+    const api = await openRecords(page, { filings: [paidFiling()] });
+    await row(page, /septiembre de 2026/).getByRole("button", { name: /Ver declaración de septiembre de 2026/ }).click();
+    const docs = page.getByRole("region", { name: "Documentos" });
+    // A paid filing is immutable for its figures, not for its documents.
+    await expect(page.getByRole("button", { name: "Eliminar registro" })).toHaveCount(0);
+    await docs.getByLabel("Archivo del comprobante").setInputFiles(photoFile());
+    await expect(docs).toContainText("IMG_0042.JPG");
+    expect(api.filings[0].documents?.[0]).toMatchObject({ kind: "comprobante", filename: "IMG_0042.JPG", content_type: "image/jpeg" });
+  });
+
+  test("uploads the payment proof together with the payment", async ({ page }) => {
+    const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()] });
+    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Registrar pago de octubre de 2026" });
+    await dialog.getByLabel("Comprobante de pago (opcional)").setInputFiles(photoFile());
+    await dialog.getByRole("button", { name: "Registrar pago" }).click();
+
+    await expect(page.getByRole("status").filter({ hasText: "Pago de octubre de 2026 registrado." })).toBeVisible();
+    expect(api.taxUploads.map((u) => [u.period, u.kind])).toEqual([[PERIOD, "comprobante"]]);
+    expect(api.filings[0]).toMatchObject({ status: "pagada" });
+  });
+
+  test("keeps the payment and says the proof was not uploaded", async ({ page }) => {
+    const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()], taxFilingFail: "upload" });
+    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Registrar pago de octubre de 2026" });
+    await dialog.getByLabel("Comprobante de pago (opcional)").setInputFiles(photoFile());
+    await dialog.getByRole("button", { name: "Registrar pago" }).click();
+
+    const notice = page.getByRole("status").filter({ hasText: "Pago de octubre de 2026 registrado" });
+    await expect(notice).toContainText("pero no se pudo subir el comprobante");
+    expect(api.filings[0].status).toBe("pagada");
+  });
+
+  test("shows the storage error when a download fails", async ({ page }) => {
+    await openRecords(page, {
+      filings: [filing({ documents: [{ kind: "acuse", filename: "acuse.pdf", content_type: "application/pdf", size: 12, uploaded_at: "2026-11-06T09:00:00Z", content: "%PDF" }] })],
+      taxFilingFail: "download",
+    });
+    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
+    await page.getByRole("region", { name: "Documentos" }).getByRole("button", { name: "Descargar acuse" }).click();
+    await expect(page.getByRole("alert")).toContainText("almacenamiento de documentos no está disponible");
+  });
+});

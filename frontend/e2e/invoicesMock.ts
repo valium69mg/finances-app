@@ -46,14 +46,14 @@ export interface MockUpload {
 
 export type InvoicesFail = "list" | "detail" | "prepare" | "storage" | "download";
 
-interface Part {
+export interface Part {
   name: string;
   filename?: string;
   content: string;
 }
 
 /** Minimal multipart/form-data reader; enough for the text files the tests upload. */
-function parseMultipart(request: Request): Part[] {
+export function parseMultipart(request: Request): Part[] {
   const type = request.headers()["content-type"] ?? "";
   const boundary = /boundary=(.+)$/.exec(type)?.[1];
   const body = request.postDataBuffer()?.toString("utf8") ?? "";

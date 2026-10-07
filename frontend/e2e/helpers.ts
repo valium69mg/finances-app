@@ -5,7 +5,7 @@ import { createExpenseRequestsMock, type ExpenseRequestsFail, type MockExpenseRe
 import { createFutureExpensesMock, type FutureExpensesFail, type MockFutureExpense } from "./futureExpensesMock";
 import { createInvoicesMock, type InvoicesFail, type MockInvoice } from "./invoicesMock";
 import { createMonthCloseMock, type MockClose, type MonthCloseFail } from "./monthCloseMock";
-import { createTaxFilingMock, previousMonthOf, type MockFiling, type TaxFilingFail } from "./taxFilingMock";
+import { createTaxFilingMock, previousMonthOf, type MockFiling, type MockFilingDocument, type TaxFilingFail } from "./taxFilingMock";
 import { OWNER_USER, createUsersMock, type MockUser, type UsersFail } from "./usersMock";
 
 export type { BillsFail, MockBill, MockOccurrence } from "./billsMock";
@@ -13,7 +13,7 @@ export type { ExpenseRequestsFail, MockExpenseRequest } from "./expenseRequestsM
 export type { FutureExpensesFail, MockFutureExpense } from "./futureExpensesMock";
 export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
 export type { MockClose, MonthCloseFail } from "./monthCloseMock";
-export type { MockFiling, TaxFilingFail } from "./taxFilingMock";
+export type { MockFiling, MockFilingDocument, TaxFilingFail } from "./taxFilingMock";
 export type { MockUser, UsersFail } from "./usersMock";
 
 export type MockRole = "owner" | "household";
@@ -537,7 +537,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes, expenseRequests: requestsMock.requests, requestWrites: requestsMock.writes, budgetChecks: requestsMock.budgetChecks };
+  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, taxUploads: taxMock.uploads, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes, expenseRequests: requestsMock.requests, requestWrites: requestsMock.writes, budgetChecks: requestsMock.budgetChecks };
 }
 
 /** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */
