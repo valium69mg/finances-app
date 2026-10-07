@@ -4,12 +4,20 @@
 // behind the authentication middleware passed to Register. Money and rates
 // travel as decimal strings. "IVA acreditable" is the official SAT term and is
 // kept in the field names.
+//
+// The optional acuse and comprobante files are uploaded with
+// PUT /tax-filing/{period}/documents/{kind} and downloaded through
+// GET /tax-filing/{period}/documents/{kind}: the backend streams the object from
+// the private bucket after authentication and never hands out presigned URLs or
+// storage keys.
 package taxfilinghttp
 
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
+	"mime"
 	"net/http"
 	"strconv"
 
@@ -34,7 +42,13 @@ type Service interface {
 	Pending(ctx context.Context) ([]taxfiling.PendingPeriod, error)
 	UnfiledInvoices(ctx context.Context) ([]invoices.Invoice, error)
 	Delete(ctx context.Context, period string) error
+	AttachDocument(ctx context.Context, period string, kind taxfiling.DocumentKind, up app.Upload) (taxfiling.Filing, error)
+	Download(ctx context.Context, period string, kind taxfiling.DocumentKind) (taxfiling.Document, io.ReadCloser, error)
 }
+
+// maxMultipartBytes bounds an upload request: one file at its limit plus the
+// multipart framing.
+const maxMultipartBytes = taxfiling.MaxDocumentBytes + 1<<20
 
 // Handler serves the /tax-filing routes.
 type Handler struct {
@@ -63,6 +77,8 @@ func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) htt
 	route("GET /tax-filing/{period}", h.get)
 	route("POST /tax-filing/{period}/payment", h.pay)
 	route("DELETE /tax-filing/{period}", h.delete)
+	route("PUT /tax-filing/{period}/documents/{kind}", h.attach)
+	route("GET /tax-filing/{period}/documents/{kind}", h.download)
 }
 
 // --- DTOs ---------------------------------------------------------------
@@ -113,6 +129,15 @@ type paymentDTO struct {
 	TotalPaid decimal.Decimal `json:"total_paid"`
 }
 
+// documentDTO never carries the storage key.
+type documentDTO struct {
+	Kind        string `json:"kind"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+	UploadedAt  string `json:"uploaded_at"`
+}
+
 type filingDTO struct {
 	Period            string          `json:"period"`
 	FilingDate        string          `json:"filing_date"`
@@ -132,6 +157,7 @@ type filingDTO struct {
 	Payment           *paymentDTO     `json:"payment"`
 	ExpenseMovementID *int            `json:"expense_movement_id"`
 	InvoiceIDs        []int           `json:"invoice_ids"`
+	Documents         []documentDTO   `json:"documents"`
 	CreatedAt         string          `json:"created_at"`
 }
 
@@ -217,8 +243,15 @@ func toFilingDTO(f taxfiling.Filing) filingDTO {
 	if ids == nil {
 		ids = []int{}
 	}
+	docs := make([]documentDTO, len(f.Documents))
+	for i, d := range f.Documents {
+		docs[i] = documentDTO{
+			Kind: string(d.Kind), Filename: d.Name, ContentType: d.ContentType, Size: d.Size,
+			UploadedAt: d.UploadedAt.UTC().Format(timeFormat),
+		}
+	}
 	dto := filingDTO{
-		Period: f.Period, FilingDate: f.FilingDate, DueDate: due,
+		Documents: docs, Period: f.Period, FilingDate: f.FilingDate, DueDate: due,
 		IncomeCollected: f.IncomeCollected, ISRRate: f.ISRRate, ISRAccrued: f.ISRAccrued, ISRWithheld: f.ISRWithheld,
 		ISRDue: f.ISRDue, IVATransferred: f.IVATransferred, IVAWithheld: f.IVAWithheld, IVAAcreditable: f.IVACreditable,
 		IVADue: f.IVADue, TotalToPay: f.TotalToPay(), Folio: f.Folio, Status: string(f.PaymentStatus()),
@@ -368,6 +401,80 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// attach takes multipart/form-data with the file field file and stores it as the
+// acuse or comprobante of the filing, replacing the previous one. It answers the
+// updated filing.
+func (h *Handler) attach(w http.ResponseWriter, r *http.Request) {
+	kind := taxfiling.DocumentKind(r.PathValue("kind"))
+	if !kind.IsValid() {
+		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_document", "message": "kind must be acuse or comprobante"})
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxMultipartBytes)
+	if err := r.ParseMultipartForm(maxMultipartBytes); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			httpjson.WriteError(w, http.StatusRequestEntityTooLarge, "request_too_large")
+			return
+		}
+		httpjson.WriteError(w, http.StatusBadRequest, "invalid_request")
+		return
+	}
+	files := r.MultipartForm.File["file"]
+	if len(files) == 0 {
+		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_document", "message": "the file field is required"})
+		return
+	}
+	fh := files[0]
+	f, err := fh.Open()
+	if err != nil {
+		h.fail(w, "attach", err)
+		return
+	}
+	defer f.Close()
+	// Never more than the limit plus one byte: the domain then rejects the file.
+	data, err := io.ReadAll(io.LimitReader(f, taxfiling.MaxDocumentBytes+1))
+	if err != nil {
+		h.fail(w, "attach", err)
+		return
+	}
+	filing, err := h.svc.AttachDocument(r.Context(), r.PathValue("period"), kind,
+		app.Upload{Name: fh.Filename, ContentType: fh.Header.Get("Content-Type"), Data: data})
+	if err != nil {
+		h.fail(w, "attach", err)
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, toFilingDTO(filing))
+}
+
+// download streams the stored file through the API. The response is an
+// attachment, is never cached and is not sniffed or sandboxed-executable.
+func (h *Handler) download(w http.ResponseWriter, r *http.Request) {
+	period, kind := r.PathValue("period"), taxfiling.DocumentKind(r.PathValue("kind"))
+	if !kind.IsValid() {
+		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_document", "message": "kind must be acuse or comprobante"})
+		return
+	}
+	doc, body, err := h.svc.Download(r.Context(), period, kind)
+	if err != nil {
+		h.fail(w, "download", err)
+		return
+	}
+	defer body.Close()
+
+	hd := w.Header()
+	hd.Set("Content-Type", doc.ContentType)
+	hd.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": doc.Name}))
+	hd.Set("Content-Length", strconv.FormatInt(doc.Size, 10))
+	hd.Set("Cache-Control", "no-store")
+	hd.Set("X-Content-Type-Options", "nosniff")
+	hd.Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	w.WriteHeader(http.StatusOK)
+	if _, err := io.Copy(w, body); err != nil {
+		h.logger.Error("tax filing download interrupted", "period", period, "kind", kind, "error", err)
+	}
+}
+
 func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 	reply := func(status int, code string) {
 		httpjson.WriteJSON(w, status, map[string]string{"error": code, "message": err.Error()})
@@ -385,8 +492,13 @@ func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 		reply(http.StatusConflict, "filing_paid")
 	case errors.Is(err, taxfiling.ErrInvoicesChanged):
 		reply(http.StatusConflict, "invoices_changed")
-	case errors.Is(err, taxfiling.ErrNotFound):
+	case errors.Is(err, taxfiling.ErrInvalidDocument):
+		reply(http.StatusBadRequest, "invalid_document")
+	case errors.Is(err, taxfiling.ErrNotFound), errors.Is(err, taxfiling.ErrDocumentMissing):
 		httpjson.WriteError(w, http.StatusNotFound, "not_found")
+	case errors.Is(err, app.ErrStorage):
+		h.logger.Error("tax filing storage failed", "op", op, "error", err)
+		httpjson.WriteError(w, http.StatusServiceUnavailable, "storage_unavailable")
 	case errors.Is(err, settings.ErrMissingConfig):
 		reply(http.StatusUnprocessableEntity, "settings_incomplete")
 	default:

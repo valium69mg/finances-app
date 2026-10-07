@@ -6,9 +6,13 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
@@ -25,6 +29,10 @@ const (
 	WarningPreparedInvoices = "prepared_invoices"
 	WarningAlreadyFiled     = "already_filed"
 )
+
+// ErrStorage wraps every failure of the object store, so callers can tell an
+// unavailable storage apart from a rejected input.
+var ErrStorage = errors.New("document storage unavailable")
 
 const paymentMethodTransfer = "Transferencia"
 
@@ -84,20 +92,21 @@ type Service struct {
 	invoices Invoices
 	expenses Expenses
 	settings Settings
+	store    ObjectStore
 	now      func() time.Time
 	logger   *slog.Logger
 }
 
-// NewService builds a Service. A nil now selects time.Now and a nil logger
-// slog.Default().
-func NewService(repo Repo, invs Invoices, expenses Expenses, settings Settings, now func() time.Time, logger *slog.Logger) *Service {
+// NewService builds a Service. store keeps the attached files (the invoices
+// store is shared). A nil now selects time.Now and a nil logger slog.Default().
+func NewService(repo Repo, invs Invoices, expenses Expenses, settings Settings, store ObjectStore, now func() time.Time, logger *slog.Logger) *Service {
 	if now == nil {
 		now = time.Now
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Service{repo: repo, invoices: invs, expenses: expenses, settings: settings, now: now, logger: logger}
+	return &Service{repo: repo, invoices: invs, expenses: expenses, settings: settings, store: store, now: now, logger: logger}
 }
 
 func (s *Service) today() string { return s.now().Format("2006-01-02") }
@@ -359,12 +368,96 @@ func (s *Service) Pending(ctx context.Context) ([]taxfiling.PendingPeriod, error
 
 // Delete removes a pending filing, so a wrong registration can be redone. A paid
 // filing cannot be deleted (taxfiling.ErrFilingPaid): money moved and an expense
-// may be linked to it.
+// may be linked to it. The attached files are removed with it; deleting their
+// objects is best effort (a failure is logged, never returned).
 func (s *Service) Delete(ctx context.Context, period string) error {
 	if err := taxfiling.ValidatePeriod(period); err != nil {
 		return err
 	}
-	return s.repo.Delete(ctx, period)
+	keys, err := s.repo.Delete(ctx, period)
+	if err != nil {
+		return err
+	}
+	s.deleteKeys(ctx, keys)
+	return nil
+}
+
+// Upload is a file received from the client.
+type Upload struct {
+	Name        string
+	ContentType string
+	Data        []byte
+}
+
+// AttachDocument stores (or replaces) the acuse or the comprobante of a filing
+// and returns the updated filing. Documents change no figure, so they are
+// accepted on pending and on paid filings alike. The new object is stored
+// first, then the row is swapped, then the replaced object is removed (best
+// effort); if the row write fails the new object is removed again.
+func (s *Service) AttachDocument(ctx context.Context, period string, kind taxfiling.DocumentKind, up Upload) (taxfiling.Filing, error) {
+	if err := taxfiling.ValidatePeriod(period); err != nil {
+		return taxfiling.Filing{}, err
+	}
+	doc, err := taxfiling.NewDocument(kind, up.Name, up.ContentType, up.Data)
+	if err != nil {
+		return taxfiling.Filing{}, err
+	}
+	if _, err := s.repo.Get(ctx, period); err != nil {
+		return taxfiling.Filing{}, err
+	}
+	suffix := make([]byte, 16)
+	if _, err := rand.Read(suffix); err != nil {
+		return taxfiling.Filing{}, err
+	}
+	doc.Period = period
+	doc.Key = fmt.Sprintf("tax-filings/%s/%s/%s%s", period, kind, hex.EncodeToString(suffix), taxfiling.KeyExtension(doc.ContentType))
+	if err := s.store.Put(ctx, doc.Key, bytes.NewReader(up.Data), doc.Size, doc.ContentType); err != nil {
+		return taxfiling.Filing{}, fmt.Errorf("%w: %v", ErrStorage, err)
+	}
+	_, replacedKey, err := s.repo.PutDocument(ctx, doc)
+	if err != nil {
+		s.deleteKeys(ctx, []string{doc.Key})
+		return taxfiling.Filing{}, err
+	}
+	if replacedKey != "" {
+		s.deleteKeys(ctx, []string{replacedKey})
+	}
+	return s.repo.Get(ctx, period)
+}
+
+// Download returns the metadata and a reader of a stored document. The caller
+// closes the reader. A document whose object is missing from the store is
+// reported as taxfiling.ErrDocumentMissing.
+func (s *Service) Download(ctx context.Context, period string, kind taxfiling.DocumentKind) (taxfiling.Document, io.ReadCloser, error) {
+	if err := taxfiling.ValidatePeriod(period); err != nil {
+		return taxfiling.Document{}, nil, err
+	}
+	if !kind.IsValid() {
+		return taxfiling.Document{}, nil, fmt.Errorf("%w: unknown kind %q", taxfiling.ErrInvalidDocument, kind)
+	}
+	doc, err := s.repo.GetDocument(ctx, period, kind)
+	if err != nil {
+		return taxfiling.Document{}, nil, err
+	}
+	body, err := s.store.Get(ctx, doc.Key)
+	if errors.Is(err, ErrObjectNotFound) {
+		s.logger.Error("stored tax filing document is missing from the object store", "period", period, "kind", kind)
+		return taxfiling.Document{}, nil, taxfiling.ErrDocumentMissing
+	}
+	if err != nil {
+		return taxfiling.Document{}, nil, fmt.Errorf("%w: %v", ErrStorage, err)
+	}
+	return doc, body, nil
+}
+
+// deleteKeys removes objects on a best-effort basis: a failure leaves an
+// orphan object that is logged, never an error for the caller.
+func (s *Service) deleteKeys(ctx context.Context, keys []string) {
+	for _, key := range keys {
+		if err := s.store.Delete(context.WithoutCancel(ctx), key); err != nil {
+			s.logger.Error("could not delete a tax filing object", "key", key, "error", err)
+		}
+	}
 }
 
 // MonthStatus is what the dashboard shows about the filings around a YYYY-MM

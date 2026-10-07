@@ -27,7 +27,7 @@ var boundaries = []struct {
 // fixtureAt is newFixture with its service rebuilt on the given clock.
 func fixtureAt(now func() time.Time) *fixture {
 	fx := newFixture()
-	fx.svc = app.NewService(fx.repo, fx.invoices, fx.expenses, fx.settings, now, nil)
+	fx.svc = app.NewService(fx.repo, fx.invoices, fx.expenses, fx.settings, fx.store, now, nil)
 	return fx
 }
 

@@ -178,7 +178,7 @@ func run() error {
 	store := invoiceStore(ctx, cfg.S3)
 	invoicesSvc := invoicesapp.NewService(invoicespg.NewRepo(pool), store, movements, settingsSvc, now, slog.Default())
 
-	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, now, slog.Default())
+	taxfilingSvc := taxfilingapp.NewService(taxfilingpg.NewRepo(pool), invoicesSvc, expensesSvc, settingsSvc, store, now, slog.Default())
 	// Issuing an invoice in an already filed period warns (period_already_filed).
 	invoicesSvc.WithFilings(taxfilingSvc)
 

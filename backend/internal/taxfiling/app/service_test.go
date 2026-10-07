@@ -83,6 +83,7 @@ type fakeRepo struct {
 	filings   map[string]taxfiling.Filing
 	createErr error
 	payErr    error
+	putDocErr error
 	listCalls int
 	getCalls  []string
 }
@@ -130,16 +131,50 @@ func (f *fakeRepo) MarkPaid(_ context.Context, period string, p taxfiling.Paymen
 	return fl, nil
 }
 
-func (f *fakeRepo) Delete(_ context.Context, period string) error {
+func (f *fakeRepo) Delete(_ context.Context, period string) ([]string, error) {
 	fl, ok := f.filings[period]
 	if !ok {
-		return taxfiling.ErrNotFound
+		return nil, taxfiling.ErrNotFound
 	}
 	if fl.Payment != nil {
-		return taxfiling.ErrFilingPaid
+		return nil, taxfiling.ErrFilingPaid
+	}
+	var keys []string
+	for _, d := range fl.Documents {
+		keys = append(keys, d.Key)
 	}
 	delete(f.filings, period)
-	return nil
+	return keys, nil
+}
+
+func (f *fakeRepo) PutDocument(_ context.Context, doc taxfiling.Document) (taxfiling.Document, string, error) {
+	if f.putDocErr != nil {
+		return taxfiling.Document{}, "", f.putDocErr
+	}
+	fl, ok := f.filings[doc.Period]
+	if !ok {
+		return taxfiling.Document{}, "", taxfiling.ErrNotFound
+	}
+	doc.UploadedAt = time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	replaced := ""
+	kept := []taxfiling.Document{}
+	for _, d := range fl.Documents {
+		if d.Kind == doc.Kind {
+			replaced = d.Key
+			continue
+		}
+		kept = append(kept, d)
+	}
+	fl.Documents = append(kept, doc)
+	f.filings[doc.Period] = fl
+	return doc, replaced, nil
+}
+
+func (f *fakeRepo) GetDocument(_ context.Context, period string, kind taxfiling.DocumentKind) (taxfiling.Document, error) {
+	if d, ok := f.filings[period].Document(kind); ok {
+		return d, nil
+	}
+	return taxfiling.Document{}, taxfiling.ErrDocumentMissing
 }
 
 type fixture struct {
@@ -148,6 +183,7 @@ type fixture struct {
 	invoices *fakeInvoices
 	expenses *fakeExpenses
 	settings *fakeSettings
+	store    *fakeStore
 }
 
 func newFixture() *fixture {
@@ -164,9 +200,10 @@ func newFixture() *fixture {
 		}},
 		expenses: &fakeExpenses{},
 		settings: &fakeSettings{cfg: settingstest.RealConfig()},
+		store:    newFakeStore(),
 	}
 	now := func() time.Time { return time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC) }
-	fx.svc = app.NewService(fx.repo, fx.invoices, fx.expenses, fx.settings, now, nil)
+	fx.svc = app.NewService(fx.repo, fx.invoices, fx.expenses, fx.settings, fx.store, now, nil)
 	return fx
 }
 
@@ -550,7 +587,7 @@ func TestPending(t *testing.T) {
 func TestPendingOverdueUsesToday(t *testing.T) {
 	fx := newFixture()
 	late := func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) }
-	svc := app.NewService(fx.repo, fx.invoices, fx.expenses, fx.settings, late, nil)
+	svc := app.NewService(fx.repo, fx.invoices, fx.expenses, fx.settings, fx.store, late, nil)
 	got, err := svc.Pending(context.Background())
 	if err != nil || !got[0].Overdue {
 		t.Errorf("pending = %+v, %v; want 2026-10 overdue on 2026-11-18", got, err)

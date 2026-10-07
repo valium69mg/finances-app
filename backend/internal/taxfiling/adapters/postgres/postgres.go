@@ -1,6 +1,7 @@
 // Package postgres implements the tax filing repository on a pgx pool: the
-// tax_filings table and the declaration_period link it sets on the invoices it
-// includes.
+// tax_filings table, the metadata of its attached documents
+// (tax_filing_documents) and the declaration_period link it sets on the
+// invoices it includes.
 //
 // Money and rates are NUMERIC columns. They cross the driver as text
 // (`$n::text::numeric` in, `col::text` out) so no precision is lost through a float.
@@ -34,8 +35,9 @@ const filingColumns = `period, filing_date::text, income_collected::text, isr_ra
 	iva_due::text, folio, payment_date::text, isr_paid::text, iva_paid::text, expense_movement_id, created_at`
 
 const (
-	pgUniqueViolation = "23505"
-	periodConstraint  = "tax_filings_pkey"
+	pgUniqueViolation     = "23505"
+	pgForeignKeyViolation = "23503"
+	periodConstraint      = "tax_filings_pkey"
 )
 
 func scanFiling(row pgx.Row) (taxfiling.Filing, error) {
@@ -189,6 +191,9 @@ func (r *Repo) Get(ctx context.Context, period string) (taxfiling.Filing, error)
 	if f.InvoiceIDs, err = r.invoiceIDs(ctx, period); err != nil {
 		return taxfiling.Filing{}, err
 	}
+	if f.Documents, err = r.documents(ctx, period); err != nil {
+		return taxfiling.Filing{}, err
+	}
 	return f, nil
 }
 
@@ -228,11 +233,20 @@ func (r *Repo) List(ctx context.Context) ([]taxfiling.Filing, error) {
 	if err := link.Err(); err != nil {
 		return nil, err
 	}
+	docs, err := r.documents(ctx, "")
+	if err != nil {
+		return nil, err
+	}
+	docsByPeriod := map[string][]taxfiling.Document{}
+	for _, d := range docs {
+		docsByPeriod[d.Period] = append(docsByPeriod[d.Period], d)
+	}
 	for i := range out {
 		out[i].InvoiceIDs = byPeriod[out[i].Period]
 		if out[i].InvoiceIDs == nil {
 			out[i].InvoiceIDs = []int{}
 		}
+		out[i].Documents = docsByPeriod[out[i].Period]
 	}
 	return out, nil
 }
@@ -280,26 +294,123 @@ func (r *Repo) missingOrPaid(ctx context.Context, q querier, period string) erro
 }
 
 // Delete removes a pending filing and unlinks its invoices in one transaction.
-func (r *Repo) Delete(ctx context.Context, period string) error {
+// It returns the storage keys of its documents (the rows go away with the
+// filing, ON DELETE CASCADE) so the caller can remove the objects.
+func (r *Repo) Delete(ctx context.Context, period string) ([]string, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	tag, err := tx.Exec(ctx, `DELETE FROM tax_filings WHERE period = $1 AND payment_date IS NULL`, period)
-	if err != nil {
-		return err
+	// Lock the filing row first so a document attached meanwhile either lands
+	// before the keys are read or fails once the filing is gone.
+	var paymentDate *string
+	err = tx.QueryRow(ctx, `SELECT payment_date::text FROM tax_filings WHERE period = $1 FOR UPDATE`, period).Scan(&paymentDate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, taxfiling.ErrNotFound
 	}
-	if tag.RowsAffected() == 0 {
-		err := r.missingOrPaid(ctx, tx, period)
-		if errors.Is(err, taxfiling.ErrAlreadyPaid) {
-			return taxfiling.ErrFilingPaid
-		}
-		return err
+	if err != nil {
+		return nil, err
+	}
+	if paymentDate != nil {
+		return nil, taxfiling.ErrFilingPaid
+	}
+	keyRows, err := tx.Query(ctx, `SELECT key FROM tax_filing_documents WHERE period = $1`, period)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := pgx.CollectRows(keyRows, pgx.RowTo[string])
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM tax_filings WHERE period = $1`, period); err != nil {
+		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE invoices SET declaration_period = NULL WHERE declaration_period = $1`, period); err != nil {
-		return err
+		return nil, err
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+const documentColumns = `period, kind, key, name, content_type, size, uploaded_at`
+
+func scanDocument(row pgx.Row) (taxfiling.Document, error) {
+	var d taxfiling.Document
+	var kind string
+	if err := row.Scan(&d.Period, &kind, &d.Key, &d.Name, &d.ContentType, &d.Size, &d.UploadedAt); err != nil {
+		return taxfiling.Document{}, err
+	}
+	d.Kind = taxfiling.DocumentKind(kind)
+	return d, nil
+}
+
+// documents returns the documents of a period (every period when empty),
+// ordered by period and kind (acuse first).
+func (r *Repo) documents(ctx context.Context, period string) ([]taxfiling.Document, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+documentColumns+` FROM tax_filing_documents
+		WHERE $1 = '' OR period = $1 ORDER BY period, kind`, period)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []taxfiling.Document{}
+	for rows.Next() {
+		d, err := scanDocument(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// PutDocument stores or replaces the document of its kind. The previous row (if
+// any) is locked and read in the same transaction so the replaced key is exact.
+func (r *Repo) PutDocument(ctx context.Context, doc taxfiling.Document) (taxfiling.Document, string, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return taxfiling.Document{}, "", err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var replaced string
+	err = tx.QueryRow(ctx, `SELECT key FROM tax_filing_documents WHERE period = $1 AND kind = $2 FOR UPDATE`,
+		doc.Period, string(doc.Kind)).Scan(&replaced)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return taxfiling.Document{}, "", err
+	}
+	saved, err := scanDocument(tx.QueryRow(ctx, `
+		INSERT INTO tax_filing_documents (period, kind, key, name, content_type, size)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (period, kind) DO UPDATE
+		SET key = EXCLUDED.key, name = EXCLUDED.name, content_type = EXCLUDED.content_type,
+		    size = EXCLUDED.size, uploaded_at = now()
+		RETURNING `+documentColumns,
+		doc.Period, string(doc.Kind), doc.Key, doc.Name, doc.ContentType, doc.Size))
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+		return taxfiling.Document{}, "", taxfiling.ErrNotFound
+	}
+	if err != nil {
+		return taxfiling.Document{}, "", err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return taxfiling.Document{}, "", err
+	}
+	return saved, replaced, nil
+}
+
+// GetDocument returns the document of a kind, or taxfiling.ErrDocumentMissing.
+func (r *Repo) GetDocument(ctx context.Context, period string, kind taxfiling.DocumentKind) (taxfiling.Document, error) {
+	d, err := scanDocument(r.pool.QueryRow(ctx,
+		`SELECT `+documentColumns+` FROM tax_filing_documents WHERE period = $1 AND kind = $2`, period, string(kind)))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return taxfiling.Document{}, taxfiling.ErrDocumentMissing
+	}
+	return d, err
 }

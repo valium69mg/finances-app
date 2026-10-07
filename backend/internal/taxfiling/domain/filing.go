@@ -64,7 +64,19 @@ type Filing struct {
 	ExpenseMovementID *int
 	// InvoiceIDs are the invoices that carry this period as declaration_period.
 	InvoiceIDs []int
-	CreatedAt  time.Time
+	// Documents are the optional acuse and comprobante, at most one per kind.
+	Documents []Document
+	CreatedAt time.Time
+}
+
+// Document returns the attached document of a kind, if any.
+func (f Filing) Document(kind DocumentKind) (Document, bool) {
+	for _, d := range f.Documents {
+		if d.Kind == kind {
+			return d, true
+		}
+	}
+	return Document{}, false
 }
 
 // PaymentStatus is pending until the payment is recorded.

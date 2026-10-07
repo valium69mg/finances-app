@@ -56,7 +56,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000010_invoices.up.sql", "000011_tax_filings.up.sql", "000017_users_roles.up.sql"} {
+	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000010_invoices.up.sql", "000011_tax_filings.up.sql", "000017_users_roles.up.sql", "000020_tax_filing_documents.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -318,13 +318,13 @@ func TestDeleteOnlyPending(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := repo.Delete(ctx, "2026-10"); !errors.Is(err, taxfiling.ErrFilingPaid) {
+	if _, err := repo.Delete(ctx, "2026-10"); !errors.Is(err, taxfiling.ErrFilingPaid) {
 		t.Errorf("deleting a paid filing err = %v, want ErrFilingPaid", err)
 	}
-	if err := repo.Delete(ctx, "2026-01"); !errors.Is(err, taxfiling.ErrNotFound) {
+	if _, err := repo.Delete(ctx, "2026-01"); !errors.Is(err, taxfiling.ErrNotFound) {
 		t.Errorf("deleting an unknown filing err = %v, want ErrNotFound", err)
 	}
-	if err := repo.Delete(ctx, "2026-09"); err != nil {
+	if _, err := repo.Delete(ctx, "2026-09"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.Get(ctx, "2026-09"); !errors.Is(err, taxfiling.ErrNotFound) {

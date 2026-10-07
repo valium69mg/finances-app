@@ -40,6 +40,12 @@ type fakeService struct {
 	gotYear     int
 	gotStatus   taxfiling.PaymentStatus
 	deleted     string
+
+	attached     taxfiling.Filing
+	gotKind      taxfiling.DocumentKind
+	gotUpload    app.Upload
+	downloadDoc  taxfiling.Document
+	downloadBody string
 }
 
 func (f *fakeService) Preview(_ context.Context, period string, credit decimal.Decimal) (app.Preview, error) {
@@ -71,6 +77,18 @@ func (f *fakeService) UnfiledInvoices(context.Context) ([]invoices.Invoice, erro
 func (f *fakeService) Delete(_ context.Context, period string) error {
 	f.deleted = period
 	return f.err
+}
+
+func (f *fakeService) AttachDocument(_ context.Context, period string, kind taxfiling.DocumentKind, up app.Upload) (taxfiling.Filing, error) {
+	f.gotPeriod, f.gotKind, f.gotUpload = period, kind, up
+	return f.attached, f.err
+}
+func (f *fakeService) Download(_ context.Context, period string, kind taxfiling.DocumentKind) (taxfiling.Document, io.ReadCloser, error) {
+	f.gotPeriod, f.gotKind = period, kind
+	if f.err != nil {
+		return taxfiling.Document{}, nil, f.err
+	}
+	return f.downloadDoc, io.NopCloser(strings.NewReader(f.downloadBody)), nil
 }
 
 func requireGoodToken(next http.Handler) http.Handler {
@@ -119,6 +137,7 @@ func TestRequiresAuth(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/tax-filing/preview"}, {"POST", "/tax-filing"}, {"GET", "/tax-filing"}, {"GET", "/tax-filing/pending-periods"},
 		{"GET", "/tax-filing/unfiled-invoices"}, {"GET", "/tax-filing/2026-10"}, {"POST", "/tax-filing/2026-10/payment"}, {"DELETE", "/tax-filing/2026-10"},
+		{"PUT", "/tax-filing/2026-10/documents/acuse"}, {"GET", "/tax-filing/2026-10/documents/acuse"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		rec := httptest.NewRecorder()

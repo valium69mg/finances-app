@@ -63,7 +63,7 @@ func TestPaymentExpenseIsLinkedWhenBudgetFeedbackFails(t *testing.T) {
 	expenses := expensesapp.NewService(store, failingBudgets{cfg: cfg}, func() time.Time { return time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC) })
 
 	fx := newFixture()
-	svc := app.NewService(fx.repo, fx.invoices, expenses, fx.settings, func() time.Time { return time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC) }, nil)
+	svc := app.NewService(fx.repo, fx.invoices, expenses, fx.settings, fx.store, func() time.Time { return time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC) }, nil)
 
 	res, err := svc.Register(context.Background(), app.RegisterInput{
 		Period: "2026-10", Date: "2026-11-05",
