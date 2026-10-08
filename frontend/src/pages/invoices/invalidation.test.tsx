@@ -10,7 +10,7 @@ import { SETTINGS } from "./fixtures";
 import { InvoiceDetail } from "./InvoiceDetail";
 import { IssuePanel } from "./IssuePanel";
 
-const api = vi.hoisted(() => ({ getInvoice: vi.fn(), issueInvoice: vi.fn(), cancelInvoice: vi.fn() }));
+const api = vi.hoisted(() => ({ getInvoice: vi.fn(), issueInvoice: vi.fn(), cancelInvoice: vi.fn(), resyncInvoice: vi.fn() }));
 vi.mock("../../api/invoices", async (importOriginal) => ({ ...(await importOriginal<typeof import("../../api/invoices")>()), ...api }));
 
 afterEach(() => {
@@ -25,7 +25,7 @@ const checklist: Checklist = {
   receiver: { rfc: "XEXX010101000", name: "Acme", regimen: "616", postal_code: "64000", uso_cfdi: "S01" },
   voucher: { type: "I", currency: "USD", exchange_rate: "17.50", payment_form: "03", payment_method: "PUE", export: true, global: null },
   concept: { prod_serv_key: "81111500", unit_key: "E48", description: "Servicios", quantity: 1, unit_value: "2500.00" },
-  taxes: { iva_included: false, iva: "0.00" },
+  taxes: { iva_included: false, iva: "0.00", isr_withheld: "0.00", iva_withheld: "0.00" },
   totals: { currency: "USD", subtotal: "2500.00", total: "2500.00", expected_deposit_mxn: "43750.00" },
   period: "2026-10",
   due_date: "2026-11-17",
@@ -55,7 +55,8 @@ const invoice = (over: Partial<Invoice> = {}): Invoice => ({
   ...over,
 });
 
-const detail = (inv: Invoice): Detail => ({ invoice: inv, documents: [], checklist, warnings: [] });
+const xmlDoc = { id: 3, kind: "xml" as const, name: "cfdi.xml", content_type: "application/xml", size: 10, sha256: "a".repeat(64), uploaded_at: "2026-10-16T12:00:00Z" };
+const detail = (inv: Invoice, documents: Detail["documents"] = []): Detail => ({ invoice: inv, documents, checklist, warnings: [] });
 
 /** A client holding one query per key the tax filing views use, so invalidation is observable. */
 function seededClient() {
@@ -132,5 +133,52 @@ describe("cancelling an invoice", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar factura" }));
     fireEvent.click(screen.getByRole("button", { name: "Sí, cancelar factura" }));
     expect(await screen.findByText(/está incluida en una declaración registrada y no se puede cancelar/)).toBeInTheDocument();
+  });
+});
+
+describe("syncing an invoice with its XML", () => {
+  function renderDetail(inv: Invoice, withXml = true) {
+    api.getInvoice.mockResolvedValue(detail(inv, withXml ? [xmlDoc] : []));
+    const { qc, keys } = seededClient();
+    const onWarnings = vi.fn();
+    render(
+      <QueryClientProvider client={qc}>
+        <InvoiceDetail invoiceId={inv.id} clients={SETTINGS.clients} initialPeriodicity="mensual" warnings={[]} onWarnings={onWarnings} onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+    return { qc, keys, onWarnings };
+  }
+
+  it("re-reads the XML, shows the warnings and refreshes every view", async () => {
+    const warnings = [{ code: "amounts_from_xml", message: "x", changes: [{ field: "total", from: "1.00", to: "2.00" }] }];
+    api.resyncInvoice.mockResolvedValue({ ...detail(invoice(), [xmlDoc]), warnings });
+    const { qc, keys, onWarnings } = renderDetail(invoice());
+    fireEvent.click(await screen.findByRole("button", { name: "Sincronizar con XML" }));
+    await waitFor(() => expect(api.resyncInvoice).toHaveBeenCalledWith(7));
+    await waitFor(() => expect(onWarnings).toHaveBeenLastCalledWith(warnings));
+    await waitFor(() => expectAllInvalidated(qc, keys));
+  });
+
+  it("is hidden without an XML document and for a prepared invoice", async () => {
+    renderDetail(invoice(), false);
+    await screen.findByText("Factura #7");
+    await screen.findByRole("button", { name: "Cancelar factura" });
+    expect(screen.queryByRole("button", { name: "Sincronizar con XML" })).not.toBeInTheDocument();
+  });
+
+  it("is disabled with an explanation for a declared invoice", async () => {
+    renderDetail(invoice({ declaration_period: "2026-10" }));
+    const button = await screen.findByRole("button", { name: "Sincronizar con XML" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAccessibleDescription(/incluida en la declaración de octubre de 2026/);
+    fireEvent.click(button);
+    expect(api.resyncInvoice).not.toHaveBeenCalled();
+  });
+
+  it("explains a refused resync", async () => {
+    api.resyncInvoice.mockRejectedValue(new ApiError(422, "uuid_mismatch", "x"));
+    renderDetail(invoice());
+    fireEvent.click(await screen.findByRole("button", { name: "Sincronizar con XML" }));
+    expect(await screen.findByText(/UUID del XML guardado no coincide/)).toBeInTheDocument();
   });
 });

@@ -44,6 +44,8 @@ describe("describeInvoiceError", () => {
       [err(422, "invalid_cfdi"), "no es un CFDI válido"],
       [err(422, "cfdi_not_stamped"), "no está timbrado"],
       [err(422, "uuid_mismatch"), "no coincide"],
+      [err(422, "currency_mismatch"), "moneda del XML no coincide"],
+      [err(409, "invoice_xml_missing"), "no tiene un XML guardado"],
       [err(409, "duplicate_uuid"), "ya está registrado en otra factura"],
       [err(409, "invoice_cancelled"), "está cancelada"],
       [err(409, "invoice_declared"), "no se puede cancelar"],
@@ -103,6 +105,16 @@ describe("describeWarning", () => {
     expect(describeWarning({ code: "future_code", message: "backend text" })).toBe("backend text");
   });
 
+  it("lists what the XML changed", () => {
+    const text = describeWarning(
+      { code: "amounts_from_xml", message: "x", changes: [{ field: "subtotal", from: "6308.78", to: "7031.08" }, { field: "iva_withheld", from: "0.00", to: "749.98" }] },
+      "MXN",
+    );
+    expect(text).toContain("tomaron del XML timbrado");
+    expect(text).toContain("Subtotal: $6,308.78 MXN → $7,031.08 MXN");
+    expect(text).toContain("Retención de IVA: $0.00 MXN → $749.98 MXN");
+  });
+
   it("explains that an invoice issued in an already filed period is not declared", () => {
     const text = describeWarning({ code: "period_already_filed", message: "backend text" });
     expect(text).toContain("ya fue declarado");
@@ -142,7 +154,7 @@ describe("ChecklistView", () => {
     receiver: { rfc: "XEXX010101000", name: "Acme", regimen: "616", postal_code: "64000", uso_cfdi: "S01" },
     voucher: { type: "I", currency: "USD", exchange_rate: "17.50", payment_form: "03", payment_method: "PUE", export: true, global: null },
     concept: { prod_serv_key: "81111500", unit_key: "E48", description: "Servicios", quantity: 1, unit_value: "2500.00" },
-    taxes: { iva_included: false, iva: "0.00" },
+    taxes: { iva_included: false, iva: "0.00", isr_withheld: "0.00", iva_withheld: "0.00" },
     totals: { currency: "USD", subtotal: "2500.00", total: "2500.00", expected_deposit_mxn: "43750.00" },
     period: "2026-10",
     due_date: "2026-11-17",
@@ -166,7 +178,7 @@ describe("ChecklistView", () => {
       <ChecklistView
         checklist={checklist({
           voucher: { type: "I", currency: "MXN", exchange_rate: null, payment_form: "03", payment_method: "PUE", export: false, global: { periodicity: "quincenal", code: "03", months: "10", year: "2026" } },
-          taxes: { iva_included: true, iva: "4827.59" },
+          taxes: { iva_included: true, iva: "4827.59", isr_withheld: "0.00", iva_withheld: "0.00" },
           receiver: { rfc: "XAXX010101000", name: "Público", regimen: "616", postal_code: "64000", uso_cfdi: "S01", internal_note: "Empresa pagadora" },
           to_confirm: ["global_info"],
         })}
@@ -176,6 +188,39 @@ describe("ChecklistView", () => {
     expect(screen.getByRole("region", { name: "Impuestos" })).toHaveTextContent("$4,827.59 MXN");
     expect(screen.getByRole("region", { name: "Receptor" })).toHaveTextContent("Empresa pagadora");
     expect(screen.getByRole("region", { name: "Comprobante" })).not.toHaveTextContent("Clave de exportación");
+  });
+
+  it("shows the retentions of a client that withholds and no global information", () => {
+    render(
+      <ChecklistView
+        checklist={checklist({
+          voucher: { type: "I", currency: "MXN", exchange_rate: null, payment_form: "03", payment_method: "PUE", export: false, global: null },
+          taxes: { iva_included: true, iva: "1124.97", isr_withheld: "87.89", iva_withheld: "749.98" },
+          receiver: { rfc: "IBL121029ED3", name: "IBL", regimen: "601", postal_code: "06600", uso_cfdi: "G03" },
+          to_confirm: ["prod_serv_key", "unit_key"],
+        })}
+      />,
+    );
+    const taxes = screen.getByRole("region", { name: "Impuestos" });
+    expect(taxes).toHaveTextContent("Retención de ISR");
+    expect(taxes).toHaveTextContent("$87.89 MXN");
+    expect(taxes).toHaveTextContent("Retención de IVA");
+    expect(taxes).toHaveTextContent("$749.98 MXN");
+    expect(taxes).not.toHaveTextContent("Ninguna");
+    expect(screen.getByRole("region", { name: "Comprobante" })).not.toHaveTextContent("InformacionGlobal");
+    const receiver = screen.getByRole("region", { name: "Receptor" });
+    expect(receiver).toHaveTextContent("06600");
+    expect(receiver).not.toHaveTextContent("mismo del emisor");
+  });
+
+  it("says there are no retentions only when both are zero", () => {
+    render(<ChecklistView checklist={checklist({ taxes: { iva_included: true, iva: "4827.59", isr_withheld: "0.00", iva_withheld: "0.00" } })} />);
+    expect(screen.getByRole("region", { name: "Impuestos" })).toHaveTextContent("Ninguna");
+  });
+
+  it("names the client postal code when it is missing", () => {
+    render(<ChecklistView checklist={checklist({ missing_config: ["client.postal_code"] })} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("código postal del cliente");
   });
 
   it("flags empty issuer fields as pending and lists the missing settings", () => {
@@ -229,15 +274,29 @@ describe("PrepareForm", () => {
     choose("b");
     expect(screen.queryByLabelText("Subtotal (USD)")).not.toBeInTheDocument();
     submit();
-    expect(screen.getByRole("alert")).toHaveTextContent("total recibido");
+    expect(screen.getByRole("alert")).toHaveTextContent("monto neto recibido");
     expect(api.prepareInvoice).not.toHaveBeenCalled();
 
-    fireEvent.change(screen.getByLabelText("Total recibido (IVA incluido)"), { target: { value: "35000" } });
+    fireEvent.change(screen.getByLabelText("Monto neto recibido"), { target: { value: "35000" } });
     fireEvent.change(screen.getByLabelText("Periodicidad (factura global)"), { target: { value: "quincenal" } });
     fireEvent.change(screen.getByLabelText("Fecha de cobro"), { target: { value: "2026-10-31" } });
     submit();
     await waitFor(() => expect(onPrepared).toHaveBeenCalledWith(detail, "quincenal"));
     expect(api.prepareInvoice).toHaveBeenCalledWith({ client_id: "b", date: "2026-10-31", amount: "35000", periodicity: "quincenal" });
+  });
+
+  it("shows the retentions in the hint and hides the periodicity for a named client", async () => {
+    const ibl = { ...SETTINGS.clients[1], id: "ibl", name: "IBL", rfc: "IBL121029ED3", iva_rate: "0.16", ret_isr_rate: "0.0125", ret_iva_rate: "0.106667" };
+    api.prepareInvoice.mockResolvedValue(detail);
+    wrap(<PrepareForm settings={{ ...SETTINGS, clients: [...SETTINGS.clients, ibl] }} onPrepared={() => {}} />);
+    choose("ibl");
+    expect(screen.getByText(/retención de ISR 1.25% y la retención de IVA 10.6667%/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Periodicidad (factura global)")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Monto neto recibido"), { target: { value: "7318.18" } });
+    fireEvent.change(screen.getByLabelText("Fecha de cobro"), { target: { value: "2026-10-31" } });
+    submit();
+    await waitFor(() => expect(api.prepareInvoice).toHaveBeenCalled());
+    expect(api.prepareInvoice.mock.calls[0][0]).toEqual({ client_id: "ibl", date: "2026-10-31", amount: "7318.18" });
   });
 
   it("rejects non-positive or malformed numbers", () => {
@@ -254,7 +313,7 @@ describe("PrepareForm", () => {
     api.prepareInvoice.mockRejectedValue(new ApiError(400, "unknown_client"));
     wrap(<PrepareForm settings={SETTINGS} onPrepared={() => {}} />);
     choose("b");
-    fireEvent.change(screen.getByLabelText("Total recibido (IVA incluido)"), { target: { value: "10" } });
+    fireEvent.change(screen.getByLabelText("Monto neto recibido"), { target: { value: "10" } });
     submit();
     expect(await screen.findByText(/El cliente no existe en Configuración/)).toBeInTheDocument();
   });

@@ -11,10 +11,11 @@ import {
   toGeneralDraft,
   validateBrackets,
   validateCategories,
+  validateClients,
   validateGeneral,
   validatePause,
 } from "./validation";
-import type { General } from "../../api/settings";
+import type { Client, General } from "../../api/settings";
 
 describe("isDecimal", () => {
   it.each(["0", "12", "1500.50", "0.0125"])("accepts %s", (v) => expect(isDecimal(v)).toBe(true));
@@ -178,4 +179,17 @@ describe("category budget total against the base", () => {
     expect(e).toHaveProperty("0.budget");
     expect(e).not.toHaveProperty("total");
   });
+});
+
+describe("clients", () => {
+  const client = (postal_code: string): Client => ({
+    id: "ibl", name: "IBL", type: "", currency: "MXN", iva_rate: "0.16", rfc: "", regimen: "", uso_cfdi: "", ret_isr_rate: "0.0125",
+    ret_iva_rate: "0.106667", concepto: "", clave_prod_serv: "", clave_unidad: "", address: "", tax_residence: "", contract: "",
+    real_payer: "", postal_code,
+  });
+
+  it.each(["", "  ", "06600", "64000"])("accepts the postal code %j", (v) => expect(validateClients([client(v)])).toEqual({}));
+  it.each(["6600", "066000", "6600A", "06 600"])("rejects the postal code %j", (v) =>
+    expect(validateClients([client(v)])).toEqual({ "0.postal_code": "El código postal debe tener 5 dígitos o dejarse vacío." }),
+  );
 });

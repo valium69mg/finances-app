@@ -94,6 +94,26 @@ test.describe("settings page", () => {
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/settings/investment-pause")).toBe(true);
   });
 
+  test("saves the client postal code and blocks an invalid one", async ({ page }) => {
+    const api = await mockApi(page);
+    await seedSession(page);
+    await page.goto("/configuracion");
+    await page.getByRole("tab", { name: "Clientes", exact: true }).click();
+
+    const postal = page.getByLabel("Código postal (cliente 1)");
+    await expect(postal).toHaveValue("");
+    await postal.fill("6600");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(page.getByText("El código postal debe tener 5 dígitos o dejarse vacío.")).toBeVisible();
+    expect(api.writes.some((w) => w.path === "/settings/clients")).toBe(false);
+
+    await postal.fill("06600");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(page.getByText("Cambios guardados.")).toBeVisible();
+    const put = api.writes.find((w) => w.method === "PUT" && w.path === "/settings/clients");
+    expect((put?.body as { postal_code: string }[])[0].postal_code).toBe("06600");
+  });
+
   test("has no horizontal overflow in any section", async ({ page }) => {
     await mockApi(page);
     await seedSession(page);

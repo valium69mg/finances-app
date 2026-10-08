@@ -150,6 +150,7 @@ export const SETTINGS_FIXTURE = {
       tax_residence: "US",
       contract: "",
       real_payer: "",
+      postal_code: "",
     },
     {
       id: "b",
@@ -169,6 +170,7 @@ export const SETTINGS_FIXTURE = {
       tax_residence: "MX",
       contract: "",
       real_payer: "Empresa pagadora",
+      postal_code: "",
     },
   ],
   instruments: {

@@ -78,15 +78,21 @@ function buildChecklist(inv: MockInvoice, settings: Settings, periodicity: strin
   const client = settings.clients.find((c: { id: string }) => c.id === inv.client_id);
   const issuer = settings.issuer ?? { rfc: "", name: "", regimen: "", postal_code: "" };
   const usa = inv.client_id === "usa";
+  const generic = ["XAXX010101000", "XEXX010101000"].includes(client?.rfc ?? "");
+  const global = client?.rfc === "XAXX010101000";
   const missing: string[] = [];
   if (!issuer.rfc) missing.push("issuer.rfc");
   if (!issuer.name) missing.push("issuer.name");
   if (!issuer.postal_code) missing.push("issuer.postal_code");
+  if (!generic && !client?.postal_code) missing.push("client.postal_code");
   const [year, month] = inv.period.split("-");
   const confirm = ["prod_serv_key"];
   if (inv.currency === "USD") confirm.unshift("fx_rate_dof");
   if (usa) confirm.push("export_key", "tax_object");
-  else confirm.push("global_info", "unit_key");
+  else {
+    if (global) confirm.push("global_info");
+    confirm.push("unit_key");
+  }
   const dueMonth = Number(month) === 12 ? `${Number(year) + 1}-01` : `${year}-${String(Number(month) + 1).padStart(2, "0")}`;
   return {
     issuer: { rfc: issuer.rfc, name: issuer.name, regimen: issuer.regimen || "626", postal_code: issuer.postal_code },
@@ -94,7 +100,7 @@ function buildChecklist(inv: MockInvoice, settings: Settings, periodicity: strin
       rfc: client?.rfc ?? "",
       name: client?.name ?? "",
       regimen: client?.regimen ?? "",
-      postal_code: issuer.postal_code,
+      postal_code: generic ? issuer.postal_code : (client?.postal_code ?? ""),
       uso_cfdi: client?.uso_cfdi ?? "",
       ...(client?.real_payer ? { internal_note: client.real_payer } : {}),
     },
@@ -105,7 +111,7 @@ function buildChecklist(inv: MockInvoice, settings: Settings, periodicity: strin
       payment_form: "03",
       payment_method: "PUE",
       export: usa,
-      global: usa
+      global: !global
         ? null
         : { periodicity: periodicity || "mensual", code: periodicity === "quincenal" ? "03" : "04", months: month, year },
     },
@@ -116,7 +122,7 @@ function buildChecklist(inv: MockInvoice, settings: Settings, periodicity: strin
       quantity: 1,
       unit_value: inv.subtotal,
     },
-    taxes: { iva_included: !usa, iva: inv.iva },
+    taxes: { iva_included: !usa, iva: inv.iva, isr_withheld: inv.isr_withheld, iva_withheld: inv.iva_withheld },
     totals: { currency: inv.currency, subtotal: inv.subtotal, total: inv.total, expected_deposit_mxn: inv.expected_deposit_mxn },
     period: inv.period,
     due_date: `${dueMonth}-17`,
@@ -179,6 +185,40 @@ export function createInvoicesMock(
     return warnings;
   }
 
+  /** Comprobante-level amounts of a stamped XML (the Concepto-level taxes are ignored). */
+  function readXmlAmounts(xml: string) {
+    const body = xml.replace(/<cfdi:Conceptos>[\s\S]*?<\/cfdi:Conceptos>/, "");
+    const attr = (name: string) => new RegExp(`<cfdi:Comprobante[^>]*\\s${name}="([^"]*)"`).exec(body)?.[1] ?? "";
+    const importe = (re: RegExp) => /Importe="([^"]*)"/.exec(re.exec(body)?.[0] ?? "")?.[1] ?? "0";
+    return {
+      currency: attr("Moneda"),
+      subtotal: attr("SubTotal"),
+      total: attr("Total"),
+      iva: importe(/<cfdi:Traslado [^>]*Impuesto="002"[^>]*>/),
+      isr_withheld: importe(/<cfdi:Retencion [^>]*Impuesto="001"[^>]*>/),
+      iva_withheld: importe(/<cfdi:Retencion [^>]*Impuesto="002"[^>]*>/),
+    };
+  }
+
+  /** What the backend does on issue and resync: the XML amounts win. Returns the changes. */
+  function applyXmlAmounts(inv: MockInvoice, xml: string) {
+    const x = readXmlAmounts(xml);
+    if (!x.total || x.currency.toUpperCase() !== inv.currency) return null;
+    const rate = inv.exchange_rate ? Number(inv.exchange_rate) : 1;
+    const next = {
+      subtotal: money(Number(x.subtotal)),
+      iva: money(Number(x.iva) * rate),
+      isr_withheld: money(Number(x.isr_withheld) * rate),
+      iva_withheld: money(Number(x.iva_withheld) * rate),
+      total: money(Number(x.total)),
+    };
+    const changes = (Object.keys(next) as (keyof typeof next)[])
+      .filter((k) => Number(inv[k]) !== Number(next[k]))
+      .map((k) => ({ field: k, from: inv[k], to: next[k] }));
+    Object.assign(inv, next, { subtotal_mxn: money(Number(x.subtotal) * rate), expected_deposit_mxn: money(Number(x.total) * rate) });
+    return changes.length ? [{ code: "amounts_from_xml", message: "the amounts of the invoice were replaced by the ones in the stamped XML", changes }] : [];
+  }
+
   async function handle(route: Route, request: Request, pathname: string, params: URLSearchParams, settings: Settings): Promise<boolean> {
     if (!pathname.startsWith("/invoices")) return false;
     const method = request.method();
@@ -209,7 +249,10 @@ export function createInvoicesMock(
       const rate = usa ? (body.exchange_rate ?? settings.general.fx_rate_applied) : null;
       const subtotalUsd = usa ? Number(body.subtotal ?? settings.general.salary_usd) : 0;
       const total = usa ? subtotalUsd : Number(body.amount);
-      const subtotal = usa ? subtotalUsd : total / (1 + Number(client.iva_rate));
+      const ivaRate = Number(client.iva_rate);
+      const retISR = Number(client.ret_isr_rate ?? 0);
+      const retIVA = Number(client.ret_iva_rate ?? 0);
+      const subtotal = usa ? subtotalUsd : Number(money(total / (1 + ivaRate - retISR - retIVA)));
       const dup = invoices.filter((i) => i.client_id === body.client_id && i.collection_date === date && i.state !== "cancelada").map((i) => i.id);
       const inv: MockInvoice = {
         id: nextId++,
@@ -220,9 +263,9 @@ export function createInvoicesMock(
         exchange_rate: rate,
         subtotal: money(subtotal),
         subtotal_mxn: money(usa ? subtotal * Number(rate) : subtotal),
-        iva: money(usa ? 0 : total - Number(money(subtotal))),
-        isr_withheld: "0.00",
-        iva_withheld: "0.00",
+        iva: money(usa ? 0 : subtotal * ivaRate),
+        isr_withheld: money(usa ? 0 : subtotal * retISR),
+        iva_withheld: money(usa ? 0 : subtotal * retIVA),
         total: money(total),
         expected_deposit_mxn: money(usa ? subtotal * Number(rate) : total),
         state: "preparada",
@@ -237,7 +280,7 @@ export function createInvoicesMock(
       return true;
     }
 
-    const m = /^\/invoices\/(\d+)(?:\/(issue|documents|cancel)(?:\/(\d+))?)?$/.exec(pathname);
+    const m = /^\/invoices\/(\d+)(?:\/(issue|documents|cancel|resync)(?:\/(\d+))?)?$/.exec(pathname);
     if (!m) return false;
     const inv = invoices.find((i) => i.id === Number(m[1]));
     const action = m[2];
@@ -263,6 +306,25 @@ export function createInvoicesMock(
       } else {
         inv.state = "cancelada";
         await json(route, 200, toDTO(inv));
+      }
+      return true;
+    }
+
+    if (action === "resync" && method === "POST") {
+      uploads.push({ method, path: pathname, fields: {}, files: {} });
+      const xmlDoc = (inv.documents ?? []).find((d) => d.kind === "xml");
+      if (inv.state === "cancelada") await json(route, 409, { error: "invoice_cancelled", message: "invoice is cancelled" });
+      else if (inv.state !== "emitida") await json(route, 409, { error: "invoice_not_issued", message: "invoice is not issued" });
+      else if (inv.declaration_period) {
+        await json(route, 409, { error: "invoice_declared", message: `invoice is included in a filed tax declaration: #${inv.id} is part of the filing of ${inv.declaration_period}` });
+      } else if (!xmlDoc) await json(route, 409, { error: "invoice_xml_missing", message: "invoice has no XML document" });
+      else if (fail === "storage") await json(route, 503, { error: "storage_unavailable", message: "document storage unavailable" });
+      else if ((/UUID="([^"]*)"/.exec(xmlDoc.content ?? "")?.[1] ?? "").toUpperCase() !== inv.uuid) {
+        await json(route, 422, { error: "uuid_mismatch", message: "XML UUID does not match the invoice UUID" });
+      } else {
+        const warnings = applyXmlAmounts(inv, xmlDoc.content ?? "");
+        if (warnings === null) await json(route, 422, { error: "currency_mismatch", message: "XML currency does not match the invoice currency" });
+        else await json(route, 200, detail(inv, settings, params.get("periodicity") ?? "", warnings));
       }
       return true;
     }
@@ -321,7 +383,7 @@ export function createInvoicesMock(
             await json(route, 422, { error: "cfdi_not_stamped", message: "CFDI XML has no TimbreFiscalDigital" });
             return true;
           }
-          warnings = cfdiWarnings(inv, xml.content);
+          warnings = applyXmlAmounts(inv, xml.content) ?? cfdiWarnings(inv, xml.content);
         }
         if (invoices.some((i) => i.id !== inv.id && i.uuid === uuid)) {
           await json(route, 409, { error: "duplicate_uuid", message: "UUID already used by another invoice" });

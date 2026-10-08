@@ -71,7 +71,106 @@ const listItem = (page: Page, id: number) => page.getByRole("listitem").filter({
 
 const issuer = { rfc: "AAA010101AAA", name: "Juan Pérez", regimen: "626", postal_code: "64000", note: "" };
 
+// A client that withholds taxes (settings patch) and the stamped XML of its 7,318.18 payment.
+const ibl = {
+  id: "ibl", name: "IBL", type: "nacional", currency: "MXN", iva_rate: "0.16", rfc: "IBL121029ED3", regimen: "601", uso_cfdi: "G03",
+  ret_isr_rate: "0.0125", ret_iva_rate: "0.106667", concepto: "Servicios de software", clave_prod_serv: "81111500", clave_unidad: "E48",
+  address: "", tax_residence: "MX", contract: "", real_payer: "", postal_code: "06600",
+};
+const withIbl = (extra?: (c: typeof ibl) => void) => (settings: { clients: unknown[] }) => {
+  const client = { ...ibl };
+  extra?.(client);
+  settings.clients.push(client);
+};
+const iblXml = (uuid: string) =>
+  `<?xml version="1.0"?><cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Total="7318.18" SubTotal="7031.08" Moneda="MXN"><cfdi:Conceptos><cfdi:Concepto><cfdi:Impuestos><cfdi:Traslados><cfdi:Traslado Impuesto="002" Importe="999.99"/></cfdi:Traslados></cfdi:Impuestos></cfdi:Concepto></cfdi:Conceptos><cfdi:Impuestos><cfdi:Retenciones><cfdi:Retencion Impuesto="001" Importe="87.89"/><cfdi:Retencion Impuesto="002" Importe="749.98"/></cfdi:Retenciones><cfdi:Traslados><cfdi:Traslado Impuesto="002" Importe="1124.97"/></cfdi:Traslados></cfdi:Impuestos><cfdi:Complemento><tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" UUID="${uuid}"/></cfdi:Complemento></cfdi:Comprobante>`;
+// What the app stored before the fix: no withholdings and the wrong subtotal.
+const staleIbl = (over: Partial<MockInvoice> = {}) =>
+  issued({
+    client_id: "ibl", currency: "MXN", exchange_rate: null, subtotal: "6308.78", subtotal_mxn: "6308.78", iva: "1009.40",
+    total: "7318.18", expected_deposit_mxn: "7318.18",
+    documents: [{ id: 1, kind: "xml", name: "cfdi.xml", content_type: "application/xml", size: 1200, sha256: "0".repeat(64), uploaded_at: "2026-10-02T10:00:00Z", content: iblXml(UUID_A) }],
+    ...over,
+  });
+
 test.describe("invoices page", () => {
+  test("prepares an invoice for a client that withholds taxes", async ({ page }) => {
+    const api = await open(page, { issuer, settingsPatch: withIbl() });
+    await page.getByLabel("Cliente").selectOption({ label: "IBL" });
+    await expect(page.getByLabel("Periodicidad (factura global)")).toHaveCount(0);
+    await expect(page.getByText(/retención de ISR 1.25% y la retención de IVA 10.6667%/)).toBeVisible();
+    await page.getByLabel("Monto neto recibido").fill("7318.18");
+    await page.getByRole("button", { name: "Preparar factura" }).click();
+
+    const body = api.invoiceCalls.find((c) => c.path === "/invoices")?.fields as Record<string, unknown>;
+    expect(body).toMatchObject({ client_id: "ibl", amount: "7318.18" });
+    expect(body).not.toHaveProperty("periodicity");
+
+    const d = detail(page);
+    const taxes = d.getByRole("region", { name: "Impuestos" });
+    await expect(taxes).toContainText("$1,124.97 MXN");
+    await expect(taxes).toContainText("Retención de ISR");
+    await expect(taxes).toContainText("$87.89 MXN");
+    await expect(taxes).toContainText("Retención de IVA");
+    await expect(taxes).toContainText("$749.98 MXN");
+    await expect(taxes).not.toContainText("Ninguna");
+    await expect(d.getByRole("region", { name: "Totales" })).toContainText("$7,318.18 MXN");
+    await expect(d.getByRole("region", { name: "Receptor" })).toContainText("06600");
+    await expect(d.getByRole("region", { name: "Comprobante" })).not.toContainText("InformacionGlobal");
+    await expect(d.getByLabel("Periodicidad (factura global)")).toHaveCount(0);
+  });
+
+  test("asks for the client postal code when it is missing", async ({ page }) => {
+    await open(page, { issuer, invoices: [seeded({ client_id: "ibl", currency: "MXN", exchange_rate: null })], settingsPatch: withIbl((c) => (c.postal_code = "")) });
+    await page.getByRole("button", { name: "Ver factura #1" }).click();
+    await expect(detail(page).getByRole("alert").filter({ hasText: "Faltan datos" })).toContainText("código postal del cliente");
+  });
+
+  test("syncs an issued invoice with its stored XML", async ({ page }) => {
+    const api = await open(page, { invoices: [staleIbl()], settingsPatch: withIbl() });
+    await page.getByRole("button", { name: "Ver factura #1" }).click();
+    const d = detail(page);
+    await expect(d.getByText("$6,308.78 MXN").first()).toBeVisible();
+    await expect(d.getByRole("region", { name: "Impuestos" })).toContainText("Ninguna");
+
+    await d.getByRole("button", { name: "Sincronizar con XML" }).click();
+    const warnings = d.getByRole("status", { name: "Advertencias" });
+    await expect(warnings).toContainText("se tomaron del XML timbrado");
+    await expect(warnings).toContainText("Subtotal: $6,308.78 MXN → $7,031.08 MXN");
+    await expect(warnings).toContainText("Retención de IVA: $0.00 MXN → $749.98 MXN");
+    await expect(d.getByText("$7,031.08 MXN").first()).toBeVisible();
+    await expect(d.getByRole("region", { name: "Impuestos" })).toContainText("$87.89 MXN");
+    await expect(d.getByRole("region", { name: "Impuestos" })).not.toContainText("Ninguna");
+    expect(api.invoiceCalls.some((c) => c.method === "POST" && c.path === "/invoices/1/resync")).toBe(true);
+  });
+
+  test("a declared invoice cannot be synced", async ({ page }) => {
+    const api = await open(page, { invoices: [staleIbl({ declaration_period: "2026-10" })], settingsPatch: withIbl() });
+    await page.getByRole("button", { name: "Ver factura #1" }).click();
+    const button = detail(page).getByRole("button", { name: "Sincronizar con XML" });
+    await expect(button).toBeDisabled();
+    await expect(detail(page).getByText(/No se puede sincronizar: esta factura está incluida en la declaración de octubre de 2026/)).toBeVisible();
+    expect(api.invoiceCalls.some((c) => c.path === "/invoices/1/resync")).toBe(false);
+  });
+
+  test("shows the reason when the stored XML belongs to another invoice", async ({ page }) => {
+    await open(page, {
+      invoices: [staleIbl({ documents: [{ id: 1, kind: "xml", name: "cfdi.xml", content_type: "application/xml", size: 1, sha256: "0".repeat(64), uploaded_at: "2026-10-02T10:00:00Z", content: iblXml(UUID_B) }] })],
+      settingsPatch: withIbl(),
+    });
+    await page.getByRole("button", { name: "Ver factura #1" }).click();
+    await detail(page).getByRole("button", { name: "Sincronizar con XML" }).click();
+    await expect(detail(page).getByRole("alert").filter({ hasText: "UUID del XML guardado no coincide" })).toBeVisible();
+  });
+
+  test("offers no sync without a stored XML", async ({ page }) => {
+    await open(page, { invoices: [staleIbl({ documents: [] })], settingsPatch: withIbl() });
+    await page.getByRole("button", { name: "Ver factura #1" }).click();
+    await expect(detail(page).getByRole("button", { name: "Cancelar factura" })).toBeVisible();
+    await expect(detail(page).getByRole("button", { name: "Sincronizar con XML" })).toHaveCount(0);
+  });
+
+
   test("shows the empty state before any invoice exists", async ({ page }) => {
     await open(page);
     await expect(page.getByText("Aún no hay facturas.")).toBeVisible();
@@ -102,7 +201,7 @@ test.describe("invoices page", () => {
     await expect(d.getByRole("region", { name: "Comprobante" })).toContainText("confirmar con contador");
     await expect(d.getByRole("region", { name: "Impuestos" })).toContainText("Tasa 0% = $0.00");
     await expect(d.getByText("Fecha límite de declaración de ese periodo:")).toBeVisible();
-    await expect(d.getByRole("alert").filter({ hasText: "Faltan datos del emisor" })).toHaveCount(0);
+    await expect(d.getByRole("alert").filter({ hasText: "Faltan datos" })).toHaveCount(0);
     await expect(listItem(page, 1)).toContainText("Preparada");
   });
 
@@ -112,7 +211,7 @@ test.describe("invoices page", () => {
     await page.getByLabel("Subtotal (USD)").fill("3383.33");
     await page.getByLabel("Tipo de cambio (opcional)").fill("17.74");
     await page.getByRole("button", { name: "Preparar factura" }).click();
-    await expect(detail(page).getByRole("alert").filter({ hasText: "Faltan datos del emisor" })).toContainText("RFC del emisor");
+    await expect(detail(page).getByRole("alert").filter({ hasText: "Faltan datos" })).toContainText("RFC del emisor");
     await expect(detail(page).getByRole("region", { name: "Emisor" })).toContainText("Pendiente");
   });
 
@@ -120,7 +219,7 @@ test.describe("invoices page", () => {
     const api = await open(page, { issuer });
     await page.getByLabel("Cliente").selectOption({ label: "Público en general" });
     await expect(page.getByLabel("Subtotal (USD)")).toHaveCount(0);
-    await page.getByLabel("Total recibido (IVA incluido)").fill("35000");
+    await page.getByLabel("Monto neto recibido").fill("35000");
     await page.getByLabel("Periodicidad (factura global)").first().selectOption("quincenal");
     await page.getByRole("button", { name: "Preparar factura" }).click();
 
@@ -151,10 +250,10 @@ test.describe("invoices page", () => {
     await expect(page.getByRole("alert").filter({ hasText: "Elige un cliente." })).toBeVisible();
 
     await page.getByLabel("Cliente").selectOption({ label: "Público en general" });
-    await page.getByLabel("Total recibido (IVA incluido)").fill("12,5");
+    await page.getByLabel("Monto neto recibido").fill("12,5");
     await page.getByRole("button", { name: "Preparar factura" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: "total recibido" })).toBeVisible();
-    await expect(page.getByLabel("Total recibido (IVA incluido)")).toBeFocused();
+    await expect(page.getByRole("alert").filter({ hasText: "monto neto recibido" })).toBeVisible();
+    await expect(page.getByLabel("Monto neto recibido")).toBeFocused();
 
     await page.getByLabel("Cliente").selectOption({ label: "Acme Inc." });
     await page.getByLabel("Subtotal (USD)").fill("0");
@@ -214,7 +313,7 @@ test.describe("invoices page", () => {
     expect(api.invoiceCalls.find((c) => c.path === "/invoices/1/cancel")).toBeUndefined();
   });
 
-  test("warns, without failing, when the XML total differs from the prepared invoice", async ({ page }) => {
+  test("takes the XML amounts when issuing and lists what changed", async ({ page }) => {
     await open(page, { invoices: [seeded()] });
     await page.getByRole("button", { name: "Ver factura #1" }).click();
     await detail(page).getByLabel("XML del CFDI").setInputFiles(xmlFile(UUID_A, "2400.00"));
@@ -222,7 +321,9 @@ test.describe("invoices page", () => {
 
     await expect(detail(page).getByText("Emitida", { exact: true })).toBeVisible();
     const warning = detail(page).getByRole("status", { name: "Advertencias" });
-    await expect(warning).toContainText("El total del XML ($2,400.00 USD) no coincide con el de la factura preparada ($2,500.00 USD)");
+    await expect(warning).toContainText("se tomaron del XML timbrado");
+    await expect(warning).toContainText("Total: $2,500.00 USD → $2,400.00 USD");
+    await expect(detail(page).getByText("$2,400.00 USD").first()).toBeVisible();
   });
 
   test("marks an invoice as issued with a manual UUID and validates its format", async ({ page }) => {
