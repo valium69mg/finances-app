@@ -80,6 +80,11 @@ func (f *fakeService) Cancel(_ context.Context, id int) (invoices.Invoice, error
 	return f.detail.Invoice, f.err
 }
 
+func (f *fakeService) Resync(_ context.Context, id int) (app.Result, error) {
+	f.gotID = id
+	return app.Result{Detail: f.detail, Warnings: f.warnings}, f.err
+}
+
 func requireGoodToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer good" {
@@ -175,7 +180,7 @@ func TestRoutesRequireAuth(t *testing.T) {
 	h := newServer(&fakeService{})
 	for _, tc := range []struct{ method, path string }{
 		{"POST", "/invoices"}, {"GET", "/invoices"}, {"GET", "/invoices/1"}, {"POST", "/invoices/1/issue"},
-		{"POST", "/invoices/1/documents"}, {"GET", "/invoices/1/documents/2"}, {"POST", "/invoices/1/cancel"},
+		{"POST", "/invoices/1/documents"}, {"GET", "/invoices/1/documents/2"}, {"POST", "/invoices/1/cancel"}, {"POST", "/invoices/1/resync"},
 	} {
 		req := httptest.NewRequest(tc.method, tc.path, nil)
 		rec := httptest.NewRecorder()
@@ -373,6 +378,38 @@ func TestCancel(t *testing.T) {
 	}
 }
 
+func TestResync(t *testing.T) {
+	svc := &fakeService{detail: sampleDetail(), warnings: []invoices.Warning{{
+		Code: invoices.WarningAmountsFromXML, Message: "replaced",
+		Changes: []invoices.Change{{Field: "subtotal", From: "6308.78", To: "7031.08"}},
+	}}}
+	svc.detail.Invoice.ISRWithheld = d("87.89")
+	svc.detail.Checklist.Taxes = invoices.Taxes{IVAIncluded: true, ISRWithheld: d("87.89"), IVAWithheld: d("749.98")}
+	rec := do(newServer(svc), "POST", "/invoices/7/resync", "")
+	if rec.Code != http.StatusOK || svc.gotID != 7 {
+		t.Fatalf("status %d id %d body %s", rec.Code, svc.gotID, rec.Body)
+	}
+	body := decode(t, rec)
+	if body["invoice"].(map[string]any)["isr_withheld"] != "87.89" || len(body["documents"].([]any)) != 1 {
+		t.Errorf("body = %s", rec.Body)
+	}
+	taxes := body["checklist"].(map[string]any)["taxes"].(map[string]any)
+	if taxes["isr_withheld"] != "87.89" || taxes["iva_withheld"] != "749.98" {
+		t.Errorf("taxes = %v", taxes)
+	}
+	w := body["warnings"].([]any)[0].(map[string]any)
+	ch := w["changes"].([]any)[0].(map[string]any)
+	if w["code"] != "amounts_from_xml" || ch["field"] != "subtotal" || ch["from"] != "6308.78" || ch["to"] != "7031.08" {
+		t.Errorf("warning = %v", w)
+	}
+	if strings.Contains(rec.Body.String(), "secret-key") {
+		t.Error("the storage key must never be exposed")
+	}
+	if rec := do(newServer(svc), "POST", "/invoices/abc/resync", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("bad id status = %d", rec.Code)
+	}
+}
+
 func TestErrorMapping(t *testing.T) {
 	cases := []struct {
 		err    error
@@ -387,6 +424,8 @@ func TestErrorMapping(t *testing.T) {
 		{invoices.ErrInvalidCFDI, 422, "invalid_cfdi"},
 		{invoices.ErrNotStamped, 422, "cfdi_not_stamped"},
 		{invoices.ErrUUIDMismatch, 422, "uuid_mismatch"},
+		{invoices.ErrCurrencyMismatch, 422, "currency_mismatch"},
+		{invoices.ErrNoXML, 409, "invoice_xml_missing"},
 		{invoices.ErrDuplicateUUID, 409, "duplicate_uuid"},
 		{invoices.ErrCancelled, 409, "invoice_cancelled"},
 		{invoices.ErrDeclared, 409, "invoice_declared"},

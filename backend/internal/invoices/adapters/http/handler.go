@@ -40,6 +40,7 @@ type Service interface {
 	AttachDocument(ctx context.Context, id int, kind invoices.DocumentKind, up app.Upload) (app.DocumentResult, error)
 	Download(ctx context.Context, invoiceID, docID int) (invoices.Document, io.ReadCloser, error)
 	Cancel(ctx context.Context, id int) (invoices.Invoice, error)
+	Resync(ctx context.Context, id int) (app.Result, error)
 }
 
 // Handler serves the /invoices routes.
@@ -68,13 +69,15 @@ func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) htt
 	route("POST /invoices/{id}/documents", h.attach)
 	route("GET /invoices/{id}/documents/{docId}", h.download)
 	route("POST /invoices/{id}/cancel", h.cancel)
+	route("POST /invoices/{id}/resync", h.resync)
 }
 
 // --- DTOs ---------------------------------------------------------------
 
 // prepareRequest is the body of POST /invoices. Client USA takes subtotal (USD,
 // default salary_usd) and exchange_rate (default fx_rate_applied); every other
-// client takes amount, the total received with IVA included. date defaults to
+// client takes amount, the net amount received (IVA included, retentions
+// already taken off). date defaults to
 // today; periodicity (quincenal or mensual, default mensual) shapes the
 // checklist of a public-in-general invoice.
 type prepareRequest struct {
@@ -125,6 +128,14 @@ type warningDTO struct {
 	InvoiceIDs []int  `json:"invoice_ids,omitempty"`
 	Expected   string `json:"expected,omitempty"`
 	Actual     string `json:"actual,omitempty"`
+	// Changes lists the stored amounts the XML replaced (amounts_from_xml).
+	Changes []changeDTO `json:"changes,omitempty"`
+}
+
+type changeDTO struct {
+	Field string `json:"field"`
+	From  string `json:"from"`
+	To    string `json:"to"`
 }
 
 type partyDTO struct {
@@ -164,6 +175,8 @@ type conceptDTO struct {
 type taxesDTO struct {
 	IVAIncluded bool            `json:"iva_included"`
 	IVA         decimal.Decimal `json:"iva"`
+	ISRWithheld decimal.Decimal `json:"isr_withheld"`
+	IVAWithheld decimal.Decimal `json:"iva_withheld"`
 }
 
 type totalsDTO struct {
@@ -230,6 +243,9 @@ func toWarningDTOs(ws []invoices.Warning) []warningDTO {
 	out := make([]warningDTO, len(ws))
 	for i, w := range ws {
 		out[i] = warningDTO{Code: w.Code, Message: w.Message, InvoiceIDs: w.InvoiceIDs, Expected: w.Expected, Actual: w.Actual}
+		for _, c := range w.Changes {
+			out[i].Changes = append(out[i].Changes, changeDTO{Field: c.Field, From: c.From, To: c.To})
+		}
 	}
 	return out
 }
@@ -250,7 +266,7 @@ func toChecklistDTO(c invoices.Checklist) checklistDTO {
 			ProdServKey: c.Concept.ProdServKey, UnitKey: c.Concept.UnitKey, Description: c.Concept.Description,
 			Quantity: c.Concept.Quantity, UnitValue: c.Concept.UnitValue,
 		},
-		Taxes:         taxesDTO{IVAIncluded: c.Taxes.IVAIncluded, IVA: c.Taxes.IVA},
+		Taxes:         taxesDTO{IVAIncluded: c.Taxes.IVAIncluded, IVA: c.Taxes.IVA, ISRWithheld: c.Taxes.ISRWithheld, IVAWithheld: c.Taxes.IVAWithheld},
 		Totals:        totalsDTO{Currency: c.Totals.Currency, Subtotal: c.Totals.Subtotal, Total: c.Totals.Total, ExpectedDepositMXN: c.Totals.ExpectedDepositMXN},
 		Period:        c.Period,
 		DueDate:       c.DueDate,
@@ -431,6 +447,21 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	httpjson.WriteJSON(w, http.StatusOK, toInvoiceDTO(inv))
 }
 
+// resync replaces the amounts of an issued invoice with the ones in its stored
+// XML and answers like GET /invoices/{id}, plus the warnings.
+func (h *Handler) resync(w http.ResponseWriter, r *http.Request) {
+	id, ok := httpjson.PathID(w, r)
+	if !ok {
+		return
+	}
+	res, err := h.svc.Resync(r.Context(), id)
+	if err != nil {
+		h.fail(w, "resync", err)
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, toDetailDTO(res.Detail, res.Warnings))
+}
+
 // --- helpers ------------------------------------------------------------
 
 // parseMultipart bounds the request body and parses the form. On failure it
@@ -493,6 +524,10 @@ func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 		reply(http.StatusUnprocessableEntity, "invalid_cfdi")
 	case errors.Is(err, invoices.ErrUUIDMismatch):
 		reply(http.StatusUnprocessableEntity, "uuid_mismatch")
+	case errors.Is(err, invoices.ErrCurrencyMismatch):
+		reply(http.StatusUnprocessableEntity, "currency_mismatch")
+	case errors.Is(err, invoices.ErrNoXML):
+		reply(http.StatusConflict, "invoice_xml_missing")
 	case errors.Is(err, invoices.ErrDuplicateUUID):
 		reply(http.StatusConflict, "duplicate_uuid")
 	case errors.Is(err, invoices.ErrCancelled):
