@@ -47,13 +47,15 @@ export interface InvoiceDocument {
 
 /** Non-blocking finding returned next to a successful result. */
 export interface InvoiceWarning {
-  code: "possible_duplicate" | "total_mismatch" | "subtotal_mismatch" | "currency_mismatch" | "period_already_filed" | (string & {});
+  code: "possible_duplicate" | "total_mismatch" | "subtotal_mismatch" | "currency_mismatch" | "period_already_filed" | "amounts_from_xml" | (string & {});
   message: string;
   /** possible_duplicate: the existing invoices. */
   invoice_ids?: number[];
   /** Mismatch warnings: the prepared invoice value and the XML value. */
   expected?: string;
   actual?: string;
+  /** amounts_from_xml: the stored amounts the XML replaced. */
+  changes?: { field: "subtotal" | "iva" | "isr_withheld" | "iva_withheld" | "total" | (string & {}); from: string; to: string }[];
 }
 
 export interface ChecklistParty {
@@ -79,7 +81,7 @@ export interface Checklist {
     global: { periodicity: Periodicity; code: string; months: string; year: string } | null;
   };
   concept: { prod_serv_key: string; unit_key: string; description: string; quantity: number; unit_value: string };
-  taxes: { iva_included: boolean; iva: string };
+  taxes: { iva_included: boolean; iva: string; isr_withheld: string; iva_withheld: string };
   totals: { currency: string; subtotal: string; total: string; expected_deposit_mxn: string };
   /** YYYY-MM */
   period: string;
@@ -98,7 +100,7 @@ export interface InvoiceDetail {
   warnings: InvoiceWarning[];
 }
 
-/** Client USA takes `subtotal` and `exchange_rate`; every other client takes `amount` (IVA included). */
+/** Client USA takes `subtotal` and `exchange_rate`; every other client takes `amount`, the net amount received (IVA included, retentions already taken off). */
 export interface PrepareInput {
   client_id: string;
   date?: string;
@@ -164,6 +166,8 @@ export function createInvoicesApi(client: Client = api) {
     /** Downloads a stored document through the authenticated API. */
     download: (id: number, docId: number) =>
       client.request<Blob>(`/invoices/${id}/documents/${docId}`, { blob: true }),
+    /** Replaces the amounts of an issued, undeclared invoice with the ones in its stored XML. */
+    resync: (id: number) => client.request<InvoiceDetail>(`/invoices/${id}/resync`, { method: "POST" }),
     cancel: (id: number) => client.request<Invoice>(`/invoices/${id}/cancel`, { method: "POST" }),
   };
 }
@@ -177,3 +181,4 @@ export const issueInvoice = defaultApi.issue;
 export const attachInvoiceDocument = defaultApi.attach;
 export const downloadInvoiceDocument = defaultApi.download;
 export const cancelInvoice = defaultApi.cancel;
+export const resyncInvoice = defaultApi.resync;

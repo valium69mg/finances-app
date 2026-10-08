@@ -1,16 +1,16 @@
 import { useState, type ReactNode } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Ban, Loader2, X } from "lucide-react";
-import { cancelInvoice, getInvoice, invoiceKeys, type Invoice, type InvoiceDetail as Detail, type InvoiceWarning, type Periodicity } from "../../api/invoices";
+import { Ban, Loader2, RefreshCw, X } from "lucide-react";
+import { cancelInvoice, getInvoice, invoiceKeys, resyncInvoice, type Invoice, type InvoiceDetail as Detail, type InvoiceWarning, type Periodicity } from "../../api/invoices";
 import type { Client } from "../../api/settings";
 import { SelectField } from "../expenses/SelectField";
 import { periodLabel } from "../taxfiling/labels";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import { ChecklistView } from "./ChecklistView";
 import { DocumentsPanel } from "./DocumentsPanel";
-import { describeInvoiceError } from "./errors";
+import { describeInvoiceError, describeResyncError } from "./errors";
 import { IssuePanel } from "./IssuePanel";
-import { PERIODICITY_LABEL, clientName, isUsaClient, money } from "./labels";
+import { PERIODICITY_LABEL, clientName, isZeroAmount, money } from "./labels";
 import { StateBadge } from "./StateBadge";
 import { useInvalidateAfterInvoiceChange } from "./useInvalidate";
 import { WarningsList } from "./WarningsList";
@@ -44,6 +44,8 @@ function Summary({ inv, clients }: { inv: Invoice; clients: Client[] }) {
       <Field label="Moneda">{inv.exchange_rate ? `${inv.currency} · tipo de cambio ${inv.exchange_rate}` : inv.currency}</Field>
       <Field label="Subtotal">{money(inv.subtotal, inv.currency)}</Field>
       <Field label="IVA">{money(inv.iva, "MXN")}</Field>
+      {!isZeroAmount(inv.isr_withheld) && <Field label="Retención de ISR">{money(inv.isr_withheld, "MXN")}</Field>}
+      {!isZeroAmount(inv.iva_withheld) && <Field label="Retención de IVA">{money(inv.iva_withheld, "MXN")}</Field>}
       <Field label="Total">{money(inv.total, inv.currency)}</Field>
       <Field label="Depósito esperado">{money(inv.expected_deposit_mxn, "MXN")}</Field>
       <Field label="UUID">{inv.uuid ? <span className="break-all">{inv.uuid}</span> : "Aún sin UUID"}</Field>
@@ -67,6 +69,16 @@ export function InvoiceDetail({ invoiceId, clients, initialPeriodicity, warnings
     onSuccess: () => {
       setConfirmingCancel(false);
       onWarnings([]);
+      return invalidate();
+    },
+    // A declared invoice is refused (409 invoice_declared): refresh so the detail shows its declaration.
+    onError: () => void invalidate(),
+  });
+
+  const resync = useMutation({
+    mutationFn: () => resyncInvoice(invoiceId),
+    onSuccess: (res) => {
+      onWarnings(res.warnings);
       return invalidate();
     },
     // A declared invoice is refused (409 invoice_declared): refresh so the detail shows its declaration.
@@ -110,6 +122,15 @@ export function InvoiceDetail({ invoiceId, clients, initialPeriodicity, warnings
           onPeriodicity={setPeriodicity}
           warnings={warnings}
           onWarnings={onWarnings}
+          resync={{
+            pending: resync.isPending,
+            error: resync.isError ? describeResyncError(resync.error) : null,
+            run: () => {
+              resync.reset();
+              onWarnings([]);
+              resync.mutate();
+            },
+          }}
           cancel={{
             confirming: confirmingCancel,
             pending: cancel.isPending,
@@ -136,6 +157,12 @@ interface CancelState {
   confirm: () => void;
 }
 
+interface ResyncState {
+  pending: boolean;
+  error: string | null;
+  run: () => void;
+}
+
 interface BodyProps {
   data: Detail;
   clients: Client[];
@@ -144,13 +171,16 @@ interface BodyProps {
   warnings: InvoiceWarning[];
   onWarnings: (w: InvoiceWarning[]) => void;
   cancel: CancelState;
+  resync: ResyncState;
 }
 
-function DetailBody({ data, clients, periodicity, onPeriodicity, warnings, onWarnings, cancel }: BodyProps) {
+function DetailBody({ data, clients, periodicity, onPeriodicity, warnings, onWarnings, cancel, resync }: BodyProps) {
   const inv = data.invoice;
   const cancellable = inv.state !== "cancelada";
   // An invoice a saved tax filing includes cannot be cancelled: the declaration would go out of sync.
   const declared = inv.state !== "cancelada" && inv.declaration_period !== null;
+  const hasXml = data.documents.some((d) => d.kind === "xml");
+  const global = data.checklist.voucher.global !== null;
   return (
     <div className="space-y-5">
       <Summary inv={inv} clients={clients} />
@@ -175,7 +205,32 @@ function DetailBody({ data, clients, periodicity, onPeriodicity, warnings, onWar
         <DocumentsPanel invoiceId={inv.id} documents={data.documents} canAttach={inv.state === "emitida"} onWarnings={onWarnings} />
       )}
 
-      {!isUsaClient(inv.client_id) && (
+      {inv.state === "emitida" && hasXml && (
+        <div className="space-y-2">
+          {resync.error && <ErrorBanner>{resync.error}</ErrorBanner>}
+          <button
+            type="button"
+            disabled={resync.pending || declared}
+            aria-describedby={`resync-note-${inv.id}`}
+            onClick={resync.run}
+            className={secondaryButton}
+          >
+            {resync.pending ? (
+              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <RefreshCw className="h-4 w-4" aria-hidden="true" />
+            )}
+            Sincronizar con XML
+          </button>
+          <p id={`resync-note-${inv.id}`} className="text-sm text-muted">
+            {declared
+              ? `No se puede sincronizar: esta factura está incluida en la declaración de ${periodLabel(inv.declaration_period ?? "")}. Elimina primero ese registro en “Declaraciones presentadas” (solo posible mientras su pago siga pendiente).`
+              : "Vuelve a leer el XML guardado y reemplaza los importes de la factura (subtotal, IVA, retenciones y total) por los del XML timbrado."}
+          </p>
+        </div>
+      )}
+
+      {global && (
         <div className="max-w-xs">
           <SelectField label="Periodicidad (factura global)" value={periodicity} onChange={(e) => onPeriodicity(e.target.value as Periodicity)}>
             {(Object.keys(PERIODICITY_LABEL) as Periodicity[]).map((p) => (

@@ -15,6 +15,7 @@ const MSG = {
   required: "Este campo es obligatorio.",
   decimal: "Escribe un número válido, sin signos ni comas (por ejemplo 1500.50).",
   month: "Usa el formato AAAA-MM (por ejemplo 2026-10).",
+  postalCode: "El código postal debe tener 5 dígitos o dejarse vacío.",
   cycleStartDay: "Elige cuándo empieza tu periodo.",
   percent: "Escribe un porcentaje válido, sin signos ni comas (por ejemplo 16.5).",
   percentRange: "El porcentaje debe estar entre 0 y 100.",
@@ -145,6 +146,7 @@ export function validateClients(clients: Client[]): Errors {
   clients.forEach((c, i) => {
     text(e, `${i}.name`, c.name);
     text(e, `${i}.currency`, c.currency);
+    if (c.postal_code.trim() && !/^\d{5}$/.test(c.postal_code.trim())) e[`${i}.postal_code`] = MSG.postalCode;
     decimal(e, `${i}.iva_rate`, c.iva_rate);
     decimal(e, `${i}.ret_isr_rate`, c.ret_isr_rate);
     decimal(e, `${i}.ret_iva_rate`, c.ret_iva_rate);

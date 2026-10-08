@@ -1,6 +1,17 @@
 import { ApiError } from "../../api/client";
 import { describeSaveError } from "../settings/ui";
 
+/** Like describeInvoiceError, with the copy of the XML resync for the declared case. */
+export function describeResyncError(err: unknown): string {
+  if (err instanceof ApiError && err.code === "invoice_declared") {
+    return "La factura está incluida en una declaración registrada: sus importes ya no se pueden sincronizar. Elimina primero el registro de esa declaración (solo si su pago sigue pendiente).";
+  }
+  if (err instanceof ApiError && err.code === "uuid_mismatch") {
+    return "El UUID del XML guardado no coincide con el UUID de la factura. Adjunta el XML correcto.";
+  }
+  return describeInvoiceError(err);
+}
+
 /**
  * Maps an invoice API failure to Spanish copy. The backend `message` is only
  * appended for the validation codes where it says what is wrong; everything
@@ -23,6 +34,10 @@ export function describeInvoiceError(err: unknown): string {
         return "El XML no es un CFDI válido.";
       case "cfdi_not_stamped":
         return "El XML no está timbrado: no trae el TimbreFiscalDigital del SAT.";
+      case "currency_mismatch":
+        return "La moneda del XML no coincide con la de la factura.";
+      case "invoice_xml_missing":
+        return "La factura no tiene un XML guardado. Adjunta el XML en la sección de documentos.";
       case "uuid_mismatch":
         return "El UUID del XML no coincide con el UUID de la factura.";
       case "duplicate_uuid":

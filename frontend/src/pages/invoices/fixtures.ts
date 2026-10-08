@@ -18,6 +18,7 @@ const client = (over: Partial<Client>): Client => ({
   tax_residence: "",
   contract: "",
   real_payer: "",
+  postal_code: "",
   ...over,
 });
 
@@ -35,7 +36,7 @@ export const SETTINGS: AllSettings = {
     cycle_start_day: 0,
   },
   categories: [],
-  clients: [client({ id: "usa", name: "Acme Inc.", currency: "USD" }), client({ id: "b", name: "Público en general", iva_rate: "0.16" })],
+  clients: [client({ id: "usa", name: "Acme Inc.", currency: "USD" }), client({ id: "b", name: "Público en general", iva_rate: "0.16", rfc: "XAXX010101000" })],
   instruments: { instruments: [], by_category: {} },
   brackets: [],
   payment_methods: [],

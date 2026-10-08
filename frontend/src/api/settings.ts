@@ -50,6 +50,8 @@ export interface Client {
   tax_residence: string;
   contract: string;
   real_payer: string;
+  /** Receiver postal code of the CFDI: empty or 5 digits. */
+  postal_code: string;
 }
 
 export interface Instrument {

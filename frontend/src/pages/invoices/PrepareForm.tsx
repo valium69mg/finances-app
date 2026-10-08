@@ -2,14 +2,14 @@ import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus } from "lucide-react";
 import { invoiceKeys, prepareInvoice, type InvoiceDetail, type Periodicity, type PrepareInput } from "../../api/invoices";
-import type { AllSettings } from "../../api/settings";
+import type { AllSettings, Client } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
 import { formatMoney, formatRatePercent, isPositiveDecimal, todayISO } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
 import { ErrorBanner, fieldGrid, primaryButton } from "../settings/ui";
 import { ClientSelect } from "./ClientSelect";
 import { describeInvoiceError } from "./errors";
-import { PERIODICITY_LABEL, isUsaClient } from "./labels";
+import { PERIODICITY_LABEL, PUBLIC_GENERAL_RFC, isUsaClient, isZeroAmount } from "./labels";
 
 interface Props {
   settings: AllSettings;
@@ -19,10 +19,19 @@ interface Props {
 
 type Errors = { client?: string; date?: string; subtotal?: string; rate?: string; amount?: string };
 
+function amountHint(client: Client): string {
+  const iva = `El subtotal y el IVA (${formatRatePercent(client.iva_rate)}) se calculan a partir de este monto`;
+  const parts = [
+    !isZeroAmount(client.ret_isr_rate) && `retención de ISR ${formatRatePercent(client.ret_isr_rate)}`,
+    !isZeroAmount(client.ret_iva_rate) && `retención de IVA ${formatRatePercent(client.ret_iva_rate)}`,
+  ].filter(Boolean);
+  return parts.length > 0 ? `${iva}, descontando la ${parts.join(" y la ")}.` : `${iva}.`;
+}
+
 /**
  * Prepares an invoice for the SAT portal. Client USA (export of services) takes a
- * subtotal in USD and an exchange rate; every other client takes the total
- * received with IVA included, as in fin.py.
+ * subtotal in USD and an exchange rate; every other client takes the net amount
+ * received (IVA included, retentions already taken off).
  */
 export function PrepareForm({ settings, onPrepared }: Props) {
   const qc = useQueryClient();
@@ -61,7 +70,7 @@ export function PrepareForm({ settings, onPrepared }: Props) {
       if (subtotal.trim() !== "" && !isPositiveDecimal(subtotal)) found.subtotal = "Escribe un subtotal mayor a cero, por ejemplo 3500.";
       if (rate.trim() !== "" && !isPositiveDecimal(rate)) found.rate = "Escribe un tipo de cambio válido, por ejemplo 17.50.";
     } else if (clientId && !isPositiveDecimal(amount)) {
-      found.amount = "Escribe el total recibido (con IVA incluido), mayor a cero, por ejemplo 35000.";
+      found.amount = "Escribe el monto neto recibido (lo que te depositan), mayor a cero, por ejemplo 35000.";
     }
     setErrors(found);
     if (Object.keys(found).length > 0) {
@@ -76,7 +85,7 @@ export function PrepareForm({ settings, onPrepared }: Props) {
       if (rate.trim()) input.exchange_rate = rate.trim();
     } else {
       input.amount = amount.trim();
-      input.periodicity = periodicity;
+      if (client?.rfc === PUBLIC_GENERAL_RFC) input.periodicity = periodicity;
     }
     prepare.mutate(input);
   }
@@ -139,8 +148,8 @@ export function PrepareForm({ settings, onPrepared }: Props) {
         {clientId && !usa && (
           <>
             <TextField
-              label="Total recibido (IVA incluido)"
-              hint={client ? `El IVA (${formatRatePercent(client.iva_rate)}) se calcula sobre este monto.` : undefined}
+              label="Monto neto recibido"
+              hint={client ? amountHint(client) : undefined}
               inputMode="decimal"
               inputRef={amountRef}
               value={amount}
@@ -148,13 +157,15 @@ export function PrepareForm({ settings, onPrepared }: Props) {
               error={errors.amount}
               autoComplete="off"
             />
-            <SelectField label="Periodicidad (factura global)" value={periodicity} onChange={(e) => setPeriodicity(e.target.value as Periodicity)}>
-              {(Object.keys(PERIODICITY_LABEL) as Periodicity[]).map((p) => (
-                <option key={p} value={p}>
-                  {PERIODICITY_LABEL[p]}
-                </option>
-              ))}
-            </SelectField>
+            {client?.rfc === PUBLIC_GENERAL_RFC && (
+              <SelectField label="Periodicidad (factura global)" value={periodicity} onChange={(e) => setPeriodicity(e.target.value as Periodicity)}>
+                {(Object.keys(PERIODICITY_LABEL) as Periodicity[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PERIODICITY_LABEL[p]}
+                  </option>
+                ))}
+              </SelectField>
+            )}
           </>
         )}
       </div>

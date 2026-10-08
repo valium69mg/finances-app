@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { ClipboardList } from "lucide-react";
 import type { Checklist } from "../../api/invoices";
 import { formatMoney } from "../expenses/money";
-import { MISSING_CONFIG_LABEL, PERIODICITY_LABEL, money } from "./labels";
+import { GENERIC_RFCS, MISSING_CONFIG_LABEL, PERIODICITY_LABEL, isZeroAmount, money } from "./labels";
 
 const CONFIRM_TAG = "confirmar con contador";
 
@@ -41,6 +41,7 @@ export function ChecklistView({ checklist: c }: { checklist: Checklist }) {
   const confirms = new Set(c.to_confirm);
   const v = c.voucher;
   const g = v.global;
+  const retained = !isZeroAmount(c.taxes.isr_withheld) || !isZeroAmount(c.taxes.iva_withheld);
   const missing = c.missing_config.map((k) => MISSING_CONFIG_LABEL[k] ?? k);
 
   return (
@@ -57,7 +58,7 @@ export function ChecklistView({ checklist: c }: { checklist: Checklist }) {
 
       {missing.length > 0 && (
         <p role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          Faltan datos del emisor: {missing.join(", ")}. Completa el emisor en Configuración.
+          Faltan datos: {missing.join(", ")}. Complétalos en Configuración.
         </p>
       )}
 
@@ -72,7 +73,7 @@ export function ChecklistView({ checklist: c }: { checklist: Checklist }) {
         <Row label="RFC" value={c.receiver.rfc} />
         <Row label="Nombre" value={c.receiver.name} />
         <Row label="Régimen fiscal receptor" value={c.receiver.regimen} />
-        <Row label="CP receptor" value={c.receiver.postal_code} note="(mismo del emisor)" />
+        <Row label="CP receptor" value={c.receiver.postal_code} note={GENERIC_RFCS.includes(c.receiver.rfc) ? "(mismo del emisor)" : undefined} />
         <Row label="Uso de CFDI" value={c.receiver.uso_cfdi ?? ""} />
         {c.receiver.internal_note && <Row label="Nota interna" value={c.receiver.internal_note} note="(no va en el CFDI)" />}
       </Section>
@@ -106,11 +107,22 @@ export function ChecklistView({ checklist: c }: { checklist: Checklist }) {
 
       <Section title="Impuestos">
         {c.taxes.iva_included ? (
-          <Row label="Traslado de IVA" value={`${formatMoney(c.taxes.iva)} MXN`} note="(incluido en el monto recibido)" />
+          <Row
+            label="Traslado de IVA"
+            value={`${formatMoney(c.taxes.iva)} MXN`}
+            note={retained ? "(se suma al subtotal; el monto recibido ya descuenta las retenciones)" : "(incluido en el monto recibido)"}
+          />
         ) : (
           <Row label="Traslado de IVA" value="Tasa 0% = $0.00" note="(exportación de servicios)" />
         )}
-        <Row label="Retenciones" value="Ninguna" />
+        {retained ? (
+          <>
+            {!isZeroAmount(c.taxes.isr_withheld) && <Row label="Retención de ISR" value={`${formatMoney(c.taxes.isr_withheld)} MXN`} />}
+            {!isZeroAmount(c.taxes.iva_withheld) && <Row label="Retención de IVA" value={`${formatMoney(c.taxes.iva_withheld)} MXN`} />}
+          </>
+        ) : (
+          <Row label="Retenciones" value="Ninguna" />
+        )}
       </Section>
 
       <Section title="Totales">

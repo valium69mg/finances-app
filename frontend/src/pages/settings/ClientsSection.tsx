@@ -13,6 +13,7 @@ const FIELDS: { key: EditableKey; label: string; decimal?: boolean; hint?: strin
   { key: "iva_rate", label: "Tasa de IVA", decimal: true, hint: "Como fracción: 0.16 equivale a 16 %." },
   { key: "rfc", label: "RFC" },
   { key: "regimen", label: "Régimen fiscal" },
+  { key: "postal_code", label: "Código postal", hint: "5 dígitos. Para público en general y clientes del extranjero se usa el del emisor." },
   { key: "uso_cfdi", label: "Uso de CFDI" },
   { key: "ret_isr_rate", label: "Retención de ISR", decimal: true },
   { key: "ret_iva_rate", label: "Retención de IVA", decimal: true },
