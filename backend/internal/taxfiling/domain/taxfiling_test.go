@@ -161,6 +161,19 @@ func TestComputeDeclarationEdgeCases(t *testing.T) {
 		}
 	})
 
+	t.Run("an invoice that withholds feeds the declaration", func(t *testing.T) {
+		amounts, ok := invoices.ComputeClientInvoice(d("7318.18"), d("0.16"), d("0.0125"), d("0.106667"))
+		if !ok {
+			t.Fatal("rates rejected")
+		}
+		inv := invoices.Invoice{ID: 1, ClientID: "ibl", Period: "2026-10", Currency: "MXN", Status: invoices.StatusIssued, Amounts: amounts}
+		got, err := taxfiling.ComputeDeclaration(cfg, []invoices.Invoice{inv}, "2026-10", d("0"))
+		if err != nil || !got.IncomeCollected.Equal(d("7031.08")) || !got.IVATransferred.Equal(d("1124.97")) ||
+			!got.ISRWithheld.Equal(d("87.89")) || !got.IVAWithheld.Equal(d("749.98")) {
+			t.Errorf("got %+v, %v", got, err)
+		}
+	})
+
 	t.Run("invalid input", func(t *testing.T) {
 		for _, tc := range []struct {
 			period, creditable string
