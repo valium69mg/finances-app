@@ -39,6 +39,8 @@ func TestInvalidSections(t *testing.T) {
 		"client without id":    domain.ValidateClients([]domain.Client{{Name: "x", Currency: "MXN"}}),
 		"client bad currency":  domain.ValidateClients([]domain.Client{{ID: "a", Name: "x", Currency: "EUR"}}),
 		"client rate over one": domain.ValidateClients([]domain.Client{{ID: "a", Name: "x", Currency: "MXN", IVARate: d("1.5")}}),
+		"client short postal":  domain.ValidateClients([]domain.Client{{ID: "a", Name: "x", Currency: "MXN", PostalCode: "6400"}}),
+		"client letter postal": domain.ValidateClients([]domain.Client{{ID: "a", Name: "x", Currency: "MXN", PostalCode: "6400A"}}),
 		"instrument duplicate": domain.ValidateInstruments([]domain.Instrument{{ID: "a", Name: "A"}, {ID: "a", Name: "B"}}, nil),
 		"unknown default":      domain.ValidateInstruments([]domain.Instrument{{ID: "a", Name: "A"}}, map[string]string{"Inversiones": "zzz"}),
 		"no brackets":          domain.ValidateBrackets(nil),

@@ -20,7 +20,7 @@ const sample = `{
   "instrumento_por_categoria": {"Inversiones": "voo"},
   "asignacion_inversiones": {"voo": 1.0},
   "emisor": {"rfc": "R", "nombre": "N", "regimen": "626", "cp": "76246", "nota": "x"},
-  "clientes": [{"id": "b", "nombre": "PUBLICO", "tipo": "publico_general", "moneda": "MXN", "iva_rate": 0.16,
+  "clientes": [{"id": "b", "cp": "64000", "nombre": "PUBLICO", "tipo": "publico_general", "moneda": "MXN", "iva_rate": 0.16,
                 "ret_isr_rate": 0, "ret_iva_rate": 0, "concepto": "c", "clave_prod_serv": "01010101", "clave_unidad": "ACT"}],
   "resico_brackets": [{"upper": 25000, "rate": 0.01}, {"upper": 83333.33, "rate": 0.015}],
   "payment_methods": ["Efectivo", "Débito"],
@@ -59,7 +59,7 @@ func TestParse(t *testing.T) {
 	if string(cfg.Categories[1].Kind) != "Gasto" || cfg.Categories[1].Includes != "mantenimiento" {
 		t.Fatalf("category mapping: %+v", cfg.Categories[1])
 	}
-	if cfg.Clients[0].ClaveProdServ != "01010101" || cfg.Clients[0].IVARate.String() != "0.16" {
+	if cfg.Clients[0].ClaveProdServ != "01010101" || cfg.Clients[0].IVARate.String() != "0.16" || cfg.Clients[0].PostalCode != "64000" {
 		t.Fatalf("client = %+v", cfg.Clients[0])
 	}
 	if cfg.Brackets[1].Upper.String() != "83333.33" {

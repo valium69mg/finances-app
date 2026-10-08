@@ -58,6 +58,7 @@ type file struct {
 		TaxResidence  string      `json:"residencia_fiscal"`
 		Contract      string      `json:"contrato"`
 		RealPayer     string      `json:"pagador_real"`
+		PostalCode    string      `json:"cp"`
 	} `json:"clientes"`
 	Brackets []struct {
 		Upper json.Number `json:"upper"`
@@ -151,7 +152,7 @@ func Parse(data []byte) (domain.Config, error) {
 			Type: c.Type, RFC: c.RFC, Regimen: c.Regimen, UsoCFDI: c.UsoCFDI,
 			RetISRRate: num("ret_isr_rate", c.RetISRRate), RetIVARate: num("ret_iva_rate", c.RetIVARate),
 			Concepto: c.Concepto, ClaveProdServ: c.ClaveProdServ, ClaveUnidad: c.ClaveUnidad,
-			Address: c.Address, TaxResidence: c.TaxResidence, Contract: c.Contract, RealPayer: c.RealPayer,
+			Address: c.Address, TaxResidence: c.TaxResidence, Contract: c.Contract, RealPayer: c.RealPayer, PostalCode: c.PostalCode,
 		})
 	}
 	for _, b := range f.Brackets {

@@ -60,6 +60,8 @@ type Client struct {
 	TaxResidence  string
 	Contract      string
 	RealPayer     string
+	// PostalCode is the receiver postal code of the CFDI (empty or 5 digits).
+	PostalCode string
 }
 
 // Issuer is the taxpayer that issues the invoices.

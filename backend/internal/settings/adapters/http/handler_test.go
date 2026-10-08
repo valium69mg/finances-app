@@ -267,3 +267,21 @@ func TestBudgets(t *testing.T) {
 		t.Fatalf("body = %s", rec.Body)
 	}
 }
+
+func TestClientsCarryPostalCode(t *testing.T) {
+	cfg := settingstest.RealConfig()
+	cfg.Clients[0].PostalCode = "64000"
+	rec := do(newServer(&fakeService{cfg: cfg}), http.MethodGet, "/settings/clients", "", true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	var got []struct {
+		PostalCode string `json:"postal_code"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v: %s", err, rec.Body)
+	}
+	if len(got) == 0 || got[0].PostalCode != "64000" {
+		t.Fatalf("clients = %s", rec.Body)
+	}
+}

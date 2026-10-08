@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/shopspring/decimal"
@@ -178,7 +179,10 @@ func ValidateCategories(cats []Category) error {
 	return nil
 }
 
-// ValidateClients checks IDs (non-empty, unique), currency and rates.
+var postalCodePattern = regexp.MustCompile(`^[0-9]{5}$`)
+
+// ValidateClients checks IDs (non-empty, unique), currency, postal code (empty
+// or 5 digits) and rates.
 func ValidateClients(clients []Client) error {
 	seen := map[string]bool{}
 	for _, c := range clients {
@@ -194,6 +198,9 @@ func ValidateClients(clients []Client) error {
 		}
 		if c.Currency != ledger.CurrencyUSD && c.Currency != ledger.CurrencyMXN {
 			return invalid("client %q has unknown currency %q", c.ID, c.Currency)
+		}
+		if c.PostalCode != "" && !postalCodePattern.MatchString(c.PostalCode) {
+			return invalid("client %q postal code must have 5 digits", c.ID)
 		}
 		for name, r := range map[string]decimal.Decimal{
 			"iva_rate": c.IVARate, "ret_isr_rate": c.RetISRRate, "ret_iva_rate": c.RetIVARate,

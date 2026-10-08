@@ -119,6 +119,7 @@ type clientDTO struct {
 	TaxResidence  string          `json:"tax_residence"`
 	Contract      string          `json:"contract"`
 	RealPayer     string          `json:"real_payer"`
+	PostalCode    string          `json:"postal_code"`
 }
 
 type instrumentDTO struct {
@@ -210,7 +211,7 @@ func toClientDTOs(clients []domain.Client) []clientDTO {
 			ID: c.ID, Name: c.Name, Type: c.Type, Currency: c.Currency, IVARate: c.IVARate, RFC: c.RFC,
 			Regimen: c.Regimen, UsoCFDI: c.UsoCFDI, RetISRRate: c.RetISRRate, RetIVARate: c.RetIVARate,
 			Concepto: c.Concepto, ClaveProdServ: c.ClaveProdServ, ClaveUnidad: c.ClaveUnidad, Address: c.Address,
-			TaxResidence: c.TaxResidence, Contract: c.Contract, RealPayer: c.RealPayer,
+			TaxResidence: c.TaxResidence, Contract: c.Contract, RealPayer: c.RealPayer, PostalCode: c.PostalCode,
 		}
 	}
 	return out
@@ -286,7 +287,7 @@ func clientsFromDTO(in []clientDTO) []domain.Client {
 			ID: c.ID, Name: c.Name, Currency: c.Currency, IVARate: c.IVARate, Type: c.Type, RFC: c.RFC,
 			Regimen: c.Regimen, UsoCFDI: c.UsoCFDI, RetISRRate: c.RetISRRate, RetIVARate: c.RetIVARate,
 			Concepto: c.Concepto, ClaveProdServ: c.ClaveProdServ, ClaveUnidad: c.ClaveUnidad, Address: c.Address,
-			TaxResidence: c.TaxResidence, Contract: c.Contract, RealPayer: c.RealPayer,
+			TaxResidence: c.TaxResidence, Contract: c.Contract, RealPayer: c.RealPayer, PostalCode: c.PostalCode,
 		}
 	}
 	return out

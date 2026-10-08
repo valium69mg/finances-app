@@ -75,6 +75,7 @@ func fullConfig() domain.Config {
 	cfg.CycleStartDay = 31
 	cfg.Issuer = domain.Issuer{RFC: "AAAA010101AAA", Name: "TEST ISSUER", Regimen: "626", PostalCode: "76246", Note: "n"}
 	cfg.Clients[0].RFC = "XEXX010101000"
+	cfg.Clients[0].PostalCode = "64000"
 	cfg.Clients[0].Concepto = "Servicios de desarrollo de software"
 	cfg.Clients[1].RetISRRate = settingstest.D("0.0125")
 	return cfg
@@ -137,7 +138,7 @@ func TestImportRoundTrip(t *testing.T) {
 	if !got.Brackets[2].Upper.Equal(settingstest.D("83333.33")) {
 		t.Fatalf("bracket 3 upper = %s", got.Brackets[2].Upper)
 	}
-	if got.Clients[1].RetISRRate.String() != "0.0125" || got.Clients[0].RFC != "XEXX010101000" {
+	if got.Clients[1].RetISRRate.String() != "0.0125" || got.Clients[0].RFC != "XEXX010101000" || got.Clients[0].PostalCode != "64000" {
 		t.Fatalf("client invoicing fields lost: %+v", got.Clients)
 	}
 	if !reflect.DeepEqual(got.InstrumentByCategory, want.InstrumentByCategory) {

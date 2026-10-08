@@ -172,7 +172,7 @@ func loadCategories(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
 func loadClients(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
 	rows, err := tx.Query(ctx,
 		`SELECT id, name, currency, iva_rate::text, type, rfc, regimen, uso_cfdi, ret_isr_rate::text, ret_iva_rate::text,
-		        concepto, clave_prod_serv, clave_unidad, address, tax_residence, contract, real_payer
+		        concepto, clave_prod_serv, clave_unidad, address, tax_residence, contract, real_payer, postal_code
 		 FROM clients ORDER BY position`)
 	if err != nil {
 		return err
@@ -182,7 +182,7 @@ func loadClients(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
 		var c domain.Client
 		var iva, retISR, retIVA string
 		if err := rows.Scan(&c.ID, &c.Name, &c.Currency, &iva, &c.Type, &c.RFC, &c.Regimen, &c.UsoCFDI, &retISR, &retIVA,
-			&c.Concepto, &c.ClaveProdServ, &c.ClaveUnidad, &c.Address, &c.TaxResidence, &c.Contract, &c.RealPayer); err != nil {
+			&c.Concepto, &c.ClaveProdServ, &c.ClaveUnidad, &c.Address, &c.TaxResidence, &c.Contract, &c.RealPayer, &c.PostalCode); err != nil {
 			return err
 		}
 		for _, f := range []struct {
@@ -396,12 +396,12 @@ func saveClients(ctx context.Context, tx pgx.Tx, clients []domain.Client) error 
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO clients (id, position, name, type, currency, iva_rate, rfc, regimen, uso_cfdi,
 			                      ret_isr_rate, ret_iva_rate, concepto, clave_prod_serv, clave_unidad,
-			                      address, tax_residence, contract, real_payer)
+			                      address, tax_residence, contract, real_payer, postal_code)
 			 VALUES ($1, $2, $3, $4, $5, $6::text::numeric, $7, $8, $9, $10::text::numeric, $11::text::numeric,
-			         $12, $13, $14, $15, $16, $17, $18)`,
+			         $12, $13, $14, $15, $16, $17, $18, $19)`,
 			c.ID, i, c.Name, c.Type, c.Currency, c.IVARate.String(), c.RFC, c.Regimen, c.UsoCFDI,
 			c.RetISRRate.String(), c.RetIVARate.String(), c.Concepto, c.ClaveProdServ, c.ClaveUnidad,
-			c.Address, c.TaxResidence, c.Contract, c.RealPayer); err != nil {
+			c.Address, c.TaxResidence, c.Contract, c.RealPayer, c.PostalCode); err != nil {
 			return fmt.Errorf("insert client %q: %w", c.ID, err)
 		}
 	}
