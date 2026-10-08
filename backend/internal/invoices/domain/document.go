@@ -61,6 +61,9 @@ var (
 	// ErrNoXML is returned when an operation needs the stored XML of an invoice
 	// that has none.
 	ErrNoXML = errors.New("invoice has no XML document")
+	// ErrCurrencyMismatch is returned when the currency of a stamped XML is not
+	// the invoice currency and the amounts cannot be taken from it.
+	ErrCurrencyMismatch = errors.New("XML currency does not match the invoice currency")
 )
 
 // Document is the metadata of an issued CFDI file stored in object storage.

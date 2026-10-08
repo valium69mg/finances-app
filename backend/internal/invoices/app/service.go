@@ -225,8 +225,10 @@ func (s *Service) detail(ctx context.Context, inv invoices.Invoice, periodicity 
 }
 
 // Issue marks a prepared invoice as issued. The UUID comes from the XML when
-// there is one (a manual UUID must then match it) or from the manual value. A
-// mismatch between the XML and the prepared invoice is a warning, not an error.
+// there is one (a manual UUID must then match it) or from the manual value. The
+// stamped XML is the source of truth: when its currency is the invoice currency
+// its amounts replace the prepared ones and a warning lists what changed; with
+// another currency the differences are warnings and nothing is replaced.
 // A UUID used by another invoice is rejected. The files are stored before the
 // database is updated and removed again if the update fails.
 func (s *Service) Issue(ctx context.Context, id int, in IssueInput) (Result, error) {
@@ -247,6 +249,7 @@ func (s *Service) Issue(ctx context.Context, id int, in IssueInput) (Result, err
 	var (
 		uuid     string
 		warnings []invoices.Warning
+		amounts  *invoices.Amounts
 		docs     []invoices.Document
 		payloads = map[invoices.DocumentKind][]byte{}
 	)
@@ -264,7 +267,9 @@ func (s *Service) Issue(ctx context.Context, id int, in IssueInput) (Result, err
 			return Result{}, fmt.Errorf("%w: the manual UUID differs from the XML", invoices.ErrUUIDMismatch)
 		}
 		uuid = cfdi.UUID
-		warnings = inv.CompareCFDI(cfdi)
+		if warnings, amounts, err = s.reconcile(inv, cfdi); err != nil {
+			return Result{}, err
+		}
 		docs = append(docs, doc)
 		payloads[invoices.DocumentXML] = in.XML.Data
 	}
@@ -287,7 +292,7 @@ func (s *Service) Issue(ctx context.Context, id int, in IssueInput) (Result, err
 	if err != nil {
 		return Result{}, err
 	}
-	replaced, err := s.repo.Issue(ctx, id, uuid, stored)
+	replaced, err := s.repo.Issue(ctx, id, uuid, stored, amounts)
 	if err != nil {
 		s.deleteKeys(ctx, keysOf(stored))
 		return Result{}, err
@@ -304,6 +309,105 @@ func (s *Service) Issue(ctx context.Context, id int, in IssueInput) (Result, err
 		return Result{}, err
 	}
 	return Result{Detail: detail, Warnings: warnings}, nil
+}
+
+// reconcile compares the invoice with its XML. Same currency: the XML amounts
+// and the warning listing the changes. Other currency: the mismatch warnings
+// and no amounts.
+func (s *Service) reconcile(inv invoices.Invoice, cfdi invoices.CFDI) ([]invoices.Warning, *invoices.Amounts, error) {
+	amounts, warnings, ok, err := inv.AmountsFromCFDI(cfdi)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return inv.CompareCFDI(cfdi), nil, nil
+	}
+	return warnings, &amounts, nil
+}
+
+// Resync re-reads the stored XML of an issued invoice and replaces the invoice
+// amounts with the ones in it. The XML UUID and currency must be the invoice's.
+// A declared invoice is refused (invoices.ErrDeclared): the saved declaration
+// would go out of sync; the repository re-checks this atomically in the UPDATE.
+func (s *Service) Resync(ctx context.Context, id int) (Result, error) {
+	inv, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return Result{}, err
+	}
+	switch inv.Status {
+	case invoices.StatusCancelled:
+		return Result{}, fmt.Errorf("%w: #%d", invoices.ErrCancelled, id)
+	case invoices.StatusPrepared:
+		return Result{}, fmt.Errorf("%w: #%d", invoices.ErrNotIssued, id)
+	}
+	if inv.DeclarationPeriod != "" {
+		return Result{}, fmt.Errorf("%w: #%d is part of the filing of %s, delete that filing first",
+			invoices.ErrDeclared, id, inv.DeclarationPeriod)
+	}
+	docs, err := s.repo.ListDocuments(ctx, id)
+	if err != nil {
+		return Result{}, err
+	}
+	var xmlDoc *invoices.Document
+	for i := range docs {
+		if docs[i].Kind == invoices.DocumentXML {
+			xmlDoc = &docs[i]
+			break
+		}
+	}
+	if xmlDoc == nil {
+		return Result{}, fmt.Errorf("%w: #%d", invoices.ErrNoXML, id)
+	}
+	data, err := s.readObject(ctx, xmlDoc.Key, invoices.MaxXMLBytes)
+	if err != nil {
+		return Result{}, err
+	}
+	cfdi, err := invoices.ParseCFDI(data)
+	if err != nil {
+		return Result{}, err
+	}
+	if cfdi.UUID != inv.UUID {
+		return Result{}, fmt.Errorf("%w: the XML has %s, the invoice %s", invoices.ErrUUIDMismatch, cfdi.UUID, inv.UUID)
+	}
+	amounts, warnings, ok, err := inv.AmountsFromCFDI(cfdi)
+	if err != nil {
+		return Result{}, err
+	}
+	if !ok {
+		return Result{}, fmt.Errorf("%w: the XML has %s, the invoice %s", invoices.ErrCurrencyMismatch, cfdi.Currency, inv.Currency)
+	}
+	if err := s.repo.SyncAmounts(ctx, id, amounts); err != nil {
+		return Result{}, err
+	}
+	updated, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return Result{}, err
+	}
+	detail, err := s.detail(ctx, updated, "")
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Detail: detail, Warnings: warnings}, nil
+}
+
+// readObject reads a stored object of at most max bytes (one more is read so an
+// oversized object is noticed by the parser). A missing object is
+// invoices.ErrDocumentMissing, any other failure wraps ErrStorage.
+func (s *Service) readObject(ctx context.Context, key string, max int64) ([]byte, error) {
+	body, err := s.store.Get(ctx, key)
+	if errors.Is(err, ErrObjectNotFound) {
+		s.logger.Error("stored invoice document is missing from the object store", "key", key)
+		return nil, invoices.ErrDocumentMissing
+	}
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrStorage, err)
+	}
+	defer body.Close()
+	data, err := io.ReadAll(io.LimitReader(body, max+1))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrStorage, err)
+	}
+	return data, nil
 }
 
 // filedPeriodWarning warns when the period of a just-issued invoice already has

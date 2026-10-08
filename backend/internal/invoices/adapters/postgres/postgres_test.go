@@ -165,7 +165,7 @@ func TestListFiltersAndOrder(t *testing.T) {
 	}
 	oct, _ := repo.Create(ctx, usaInvoice("2026-10-15"))
 	nov, _ := repo.Create(ctx, clientBInvoice("2026-11-30"))
-	if _, err := repo.Issue(ctx, nov.ID, uuidA, nil); err != nil {
+	if _, err := repo.Issue(ctx, nov.ID, uuidA, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -188,7 +188,7 @@ func TestIssueStoresDocumentsAtomically(t *testing.T) {
 
 	replaced, err := repo.Issue(ctx, inv.ID, uuidA, []invoices.Document{
 		doc(inv.ID, invoices.DocumentPDF, "invoices/1/pdf-a.pdf"), doc(inv.ID, invoices.DocumentXML, "invoices/1/xml-a.xml"),
-	})
+	}, nil)
 	if err != nil || len(replaced) != 0 {
 		t.Fatalf("issue = %v, %v", replaced, err)
 	}
@@ -205,7 +205,7 @@ func TestIssueStoresDocumentsAtomically(t *testing.T) {
 	}
 
 	// A second issue is a state conflict and leaves everything untouched.
-	if _, err := repo.Issue(ctx, inv.ID, uuidB, []invoices.Document{doc(inv.ID, invoices.DocumentPDF, "invoices/1/pdf-b.pdf")}); !errors.Is(err, invoices.ErrStateChanged) {
+	if _, err := repo.Issue(ctx, inv.ID, uuidB, []invoices.Document{doc(inv.ID, invoices.DocumentPDF, "invoices/1/pdf-b.pdf")}, nil); !errors.Is(err, invoices.ErrStateChanged) {
 		t.Errorf("second issue error = %v", err)
 	}
 	after, _ := repo.ListDocuments(ctx, inv.ID)
@@ -215,7 +215,7 @@ func TestIssueStoresDocumentsAtomically(t *testing.T) {
 
 	// A duplicate UUID rolls the whole transaction back, documents included.
 	other, _ := repo.Create(ctx, usaInvoice("2026-10-20"))
-	_, err = repo.Issue(ctx, other.ID, uuidA, []invoices.Document{doc(other.ID, invoices.DocumentPDF, "invoices/2/pdf-c.pdf")})
+	_, err = repo.Issue(ctx, other.ID, uuidA, []invoices.Document{doc(other.ID, invoices.DocumentPDF, "invoices/2/pdf-c.pdf")}, nil)
 	if !errors.Is(err, invoices.ErrDuplicateUUID) {
 		t.Fatalf("duplicate uuid error = %v", err)
 	}
@@ -233,7 +233,7 @@ func TestFindByUUID(t *testing.T) {
 	if _, found, err := repo.FindByUUID(ctx, uuidA); err != nil || found {
 		t.Errorf("before issue: %v, %v", found, err)
 	}
-	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil); err != nil {
+	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	got, found, err := repo.FindByUUID(ctx, uuidA)
@@ -253,7 +253,7 @@ func TestPutDocumentReplacesAndReturnsOldKey(t *testing.T) {
 	if _, _, err := repo.PutDocument(ctx, doc(9999, invoices.DocumentPDF, "k0")); !errors.Is(err, invoices.ErrNotFound) {
 		t.Errorf("put on a missing invoice error = %v", err)
 	}
-	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil); err != nil {
+	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -300,7 +300,7 @@ func TestCancel(t *testing.T) {
 	if err := repo.Cancel(ctx, inv.ID); !errors.Is(err, invoices.ErrStateChanged) {
 		t.Errorf("second cancel error = %v", err)
 	}
-	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil); !errors.Is(err, invoices.ErrStateChanged) {
+	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil, nil); !errors.Is(err, invoices.ErrStateChanged) {
 		t.Errorf("issue after cancel error = %v", err)
 	}
 }
@@ -311,7 +311,7 @@ func TestCancelRefusesADeclaredInvoice(t *testing.T) {
 	repo, pool := newRepo(t)
 	ctx := context.Background()
 	inv, _ := repo.Create(ctx, usaInvoice("2026-10-15"))
-	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil); err != nil {
+	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := pool.Exec(ctx, `UPDATE invoices SET declaration_period = '2026-10' WHERE id = $1`, int64(inv.ID)); err != nil {
@@ -361,4 +361,77 @@ func TestSchemaConstraints(t *testing.T) {
 func clientAmounts(net string) invoices.Amounts {
 	a, _ := invoices.ComputeClientInvoice(dec(net), dec("0.16"), dec("0"), dec("0"))
 	return a
+}
+
+func iblAmounts() invoices.Amounts {
+	return invoices.Amounts{
+		Subtotal: dec("7031.08"), SubtotalMXN: dec("7031.08"), IVA: dec("1124.97"), ISRWithheld: dec("87.89"),
+		IVAWithheld: dec("749.98"), Total: dec("7318.18"), ExpectedDepositMXN: dec("7318.18"),
+	}
+}
+
+func sameAmounts(a, b invoices.Amounts) bool {
+	return a.Subtotal.Equal(b.Subtotal) && a.SubtotalMXN.Equal(b.SubtotalMXN) && a.IVA.Equal(b.IVA) &&
+		a.ISRWithheld.Equal(b.ISRWithheld) && a.IVAWithheld.Equal(b.IVAWithheld) && a.Total.Equal(b.Total) &&
+		a.ExpectedDepositMXN.Equal(b.ExpectedDepositMXN)
+}
+
+func TestIssueStoresTheXMLAmounts(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+	inv, _ := repo.Create(ctx, clientBInvoice("2026-10-31"))
+	want := iblAmounts()
+	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil, &want); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := repo.Get(ctx, inv.ID)
+	if got.Status != invoices.StatusIssued || !sameAmounts(got.Amounts, want) {
+		t.Errorf("invoice = %+v, want amounts %+v", got, want)
+	}
+}
+
+func TestSyncAmounts(t *testing.T) {
+	repo, pool := newRepo(t)
+	ctx := context.Background()
+	want := iblAmounts()
+
+	if err := repo.SyncAmounts(ctx, 9999, want); !errors.Is(err, invoices.ErrNotFound) {
+		t.Errorf("missing invoice error = %v", err)
+	}
+	inv, _ := repo.Create(ctx, clientBInvoice("2026-10-31"))
+	if err := repo.SyncAmounts(ctx, inv.ID, want); !errors.Is(err, invoices.ErrNotIssued) {
+		t.Errorf("prepared invoice error = %v", err)
+	}
+	if _, err := repo.Issue(ctx, inv.ID, uuidA, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SyncAmounts(ctx, inv.ID, want); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.Get(ctx, inv.ID); !sameAmounts(got.Amounts, want) || got.Status != invoices.StatusIssued || got.UUID != uuidA {
+		t.Errorf("invoice = %+v", got)
+	}
+
+	// A declared invoice is refused by the UPDATE itself and stays untouched.
+	if _, err := pool.Exec(ctx, `UPDATE invoices SET declaration_period = '2026-10' WHERE id = $1`, int64(inv.ID)); err != nil {
+		t.Fatal(err)
+	}
+	other := want
+	other.Total, other.ExpectedDepositMXN = dec("1.00"), dec("1.00")
+	if err := repo.SyncAmounts(ctx, inv.ID, other); !errors.Is(err, invoices.ErrDeclared) {
+		t.Errorf("declared invoice error = %v", err)
+	}
+	if got, _ := repo.Get(ctx, inv.ID); !sameAmounts(got.Amounts, want) {
+		t.Errorf("a declared invoice changed: %+v", got.Amounts)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE invoices SET declaration_period = NULL WHERE id = $1`, int64(inv.ID)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.Cancel(ctx, inv.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SyncAmounts(ctx, inv.ID, other); !errors.Is(err, invoices.ErrCancelled) {
+		t.Errorf("cancelled invoice error = %v", err)
+	}
 }

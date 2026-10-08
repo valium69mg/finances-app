@@ -37,6 +37,7 @@ type fakeStore struct {
 	putN    int
 	failAt  int // fail the Nth Put (1-based) when > 0
 	delErr  error
+	getErr  error
 }
 
 func newStore() *fakeStore { return &fakeStore{objects: map[string][]byte{}} }
@@ -55,6 +56,9 @@ func (f *fakeStore) Put(_ context.Context, key string, r io.Reader, size int64, 
 }
 
 func (f *fakeStore) Get(_ context.Context, key string) (io.ReadCloser, error) {
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	b, ok := f.objects[key]
 	if !ok {
 		return nil, app.ErrObjectNotFound
@@ -78,6 +82,7 @@ type fakeRepo struct {
 	issueErr error
 	// cancelCalls counts the Cancel calls that reached the write.
 	cancelCalls int
+	syncCalls   int
 	// staleGet makes Get hide declaration_period, as a read taken just before
 	// a filing is registered would.
 	staleGet bool
@@ -144,7 +149,25 @@ func (f *fakeRepo) put(doc invoices.Document) (invoices.Document, string) {
 	return doc, ""
 }
 
-func (f *fakeRepo) Issue(_ context.Context, id int, uuid string, docs []invoices.Document) ([]string, error) {
+func (f *fakeRepo) SyncAmounts(_ context.Context, id int, a invoices.Amounts) error {
+	f.syncCalls++
+	inv, ok := f.invoices[id]
+	switch {
+	case !ok:
+		return invoices.ErrNotFound
+	case inv.Status == invoices.StatusCancelled:
+		return invoices.ErrCancelled
+	case inv.Status != invoices.StatusIssued:
+		return invoices.ErrNotIssued
+	case inv.DeclarationPeriod != "":
+		return invoices.ErrDeclared
+	}
+	inv.Amounts = a
+	f.invoices[id] = inv
+	return nil
+}
+
+func (f *fakeRepo) Issue(_ context.Context, id int, uuid string, docs []invoices.Document, amounts *invoices.Amounts) ([]string, error) {
 	if f.issueErr != nil {
 		return nil, f.issueErr
 	}
@@ -153,6 +176,9 @@ func (f *fakeRepo) Issue(_ context.Context, id int, uuid string, docs []invoices
 		return nil, invoices.ErrStateChanged
 	}
 	inv.Status, inv.UUID = invoices.StatusIssued, uuid
+	if amounts != nil {
+		inv.Amounts = *amounts
+	}
 	f.invoices[id] = inv
 	var replaced []string
 	for _, doc := range docs {
@@ -223,6 +249,13 @@ func newEnv() env {
 	repo, store := newRepo(), newStore()
 	cfg := settingstest.RealConfig()
 	cfg.Issuer = settings.Issuer{RFC: "AAA010101AAA", Name: "Juan", PostalCode: "64000"}
+	for i := range cfg.Clients {
+		cfg.Clients[i].RFC = map[string]string{"b": invoices.PublicGeneralRFC, "usa": invoices.ForeignGenericRFC}[cfg.Clients[i].ID]
+	}
+	cfg.Clients = append(cfg.Clients, settings.Client{
+		ID: "ibl", Name: "IBL", Currency: "MXN", IVARate: d("0.16"), RetISRRate: d("0.0125"), RetIVARate: d("0.106667"),
+		RFC: "IBL121029ED3", Regimen: "601", UsoCFDI: "G03", PostalCode: "06600",
+	})
 	now := func() time.Time { return time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC) }
 	movs := fakeMovements{
 		5: {ID: 5, Kind: ledger.KindIncome},
@@ -367,17 +400,211 @@ func TestIssueWithXMLAndPDF(t *testing.T) {
 	}
 }
 
-func TestIssueTotalMismatchIsAWarning(t *testing.T) {
+func TestIssueTakesTheXMLAmountsWhenTheCurrencyMatches(t *testing.T) {
 	e := newEnv()
 	id := e.prepareUSA(t)
-	res, err := e.svc.Issue(context.Background(), id, app.IssueInput{XML: xmlUpload(uuidA, "3400", "3500", "USD")})
+	res, err := e.svc.Issue(context.Background(), id, app.IssueInput{XML: xmlUpload(uuidA, "3400", "3400", "USD")})
 	if err != nil {
 		t.Fatalf("a mismatch must not fail the issue: %v", err)
 	}
-	if res.Invoice.Status != invoices.StatusIssued || len(res.Warnings) != 1 || res.Warnings[0].Code != invoices.WarningTotalMismatch ||
-		res.Warnings[0].Expected != "3500.00" || res.Warnings[0].Actual != "3400.00" {
+	inv := res.Invoice
+	if inv.Status != invoices.StatusIssued || !inv.Total.Equal(d("3400")) || !inv.Subtotal.Equal(d("3400")) ||
+		!inv.SubtotalMXN.Equal(d("60316")) || !inv.ExpectedDepositMXN.Equal(d("60316")) { // 3,400 USD * 17.74
+		t.Errorf("invoice = %+v", inv)
+	}
+	if len(res.Warnings) != 1 || res.Warnings[0].Code != invoices.WarningAmountsFromXML || len(res.Warnings[0].Changes) != 2 {
 		t.Errorf("warnings = %+v", res.Warnings)
 	}
+	if stored := e.repo.invoices[id]; !stored.Total.Equal(d("3400")) {
+		t.Errorf("stored total = %s, want the XML's", stored.Total)
+	}
+}
+
+func TestIssueKeepsTheAmountsOnACurrencyMismatch(t *testing.T) {
+	e := newEnv()
+	id := e.prepareUSA(t)
+	res, err := e.svc.Issue(context.Background(), id, app.IssueInput{XML: xmlUpload(uuidA, "3400", "3500", "MXN")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := map[string]bool{}
+	for _, w := range res.Warnings {
+		codes[w.Code] = true
+	}
+	if !codes[invoices.WarningCurrencyMismatch] || !codes[invoices.WarningTotalMismatch] || codes[invoices.WarningAmountsFromXML] {
+		t.Errorf("warnings = %+v", res.Warnings)
+	}
+	if !res.Invoice.Total.Equal(d("3500")) || !res.Invoice.SubtotalMXN.Equal(d("62090")) {
+		t.Errorf("amounts must stay: %+v", res.Invoice.Amounts)
+	}
+}
+
+func iblXML(uuid string) []byte {
+	return []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Total="7318.18" SubTotal="7031.08" Moneda="MXN">
+<cfdi:Impuestos><cfdi:Retenciones><cfdi:Retencion Impuesto="001" Importe="87.89"/><cfdi:Retencion Impuesto="002" Importe="749.98"/></cfdi:Retenciones>
+<cfdi:Traslados><cfdi:Traslado Impuesto="002" Importe="1124.97"/></cfdi:Traslados></cfdi:Impuestos>
+<cfdi:Complemento><tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" UUID="` + uuid + `"/></cfdi:Complemento>
+</cfdi:Comprobante>`)
+}
+
+func (e env) prepareIBL(t *testing.T) int {
+	t.Helper()
+	res, err := e.svc.Prepare(context.Background(), app.PrepareInput{ClientID: "ibl", Date: "2026-10-15", Amount: ptr("7318.18")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Invoice.ID
+}
+
+func TestPrepareAWithholdingClient(t *testing.T) {
+	e := newEnv()
+	res, err := e.svc.Prepare(context.Background(), app.PrepareInput{ClientID: "ibl", Date: "2026-10-15", Amount: ptr("7318.18")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inv := res.Invoice
+	if !inv.Subtotal.Equal(d("7031.08")) || !inv.IVA.Equal(d("1124.97")) || !inv.ISRWithheld.Equal(d("87.89")) ||
+		!inv.IVAWithheld.Equal(d("749.98")) || !inv.Total.Equal(d("7318.18")) || !inv.ExpectedDepositMXN.Equal(d("7318.18")) {
+		t.Errorf("invoice = %+v", inv)
+	}
+	if res.Checklist.Voucher.Global != nil || res.Checklist.Receiver.PostalCode != "06600" || !res.Checklist.Taxes.IVAWithheld.Equal(d("749.98")) {
+		t.Errorf("checklist = %+v", res.Checklist)
+	}
+}
+
+func TestIssueWithAnIBLXMLIsInSync(t *testing.T) {
+	e := newEnv()
+	id := e.prepareIBL(t)
+	res, err := e.svc.Issue(context.Background(), id, app.IssueInput{XML: &app.Upload{Name: "cfdi.xml", Data: iblXML(uuidA)}})
+	if err != nil || len(res.Warnings) != 0 {
+		t.Errorf("an already correct invoice must not warn: %+v, %v", res.Warnings, err)
+	}
+}
+
+func TestResync(t *testing.T) {
+	ctx := context.Background()
+
+	// An invoice issued while the app still used the old formula.
+	stale := func(t *testing.T, e env, xml []byte) int {
+		t.Helper()
+		id := e.prepareIBL(t)
+		if _, err := e.svc.Issue(ctx, id, app.IssueInput{XML: &app.Upload{Name: "cfdi.xml", Data: xml}}); err != nil {
+			t.Fatal(err)
+		}
+		inv := e.repo.invoices[id]
+		inv.Amounts = invoices.Amounts{
+			Subtotal: d("6308.78"), SubtotalMXN: d("6308.78"), IVA: d("1009.40"), Total: d("7318.18"), ExpectedDepositMXN: d("7318.18"),
+		}
+		e.repo.invoices[id] = inv
+		return id
+	}
+
+	t.Run("replaces the amounts with the XML ones", func(t *testing.T) {
+		e := newEnv()
+		id := stale(t, e, iblXML(uuidA))
+		res, err := e.svc.Resync(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inv := res.Invoice
+		if !inv.Subtotal.Equal(d("7031.08")) || !inv.IVA.Equal(d("1124.97")) || !inv.ISRWithheld.Equal(d("87.89")) ||
+			!inv.IVAWithheld.Equal(d("749.98")) || !inv.Total.Equal(d("7318.18")) {
+			t.Errorf("invoice = %+v", inv.Amounts)
+		}
+		if len(res.Warnings) != 1 || res.Warnings[0].Code != invoices.WarningAmountsFromXML || len(res.Warnings[0].Changes) != 4 {
+			t.Errorf("warnings = %+v", res.Warnings)
+		}
+		if len(res.Documents) != 1 || res.Checklist.Receiver.RFC != "IBL121029ED3" {
+			t.Errorf("detail = %+v", res.Detail)
+		}
+		again, err := e.svc.Resync(ctx, id)
+		if err != nil || len(again.Warnings) != 0 {
+			t.Errorf("second resync: %+v, %v", again.Warnings, err)
+		}
+	})
+
+	t.Run("refuses states and inputs", func(t *testing.T) {
+		e := newEnv()
+		if _, err := e.svc.Resync(ctx, 42); !errors.Is(err, invoices.ErrNotFound) {
+			t.Errorf("missing: %v", err)
+		}
+		prepared := e.prepareIBL(t)
+		if _, err := e.svc.Resync(ctx, prepared); !errors.Is(err, invoices.ErrNotIssued) {
+			t.Errorf("prepared: %v", err)
+		}
+		noXML := e.prepareIBL(t)
+		if _, err := e.svc.Issue(ctx, noXML, app.IssueInput{UUID: uuidB}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.svc.Resync(ctx, noXML); !errors.Is(err, invoices.ErrNoXML) {
+			t.Errorf("no xml: %v", err)
+		}
+
+		id := stale(t, e, iblXML(uuidA))
+		inv := e.repo.invoices[id]
+		inv.DeclarationPeriod = "2026-10"
+		e.repo.invoices[id] = inv
+		before := e.repo.invoices[id].Amounts
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, invoices.ErrDeclared) {
+			t.Errorf("declared: %v", err)
+		}
+		if e.repo.invoices[id].Amounts != before || e.repo.syncCalls != 0 {
+			t.Error("a declared invoice must not be written")
+		}
+		// A filing registered after the read is caught by the repository guard.
+		e.repo.staleGet = true
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, invoices.ErrDeclared) || e.repo.syncCalls != 1 {
+			t.Errorf("race: %v (writes %d)", err, e.repo.syncCalls)
+		}
+		e.repo.staleGet = false
+	})
+
+	t.Run("cancelled", func(t *testing.T) {
+		e := newEnv()
+		id := stale(t, e, iblXML(uuidA))
+		if _, err := e.svc.Cancel(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, invoices.ErrCancelled) {
+			t.Errorf("cancelled: %v", err)
+		}
+	})
+
+	t.Run("the stored XML must still match", func(t *testing.T) {
+		e := newEnv()
+		id := stale(t, e, iblXML(uuidA))
+		doc := e.repo.docs[id][0]
+		e.store.objects[doc.Key] = iblXML(uuidB)
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, invoices.ErrUUIDMismatch) {
+			t.Errorf("uuid: %v", err)
+		}
+		e.store.objects[doc.Key] = cfdiXML(uuidA, "7318.18", "7031.08", "USD")
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, invoices.ErrCurrencyMismatch) {
+			t.Errorf("currency: %v", err)
+		}
+		e.store.objects[doc.Key] = []byte("not xml")
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, invoices.ErrInvalidCFDI) {
+			t.Errorf("garbage: %v", err)
+		}
+		if e.repo.syncCalls != 0 {
+			t.Error("nothing may be written when the XML is refused")
+		}
+	})
+
+	t.Run("storage problems", func(t *testing.T) {
+		e := newEnv()
+		id := stale(t, e, iblXML(uuidA))
+		e.store.getErr = errors.New("minio down")
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, app.ErrStorage) {
+			t.Errorf("storage down: %v", err)
+		}
+		e.store.getErr = nil
+		delete(e.store.objects, e.repo.docs[id][0].Key)
+		if _, err := e.svc.Resync(ctx, id); !errors.Is(err, invoices.ErrDocumentMissing) {
+			t.Errorf("missing object: %v", err)
+		}
+	})
 }
 
 func TestIssueWithManualUUID(t *testing.T) {

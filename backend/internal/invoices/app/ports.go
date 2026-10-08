@@ -40,16 +40,23 @@ type Repo interface {
 	// FindByUUID returns the invoice using the (normalized) UUID, if any.
 	FindByUUID(ctx context.Context, uuid string) (invoices.Invoice, bool, error)
 	// Issue marks a prepared invoice as issued with its UUID and stores the
-	// documents (one per kind) in one transaction. It returns the storage keys
-	// of documents that were replaced. It returns invoices.ErrStateChanged when
+	// documents (one per kind) in one transaction; a non-nil amounts replaces the
+	// amounts of the invoice in the same transaction (the XML wins). It returns
+	// the storage keys of documents that were replaced. It returns invoices.ErrStateChanged when
 	// the invoice is no longer prepared and invoices.ErrDuplicateUUID when the
 	// UUID belongs to another invoice.
-	Issue(ctx context.Context, id int, uuid string, docs []invoices.Document) (replacedKeys []string, err error)
+	Issue(ctx context.Context, id int, uuid string, docs []invoices.Document, amounts *invoices.Amounts) (replacedKeys []string, err error)
 	// Cancel marks a non-cancelled invoice as cancelled, atomically refusing an
 	// invoice that a tax filing includes (declaration_period set). It returns
 	// invoices.ErrDeclared for such an invoice, invoices.ErrStateChanged when it
 	// was already cancelled and invoices.ErrNotFound when it does not exist.
 	Cancel(ctx context.Context, id int) error
+	// SyncAmounts replaces the amounts of an issued invoice that no tax filing
+	// includes, in one UPDATE guarded by status = 'emitida' AND
+	// declaration_period IS NULL. It returns invoices.ErrDeclared for a declared
+	// invoice, invoices.ErrCancelled for a cancelled one, invoices.ErrNotIssued
+	// for a prepared one and invoices.ErrNotFound when it does not exist.
+	SyncAmounts(ctx context.Context, id int, amounts invoices.Amounts) error
 	// ListDocuments returns the current documents of an invoice, xml first.
 	ListDocuments(ctx context.Context, invoiceID int) ([]invoices.Document, error)
 	// GetDocument returns invoices.ErrDocumentMissing when the invoice has no such document.

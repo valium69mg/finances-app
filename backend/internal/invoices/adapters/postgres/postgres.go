@@ -183,7 +183,7 @@ func (r *Repo) FindByUUID(ctx context.Context, uuid string) (invoices.Invoice, b
 }
 
 // Issue marks a prepared invoice as issued and stores its documents in one transaction.
-func (r *Repo) Issue(ctx context.Context, id int, uuid string, docs []invoices.Document) ([]string, error) {
+func (r *Repo) Issue(ctx context.Context, id int, uuid string, docs []invoices.Document, amounts *invoices.Amounts) ([]string, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -200,6 +200,11 @@ func (r *Repo) Issue(ctx context.Context, id int, uuid string, docs []invoices.D
 	if tag.RowsAffected() == 0 {
 		return nil, invoices.ErrStateChanged
 	}
+	if amounts != nil {
+		if _, err := tx.Exec(ctx, updateAmountsSQL+` WHERE id = $1`, amountArgs(id, *amounts)...); err != nil {
+			return nil, err
+		}
+	}
 	var replaced []string
 	for _, doc := range docs {
 		_, old, err := upsertDocument(ctx, tx, doc)
@@ -214,6 +219,49 @@ func (r *Repo) Issue(ctx context.Context, id int, uuid string, docs []invoices.D
 		return nil, err
 	}
 	return replaced, nil
+}
+
+const updateAmountsSQL = `UPDATE invoices SET subtotal = $2::text::numeric, subtotal_mxn = $3::text::numeric,
+	iva = $4::text::numeric, isr_withheld = $5::text::numeric, iva_withheld = $6::text::numeric,
+	total = $7::text::numeric, expected_deposit_mxn = $8::text::numeric`
+
+func amountArgs(id int, a invoices.Amounts) []any {
+	return []any{int64(id), a.Subtotal.String(), a.SubtotalMXN.String(), a.IVA.String(), a.ISRWithheld.String(),
+		a.IVAWithheld.String(), a.Total.String(), a.ExpectedDepositMXN.String()}
+}
+
+// SyncAmounts replaces the amounts of an issued, undeclared invoice. The guard
+// is part of the UPDATE itself, so it cannot race with a filing being
+// registered or a cancellation; the follow-up read only classifies why nothing
+// was updated.
+func (r *Repo) SyncAmounts(ctx context.Context, id int, a invoices.Amounts) error {
+	tag, err := r.pool.Exec(ctx, updateAmountsSQL+` WHERE id = $1 AND status = 'emitida' AND declaration_period IS NULL`, amountArgs(id, a)...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		return nil
+	}
+	var (
+		status      string
+		declaration *string
+	)
+	err = r.pool.QueryRow(ctx, `SELECT status, declaration_period FROM invoices WHERE id = $1`, int64(id)).Scan(&status, &declaration)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return invoices.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	switch {
+	case status == string(invoices.StatusCancelled):
+		return invoices.ErrCancelled
+	case status != string(invoices.StatusIssued):
+		return invoices.ErrNotIssued
+	case declaration != nil:
+		return fmt.Errorf("%w: it is part of the filing of %s", invoices.ErrDeclared, *declaration)
+	}
+	return invoices.ErrStateChanged
 }
 
 // Cancel marks a non-cancelled invoice as cancelled, unless a tax filing

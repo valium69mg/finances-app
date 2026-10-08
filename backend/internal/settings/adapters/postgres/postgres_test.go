@@ -54,7 +54,7 @@ func newRepo(t *testing.T) *postgres.Repo {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000005_settings.up.sql", "000014_cycle_start_day.up.sql"} {
+	for _, name := range []string{"000005_settings.up.sql", "000014_cycle_start_day.up.sql", "000021_client_postal_code.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
