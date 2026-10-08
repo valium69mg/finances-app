@@ -25,10 +25,16 @@ type CFDI struct {
 	Total    decimal.Decimal
 	SubTotal decimal.Decimal
 	Currency string // Moneda
+	// Comprobante-level taxes (the Impuestos child of the root; the per-Concepto
+	// ones are not read). Absent values are zero.
+	IVATransferred decimal.Decimal // Traslado, Impuesto 002
+	ISRWithheld    decimal.Decimal // Retencion, Impuesto 001
+	IVAWithheld    decimal.Decimal // Retencion, Impuesto 002
 }
 
-// ParseCFDI extracts the stamp UUID and the Total, SubTotal and Moneda of the
-// Comprobante from a stamped CFDI XML (versions 3.3 and 4.0).
+// ParseCFDI extracts the stamp UUID, the Total, SubTotal and Moneda of the
+// Comprobante and its document-level taxes (IVA transferred, ISR and IVA
+// withheld) from a stamped CFDI XML (versions 3.3 and 4.0).
 //
 // The parse is deliberately narrow and safe: input above MaxXMLBytes is
 // rejected, any DOCTYPE or other directive is rejected (encoding/xml never
@@ -83,6 +89,9 @@ func ParseCFDI(data []byte) (CFDI, error) {
 				gotStamp = true
 				stampID = attr(t, "UUID")
 			}
+			if err := readTax(stack, t, &out); err != nil {
+				return CFDI{}, err
+			}
 			stack = append(stack, t.Name.Local)
 		case xml.EndElement:
 			if len(stack) > 0 {
@@ -111,6 +120,40 @@ func attr(el xml.StartElement, local string) string {
 		}
 	}
 	return ""
+}
+
+// readTax adds the Importe of a Comprobante-level tax element. stack is the
+// path of local names above el, so only Comprobante/Impuestos/Traslados/Traslado
+// and Comprobante/Impuestos/Retenciones/Retencion are read; the Impuestos
+// inside each Concepto sit deeper and are ignored. Several lines of the same
+// tax add up.
+func readTax(stack []string, el xml.StartElement, out *CFDI) error {
+	if len(stack) != 3 || stack[1] != "Impuestos" || (el.Name.Space != nsCFDI3 && el.Name.Space != nsCFDI4) {
+		return nil
+	}
+	var dst *decimal.Decimal
+	switch {
+	case stack[2] == "Traslados" && el.Name.Local == "Traslado" && attr(el, "Impuesto") == "002":
+		dst = &out.IVATransferred
+	case stack[2] == "Retenciones" && el.Name.Local == "Retencion" && attr(el, "Impuesto") == "001":
+		dst = &out.ISRWithheld
+	case stack[2] == "Retenciones" && el.Name.Local == "Retencion" && attr(el, "Impuesto") == "002":
+		dst = &out.IVAWithheld
+	default:
+		return nil
+	}
+	if attr(el, "Importe") == "" { // an exempt Traslado has no Importe
+		return nil
+	}
+	v, err := requiredAmount(el, "Importe")
+	if err != nil {
+		return err
+	}
+	*dst = dst.Add(v)
+	if dst.GreaterThanOrEqual(MaxAmount) {
+		return fmt.Errorf("%w: Importe is missing or invalid", ErrInvalidCFDI)
+	}
+	return nil
 }
 
 func readComprobante(el xml.StartElement, out *CFDI) error {

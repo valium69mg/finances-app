@@ -105,3 +105,114 @@ func TestCompareCFDI(t *testing.T) {
 		t.Errorf("currency warning = %+v", codes[invoices.WarningCurrencyMismatch])
 	}
 }
+
+// iblXML mirrors the stamped XML of a client that withholds taxes: Concepto-level
+// taxes (which the parser must ignore) and the Comprobante-level ones it reads.
+const iblXML = `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" Total="7318.18" SubTotal="7031.08" Moneda="MXN">
+  <cfdi:Conceptos>
+    <cfdi:Concepto>
+      <cfdi:Impuestos>
+        <cfdi:Traslados><cfdi:Traslado Impuesto="002" Importe="999.99"/></cfdi:Traslados>
+        <cfdi:Retenciones><cfdi:Retencion Impuesto="001" Importe="888.88"/><cfdi:Retencion Impuesto="002" Importe="777.77"/></cfdi:Retenciones>
+      </cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosRetenidos="837.87" TotalImpuestosTrasladados="1124.97">
+    <cfdi:Retenciones>
+      <cfdi:Retencion Impuesto="001" Importe="87.89"/>
+      <cfdi:Retencion Impuesto="002" Importe="749.98"/>
+    </cfdi:Retenciones>
+    <cfdi:Traslados>
+      <cfdi:Traslado Base="7031.08" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="1124.97"/>
+      <cfdi:Traslado Base="1" Impuesto="003" TipoFactor="Tasa" TasaOCuota="0.080000" Importe="55.00"/>
+    </cfdi:Traslados>
+  </cfdi:Impuestos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" Version="1.1" UUID="` + goodUUID + `"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`
+
+func TestParseCFDIReadsDocumentLevelTaxesOnly(t *testing.T) {
+	got, err := invoices.ParseCFDI([]byte(iblXML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.IVATransferred.Equal(d("1124.97")) || !got.ISRWithheld.Equal(d("87.89")) || !got.IVAWithheld.Equal(d("749.98")) {
+		t.Errorf("taxes = IVA %s, ISR %s, retIVA %s", got.IVATransferred, got.ISRWithheld, got.IVAWithheld)
+	}
+
+	// Without an Impuestos block every tax is zero.
+	plain, err := invoices.ParseCFDI([]byte(cfdiXML(goodUUID, "100", "86.21", "MXN")))
+	if err != nil || !plain.IVATransferred.IsZero() || !plain.ISRWithheld.IsZero() || !plain.IVAWithheld.IsZero() {
+		t.Errorf("plain = %+v, %v", plain, err)
+	}
+
+	// An exempt Traslado has no Importe.
+	exempt := strings.Replace(iblXML, `TasaOCuota="0.160000" Importe="1124.97"`, `TipoFactor="Exento"`, 1)
+	if got, err := invoices.ParseCFDI([]byte(exempt)); err != nil || !got.IVATransferred.IsZero() {
+		t.Errorf("exempt = %+v, %v", got, err)
+	}
+
+	bad := strings.Replace(iblXML, `Importe="749.98"`, `Importe="1e999999999"`, 1)
+	if _, err := invoices.ParseCFDI([]byte(bad)); !errors.Is(err, invoices.ErrInvalidCFDI) {
+		t.Errorf("exponent Importe error = %v", err)
+	}
+}
+
+func TestAmountsFromCFDI(t *testing.T) {
+	cfdi, err := invoices.ParseCFDI([]byte(iblXML))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What the app stored before the fix.
+	inv := invoices.Invoice{Currency: "MXN", Amounts: invoices.Amounts{
+		Subtotal: d("6308.78"), SubtotalMXN: d("6308.78"), IVA: d("1009.40"), Total: d("7318.18"), ExpectedDepositMXN: d("7318.18"),
+	}}
+	a, warnings, ok, err := inv.AmountsFromCFDI(cfdi)
+	if err != nil || !ok {
+		t.Fatalf("ok = %v, err = %v", ok, err)
+	}
+	if !a.Subtotal.Equal(d("7031.08")) || !a.SubtotalMXN.Equal(d("7031.08")) || !a.IVA.Equal(d("1124.97")) ||
+		!a.ISRWithheld.Equal(d("87.89")) || !a.IVAWithheld.Equal(d("749.98")) || !a.Total.Equal(d("7318.18")) ||
+		!a.ExpectedDepositMXN.Equal(d("7318.18")) {
+		t.Errorf("amounts = %+v", a)
+	}
+	if len(warnings) != 1 || warnings[0].Code != invoices.WarningAmountsFromXML || len(warnings[0].Changes) != 4 {
+		t.Fatalf("warnings = %+v", warnings)
+	}
+	if c := warnings[0].Changes[0]; c.Field != "subtotal" || c.From != "6308.78" || c.To != "7031.08" {
+		t.Errorf("first change = %+v", c)
+	}
+
+	// Already in sync: no warning.
+	inv.Amounts = a
+	if _, w, ok, err := inv.AmountsFromCFDI(cfdi); err != nil || !ok || len(w) != 0 {
+		t.Errorf("in sync: warnings = %+v, ok = %v, err = %v", w, ok, err)
+	}
+
+	// Another currency is left to CompareCFDI.
+	inv.Currency = "USD"
+	if _, _, ok, err := inv.AmountsFromCFDI(cfdi); err != nil || ok {
+		t.Errorf("currency mismatch: ok = %v, err = %v", ok, err)
+	}
+}
+
+func TestAmountsFromCFDIUSDUsesTheInvoiceRate(t *testing.T) {
+	rate := d("17.74")
+	inv := invoices.Invoice{Currency: "USD", ExchangeRate: &rate, Amounts: invoices.ComputeUSAInvoice(d("3500"), rate).Rounded()}
+	cfdi, err := invoices.ParseCFDI([]byte(cfdiXML(goodUUID, "3383.33", "3383.33", "USD")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, warnings, ok, err := inv.AmountsFromCFDI(cfdi)
+	if err != nil || !ok {
+		t.Fatalf("ok = %v, err = %v", ok, err)
+	}
+	if !a.Subtotal.Equal(d("3383.33")) || !a.Total.Equal(d("3383.33")) || !a.SubtotalMXN.Equal(d("60020.27")) || !a.ExpectedDepositMXN.Equal(d("60020.27")) {
+		t.Errorf("amounts = %+v", a)
+	}
+	if len(warnings) != 1 || len(warnings[0].Changes) != 2 { // subtotal and total
+		t.Errorf("warnings = %+v", warnings)
+	}
+}

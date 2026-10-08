@@ -84,7 +84,7 @@ func usaInvoice(date string) invoices.Invoice {
 func clientBInvoice(date string) invoices.Invoice {
 	return invoices.Invoice{
 		ClientID: "b", CollectionDate: date, Period: date[:7], Currency: "MXN", Status: invoices.StatusPrepared,
-		Amounts: invoices.ComputeClientBInvoice(dec("35000"), dec("0.16")).Rounded(),
+		Amounts: clientAmounts("35000"),
 	}
 }
 
@@ -355,4 +355,10 @@ func TestSchemaConstraints(t *testing.T) {
 			t.Errorf("%s: insert should fail", name)
 		}
 	}
+}
+
+// clientAmounts computes the amounts of a client that takes 16% IVA with no retentions.
+func clientAmounts(net string) invoices.Amounts {
+	a, _ := invoices.ComputeClientInvoice(dec(net), dec("0.16"), dec("0"), dec("0"))
+	return a
 }

@@ -188,7 +188,7 @@ type fixture struct {
 
 func newFixture() *fixture {
 	usa := invoices.ComputeUSAInvoice(d("3500"), d("17.74")).Rounded()
-	b := invoices.ComputeClientBInvoice(d("35000"), d("0.16")).Rounded()
+	b := clientAmounts("35000")
 	fx := &fixture{
 		repo: &fakeRepo{filings: map[string]taxfiling.Filing{}},
 		invoices: &fakeInvoices{rows: []invoices.Invoice{
@@ -697,4 +697,10 @@ func TestUnfiledInvoices(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].ID != 2 {
 		t.Errorf("unfiled = %+v, %v; want only invoice 2 (issued, filed period, not linked)", got, err)
 	}
+}
+
+// clientAmounts computes the amounts of a client that takes 16% IVA with no retentions.
+func clientAmounts(net string) invoices.Amounts {
+	a, _ := invoices.ComputeClientInvoice(d(net), d("0.16"), d("0"), d("0"))
+	return a
 }

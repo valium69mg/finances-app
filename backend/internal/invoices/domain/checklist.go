@@ -20,13 +20,17 @@ const (
 	VoucherType   = "I"  // Ingreso
 	PaymentForm   = "03" // Transferencia electronica de fondos
 	PaymentMethod = "PUE"
+	// ForeignGenericRFC is the generic RFC of a foreign receiver.
+	ForeignGenericRFC = "XEXX010101000"
+	// PublicGeneralRFC is the generic RFC of público en general, the only
+	// receiver of a global invoice (InformacionGlobal).
+	PublicGeneralRFC = "XAXX010101000"
 	// Regimen fiscal 626 is RESICO, the default issuer regime.
 	defaultIssuerRegimen = "626"
 )
 
 // Party is the issuer or the receiver of the CFDI. An empty field is a pending
-// value the user must fill in Settings (or, for the receiver postal code, the
-// issuer's).
+// value the user must fill in Settings.
 type Party struct {
 	RFC        string
 	Name       string
@@ -69,11 +73,14 @@ type Concept struct {
 	UnitValue   decimal.Decimal
 }
 
-// Taxes is the Impuestos section. IVAIncluded is true for public in general
-// (the IVA is part of the amount received) and false for the 0% export.
+// Taxes is the Impuestos section. IVAIncluded is true for domestic clients (the
+// IVA is part of the CFDI total; the amount received is net of the retentions)
+// and false for the 0% export.
 type Taxes struct {
 	IVAIncluded bool
 	IVA         decimal.Decimal
+	ISRWithheld decimal.Decimal
+	IVAWithheld decimal.Decimal
 }
 
 // Checklist is the data the user copies into the SAT portal "Genera tu
@@ -113,7 +120,7 @@ const (
 )
 
 // BuildChecklist assembles the SAT-portal data for an invoice from the issuer
-// and client settings. periodicity applies to public-in-general invoices only
+// and client settings. periodicity applies to global (público en general) invoices only
 // and defaults to monthly. The due date of the declaration is supplied by the
 // caller (it belongs to the tax filing rules).
 func BuildChecklist(cfg settings.Config, inv Invoice, periodicity, dueDate string) (Checklist, error) {
@@ -131,7 +138,7 @@ func BuildChecklist(cfg settings.Config, inv Invoice, periodicity, dueDate strin
 		},
 		Receiver: Party{
 			RFC: client.RFC, Name: client.Name, Regimen: client.Regimen,
-			PostalCode: cfg.Issuer.PostalCode, // the portal takes the issuer's postal code
+			PostalCode: client.PostalCode,
 			UsoCFDI:    client.UsoCFDI, InternalNote: client.RealPayer,
 		},
 		Voucher: Voucher{
@@ -142,7 +149,7 @@ func BuildChecklist(cfg settings.Config, inv Invoice, periodicity, dueDate strin
 			ProdServKey: client.ClaveProdServ, UnitKey: client.ClaveUnidad, Description: client.Concepto,
 			Quantity: 1, UnitValue: inv.Subtotal,
 		},
-		Taxes:  Taxes{IVAIncluded: !isUSA, IVA: inv.IVA},
+		Taxes:  Taxes{IVAIncluded: !isUSA, IVA: inv.IVA, ISRWithheld: inv.ISRWithheld, IVAWithheld: inv.IVAWithheld},
 		Totals: Totals{Currency: inv.Currency, Subtotal: inv.Subtotal, Total: inv.Total, ExpectedDepositMXN: inv.ExpectedDepositMXN},
 	}
 	if c.Issuer.Regimen == "" {
@@ -158,6 +165,14 @@ func BuildChecklist(cfg settings.Config, inv Invoice, periodicity, dueDate strin
 		c.MissingConfig = append(c.MissingConfig, "issuer.postal_code")
 	}
 
+	// The portal takes the issuer's postal code for the generic RFCs (público en
+	// general and foreign receivers); any other client needs its own.
+	if isGenericRFC(client.RFC) {
+		c.Receiver.PostalCode = cfg.Issuer.PostalCode
+	} else if c.Receiver.PostalCode == "" {
+		c.MissingConfig = append(c.MissingConfig, "client.postal_code")
+	}
+
 	if inv.Currency == ledger.CurrencyUSD {
 		c.ToConfirm = append(c.ToConfirm, ConfirmFXRateDOF)
 	}
@@ -165,18 +180,23 @@ func BuildChecklist(cfg settings.Config, inv Invoice, periodicity, dueDate strin
 	if isUSA {
 		c.ToConfirm = append(c.ToConfirm, ConfirmExport, ConfirmTaxObject)
 	} else {
-		if periodicity == "" {
-			periodicity = PeriodicityMonthly
+		if client.RFC == PublicGeneralRFC {
+			if periodicity == "" {
+				periodicity = PeriodicityMonthly
+			}
+			g, err := globalInfo(periodicity, inv.Period)
+			if err != nil {
+				return Checklist{}, err
+			}
+			c.Voucher.Global = &g
+			c.ToConfirm = append(c.ToConfirm, ConfirmGlobalInfo)
 		}
-		g, err := globalInfo(periodicity, inv.Period)
-		if err != nil {
-			return Checklist{}, err
-		}
-		c.Voucher.Global = &g
-		c.ToConfirm = append(c.ToConfirm, ConfirmGlobalInfo, ConfirmUnitKey)
+		c.ToConfirm = append(c.ToConfirm, ConfirmUnitKey)
 	}
 	return c, nil
 }
+
+func isGenericRFC(rfc string) bool { return rfc == PublicGeneralRFC || rfc == ForeignGenericRFC }
 
 func globalInfo(periodicity, period string) (GlobalInfo, error) {
 	var code string

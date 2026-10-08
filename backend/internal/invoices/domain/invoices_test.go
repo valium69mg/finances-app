@@ -28,15 +28,78 @@ func TestComputeUSAInvoice(t *testing.T) {
 	}
 }
 
-func TestComputeClientBInvoice(t *testing.T) {
-	a := invoices.ComputeClientBInvoice(d("35000"), d("0.16"))
-	// 35,000 / 1.16 = 30,172.4137931034 (10 decimals); IVA is the difference.
-	if !a.Subtotal.Equal(d("30172.4137931034")) || !a.SubtotalMXN.Equal(d("30172.4137931034")) ||
-		!a.IVA.Equal(d("4827.5862068966")) || !a.Total.Equal(d("35000")) || !a.ExpectedDepositMXN.Equal(d("35000")) {
+func compute(t *testing.T, net, iva, isr, retIVA string) invoices.Amounts {
+	t.Helper()
+	a, ok := invoices.ComputeClientInvoice(d(net), d(iva), d(isr), d(retIVA))
+	if !ok {
+		t.Fatalf("ComputeClientInvoice(%s, %s, %s, %s) rejected the rates", net, iva, isr, retIVA)
+	}
+	return a
+}
+
+func TestComputeClientInvoiceNoWithholdings(t *testing.T) {
+	a := compute(t, "35000", "0.16", "0", "0")
+	// 35,000 / 1.16 = 30,172.41; IVA 16% of that is 4,827.59 and they add up exactly.
+	if !a.Subtotal.Equal(d("30172.41")) || !a.SubtotalMXN.Equal(d("30172.41")) || !a.IVA.Equal(d("4827.59")) ||
+		!a.Total.Equal(d("35000")) || !a.ExpectedDepositMXN.Equal(d("35000")) ||
+		!a.ISRWithheld.IsZero() || !a.IVAWithheld.IsZero() {
 		t.Errorf("amounts = %+v", a)
 	}
-	if !a.Subtotal.Add(a.IVA).Equal(a.Total) {
-		t.Error("subtotal + IVA must equal the total exactly")
+}
+
+func TestComputeClientInvoiceWithWithholdings(t *testing.T) {
+	// Client IBL: the stamped XML of a 7,318.18 net payment.
+	a := compute(t, "7318.18", "0.16", "0.0125", "0.106667")
+	if !a.Subtotal.Equal(d("7031.08")) || !a.SubtotalMXN.Equal(d("7031.08")) || !a.IVA.Equal(d("1124.97")) ||
+		!a.IVAWithheld.Equal(d("749.98")) || !a.ISRWithheld.Equal(d("87.89")) ||
+		!a.Total.Equal(d("7318.18")) || !a.ExpectedDepositMXN.Equal(d("7318.18")) {
+		t.Errorf("amounts = %+v", a)
+	}
+	if got := a.Subtotal.Add(a.IVA).Sub(a.ISRWithheld).Sub(a.IVAWithheld); !got.Equal(a.Total) {
+		t.Errorf("subtotal + IVA - withholdings = %s, want %s", got, a.Total)
+	}
+	if r := a.Rounded(); r != a {
+		t.Errorf("Rounded changed exact amounts: %+v vs %+v", r, a)
+	}
+}
+
+func TestComputeClientInvoiceAlwaysAddsUp(t *testing.T) {
+	for _, net := range []string{"0.01", "1", "99.99", "1000", "1234.56", "7318.18", "50000.01", "123456.78"} {
+		for _, rates := range [][3]string{{"0.16", "0", "0"}, {"0.16", "0.0125", "0.106667"}, {"0.16", "0.1", "0.106667"}, {"0", "0", "0"}, {"0.08", "0.0125", "0"}} {
+			a := compute(t, net, rates[0], rates[1], rates[2])
+			if got := a.Subtotal.Add(a.IVA).Sub(a.ISRWithheld).Sub(a.IVAWithheld); !got.Equal(a.Total) || !a.Total.Equal(d(net)) {
+				t.Errorf("net %s rates %v: subtotal + IVA - withholdings = %s, total = %s", net, rates, got, a.Total)
+			}
+		}
+	}
+}
+
+func TestComputeClientInvoiceZeroRates(t *testing.T) {
+	a := compute(t, "1500.50", "0", "0", "0")
+	if !a.Subtotal.Equal(d("1500.50")) || !a.IVA.IsZero() || !a.Total.Equal(d("1500.50")) {
+		t.Errorf("amounts = %+v", a)
+	}
+}
+
+func TestComputeClientInvoiceRejectsNoTaxableBase(t *testing.T) {
+	if _, ok := invoices.ComputeClientInvoice(d("100"), d("0"), d("0.5"), d("0.5")); ok {
+		t.Error("rates that cancel the base must be rejected")
+	}
+}
+
+func TestRoundedKeepsTheInvariant(t *testing.T) {
+	// A correctly computed IVA is not overwritten.
+	a := invoices.Amounts{
+		Subtotal: d("7031.08"), SubtotalMXN: d("7031.08"), IVA: d("1124.97"), ISRWithheld: d("87.89"),
+		IVAWithheld: d("749.98"), Total: d("7318.18"), ExpectedDepositMXN: d("7318.18"),
+	}
+	if r := a.Rounded(); !r.IVA.Equal(d("1124.97")) {
+		t.Errorf("IVA = %s, want 1124.97", r.IVA)
+	}
+	// An IVA that misses the invariant is the remainder.
+	a.IVA = d("1124.50")
+	if r := a.Rounded(); !r.IVA.Equal(d("1124.97")) {
+		t.Errorf("corrected IVA = %s, want 1124.97", r.IVA)
 	}
 }
 
@@ -71,7 +134,24 @@ func TestPrepareDefaultsAndValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 		inv := got.Invoice
-		if inv.Currency != "MXN" || inv.ExchangeRate != nil || !inv.IVA.Equal(d("4827.5862068966")) {
+		if inv.Currency != "MXN" || inv.ExchangeRate != nil || !inv.IVA.Equal(d("4827.59")) {
+			t.Errorf("invoice = %+v", inv)
+		}
+	})
+
+	t.Run("a client that withholds takes the net amount", func(t *testing.T) {
+		withholding := cfg
+		withholding.Clients = append([]settings.Client(nil), cfg.Clients...)
+		withholding.Clients = append(withholding.Clients, settings.Client{
+			ID: "ibl", Name: "IBL", Currency: "MXN", IVARate: d("0.16"), RetISRRate: d("0.0125"), RetIVARate: d("0.106667"),
+		})
+		got, err := invoices.Prepare(withholding, nil, invoices.PrepareInput{ClientID: "ibl", Date: "2026-10-31", Amount: ptr("7318.18")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		inv := got.Invoice
+		if !inv.Subtotal.Equal(d("7031.08")) || !inv.IVA.Equal(d("1124.97")) || !inv.ISRWithheld.Equal(d("87.89")) ||
+			!inv.IVAWithheld.Equal(d("749.98")) || !inv.Total.Equal(d("7318.18")) || !inv.ExpectedDepositMXN.Equal(d("7318.18")) {
 			t.Errorf("invoice = %+v", inv)
 		}
 	})

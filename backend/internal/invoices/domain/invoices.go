@@ -35,8 +35,9 @@ var (
 
 // Rounded returns the amounts rounded to cents, the precision that is stored
 // (as for movements, amount_mxn is rounded to cents). When the invoice carries
-// IVA the IVA is total minus the rounded subtotal, so subtotal + IVA always
-// equals the total to the cent.
+// IVA, the rounded IVA is kept as computed and only corrected when
+// subtotal + IVA - withholdings would miss the total, so the invariant holds to
+// the cent.
 func (a Amounts) Rounded() Amounts {
 	a.Subtotal = a.Subtotal.Round(2)
 	a.SubtotalMXN = a.SubtotalMXN.Round(2)
@@ -44,10 +45,13 @@ func (a Amounts) Rounded() Amounts {
 	a.ExpectedDepositMXN = a.ExpectedDepositMXN.Round(2)
 	a.ISRWithheld = a.ISRWithheld.Round(2)
 	a.IVAWithheld = a.IVAWithheld.Round(2)
+	a.IVA = a.IVA.Round(2)
 	if a.IVA.IsZero() {
 		return a
 	}
-	a.IVA = a.Total.Sub(a.Subtotal)
+	if !a.Subtotal.Add(a.IVA).Sub(a.ISRWithheld).Sub(a.IVAWithheld).Equal(a.Total) {
+		a.IVA = a.Total.Sub(a.Subtotal).Add(a.ISRWithheld).Add(a.IVAWithheld)
+	}
 	return a
 }
 
@@ -105,23 +109,56 @@ func ComputeUSAInvoice(subtotalUSD, exchangeRate decimal.Decimal) Amounts {
 	}
 }
 
-// ComputeClientBInvoice computes a global public-in-general invoice: the
-// amount received includes IVA and there are no retentions. The subtotal is
-// total/(1+ivaRate) at ledger.DivisionPrecision decimals.
-func ComputeClientBInvoice(total, ivaRate decimal.Decimal) Amounts {
-	subtotal := total.DivRound(decimal.NewFromInt(1).Add(ivaRate), ledger.DivisionPrecision)
-	return Amounts{
-		Subtotal:           subtotal,
-		SubtotalMXN:        subtotal,
-		IVA:                total.Sub(subtotal),
-		Total:              total,
-		ExpectedDepositMXN: total,
+// maxSubtotalAdjust bounds the search for a subtotal whose rounded taxes add up
+// to the net amount exactly, in cents on each side of the first estimate.
+const maxSubtotalAdjust = 5
+
+// ComputeClientInvoice computes the invoice of a non-USA client from the net
+// amount received: the CFDI total after IVA is added and the retentions are
+// taken off. With rates iva, retISR and retIVA the subtotal is
+// net / (1 + iva - retISR - retIVA) and each tax is the subtotal times its
+// rate, all rounded to cents. When the rounded taxes miss the net amount by a
+// cent the subtotal moves by cents until subtotal + IVA - retentions equals the
+// net exactly; if no subtotal does, the remainder goes to the IVA. The result
+// is already in cents. With all rates at zero the subtotal is the net amount.
+// The caller must make sure 1 + iva - retISR - retIVA is positive; otherwise
+// ok is false.
+func ComputeClientInvoice(net, ivaRate, retISRRate, retIVARate decimal.Decimal) (a Amounts, ok bool) {
+	factor := decimal.NewFromInt(1).Add(ivaRate).Sub(retISRRate).Sub(retIVARate)
+	if !factor.IsPositive() {
+		return Amounts{}, false
 	}
+	net = net.Round(2)
+	taxes := func(subtotal decimal.Decimal) (iva, isr, retIVA decimal.Decimal) {
+		return subtotal.Mul(ivaRate).Round(2), subtotal.Mul(retISRRate).Round(2), subtotal.Mul(retIVARate).Round(2)
+	}
+	build := func(subtotal, iva, isr, retIVA decimal.Decimal) Amounts {
+		return Amounts{
+			Subtotal: subtotal, SubtotalMXN: subtotal, IVA: iva, ISRWithheld: isr, IVAWithheld: retIVA,
+			Total: net, ExpectedDepositMXN: net,
+		}
+	}
+	first := net.DivRound(factor, ledger.DivisionPrecision).Round(2)
+	cent := decimal.New(1, -2)
+	for step := int64(0); step <= maxSubtotalAdjust; step++ {
+		for _, sign := range []int64{1, -1} {
+			if step == 0 && sign == -1 {
+				continue
+			}
+			subtotal := first.Add(cent.Mul(decimal.NewFromInt(step * sign)))
+			iva, isr, retIVA := taxes(subtotal)
+			if subtotal.Add(iva).Sub(isr).Sub(retIVA).Equal(net) {
+				return build(subtotal, iva, isr, retIVA), true
+			}
+		}
+	}
+	_, isr, retIVA := taxes(first)
+	return build(first, net.Sub(first).Add(isr).Add(retIVA), isr, retIVA), true
 }
 
 // PrepareInput is the user input to prepare an invoice. USA clients take
-// Subtotal (USD) and ExchangeRate; every other client takes Amount, the total
-// received with IVA included.
+// Subtotal (USD) and ExchangeRate; every other client takes Amount, the net
+// amount received (IVA included, retentions already taken off).
 type PrepareInput struct {
 	ClientID     string
 	Date         string
@@ -188,16 +225,20 @@ func Prepare(cfg settings.Config, existing []Invoice, in PrepareInput) (Prepared
 		inv.Amounts = ComputeUSAInvoice(subtotal, rate)
 	} else {
 		if in.Subtotal != nil {
-			return Prepared{}, fmt.Errorf("%w: client %s takes the total received (IVA included), not a subtotal", ErrInvalidInput, in.ClientID)
+			return Prepared{}, fmt.Errorf("%w: client %s takes the net amount received, not a subtotal", ErrInvalidInput, in.ClientID)
 		}
 		if in.Amount == nil {
-			return Prepared{}, fmt.Errorf("%w: client %s requires the total received (IVA included)", ErrInvalidInput, in.ClientID)
+			return Prepared{}, fmt.Errorf("%w: client %s requires the net amount received", ErrInvalidInput, in.ClientID)
 		}
 		if !in.Amount.IsPositive() {
 			return Prepared{}, fmt.Errorf("%w: amount must be greater than zero", ErrInvalidInput)
 		}
 		inv.Currency = ledger.CurrencyMXN
-		inv.Amounts = ComputeClientBInvoice(*in.Amount, client.IVARate)
+		amounts, ok := ComputeClientInvoice(*in.Amount, client.IVARate, client.RetISRRate, client.RetIVARate)
+		if !ok {
+			return Prepared{}, fmt.Errorf("%w: the IVA and retention rates of client %s leave no taxable base", ErrInvalidInput, in.ClientID)
+		}
+		inv.Amounts = amounts
 	}
 
 	var dups []int

@@ -12,6 +12,10 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/shopspring/decimal"
+
+	ledger "github.com/valium69mg/finances-app/backend/internal/ledger/domain"
 )
 
 // DocumentKind is the kind of a stored invoice document.
@@ -54,6 +58,9 @@ var (
 	// registered tax filing: the saved declaration would silently go out of sync.
 	ErrDeclared   = errors.New("invoice is included in a filed tax declaration")
 	ErrIssueInput = errors.New("issue requires an XML or a UUID")
+	// ErrNoXML is returned when an operation needs the stored XML of an invoice
+	// that has none.
+	ErrNoXML = errors.New("invoice has no XML document")
 )
 
 // Document is the metadata of an issued CFDI file stored in object storage.
@@ -176,9 +183,17 @@ func NormalizeUUID(s string) (string, error) {
 type Warning struct {
 	Code       string
 	Message    string
-	InvoiceIDs []int  // possible_duplicate
-	Expected   string // mismatch warnings: the prepared invoice value
-	Actual     string // mismatch warnings: the XML value
+	InvoiceIDs []int    // possible_duplicate
+	Expected   string   // mismatch warnings: the prepared invoice value
+	Actual     string   // mismatch warnings: the XML value
+	Changes    []Change // amounts_from_xml: the stored amounts that the XML replaced
+}
+
+// Change is one stored amount replaced by the value in the XML.
+type Change struct {
+	Field string // subtotal, iva, isr_withheld, iva_withheld or total
+	From  string
+	To    string
 }
 
 // Warning codes.
@@ -187,6 +202,9 @@ const (
 	WarningTotalMismatch     = "total_mismatch"
 	WarningSubtotalMismatch  = "subtotal_mismatch"
 	WarningCurrencyMismatch  = "currency_mismatch"
+	// WarningAmountsFromXML is returned when the amounts of the invoice were
+	// replaced by the ones in its stamped XML (on issue or on resync).
+	WarningAmountsFromXML = "amounts_from_xml"
 	// WarningPeriodAlreadyFiled is returned when an invoice is issued in a
 	// period whose tax declaration was already filed: the invoice is not part of
 	// that declaration and its income stays undeclared.
@@ -240,4 +258,57 @@ func (i Invoice) CompareCFDI(c CFDI) []Warning {
 		})
 	}
 	return out
+}
+
+// AmountsFromCFDI returns the invoice amounts according to the stamped XML,
+// which is the source of truth for an issued invoice, and a warning listing the
+// stored amounts it changes (none when nothing changes). Subtotal, IVA,
+// retentions and Total are the XML values in the invoice currency; the peso
+// fields of a USD invoice are derived with the invoice exchange rate. It
+// returns ok false, with no amounts, when the XML currency is not the invoice
+// currency: such a XML only produces CompareCFDI warnings.
+func (i Invoice) AmountsFromCFDI(c CFDI) (a Amounts, warnings []Warning, ok bool, err error) {
+	if !strings.EqualFold(c.Currency, i.Currency) {
+		return Amounts{}, nil, false, nil
+	}
+	a = Amounts{
+		Subtotal: c.SubTotal.Round(2), IVA: c.IVATransferred.Round(2), ISRWithheld: c.ISRWithheld.Round(2),
+		IVAWithheld: c.IVAWithheld.Round(2), Total: c.Total.Round(2),
+	}
+	a.SubtotalMXN, a.ExpectedDepositMXN = a.Subtotal, a.Total
+	if i.Currency == ledger.CurrencyUSD {
+		if i.ExchangeRate == nil {
+			return Amounts{}, nil, false, fmt.Errorf("%w: a USD invoice has no exchange rate", ErrInvalidInput)
+		}
+		rate := *i.ExchangeRate
+		a.SubtotalMXN = a.Subtotal.Mul(rate).Round(2)
+		a.ExpectedDepositMXN = a.Total.Mul(rate).Round(2)
+		a.IVA = a.IVA.Mul(rate).Round(2)
+		a.ISRWithheld = a.ISRWithheld.Mul(rate).Round(2)
+		a.IVAWithheld = a.IVAWithheld.Mul(rate).Round(2)
+	}
+	if verr := a.Validate(); verr != nil {
+		return Amounts{}, nil, false, fmt.Errorf("%w: the XML amounts are not usable: %v", ErrInvalidCFDI, verr)
+	}
+
+	var changes []Change
+	for _, f := range []struct {
+		field    string
+		old, new decimal.Decimal
+	}{
+		{"subtotal", i.Subtotal, a.Subtotal}, {"iva", i.IVA, a.IVA}, {"isr_withheld", i.ISRWithheld, a.ISRWithheld},
+		{"iva_withheld", i.IVAWithheld, a.IVAWithheld}, {"total", i.Total, a.Total},
+	} {
+		if !f.old.Round(2).Equal(f.new) {
+			changes = append(changes, Change{Field: f.field, From: f.old.StringFixed(2), To: f.new.StringFixed(2)})
+		}
+	}
+	if len(changes) > 0 {
+		warnings = []Warning{{
+			Code:    WarningAmountsFromXML,
+			Message: "the amounts of the invoice were replaced by the ones in the stamped XML",
+			Changes: changes,
+		}}
+	}
+	return a, warnings, true, nil
 }

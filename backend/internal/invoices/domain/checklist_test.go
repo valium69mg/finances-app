@@ -90,7 +90,7 @@ func TestBuildChecklistMissingIssuerAndClient(t *testing.T) {
 	cfg.Issuer = settings.Issuer{}
 	prep, _ := invoices.Prepare(cfg, nil, invoices.PrepareInput{ClientID: "usa", Date: "2026-10-15"})
 	c, err := invoices.BuildChecklist(cfg, prep.Invoice, "", "")
-	if err != nil || len(c.MissingConfig) != 3 {
+	if err != nil || len(c.MissingConfig) != 3 { // XAXX uses the issuer's postal code, so none is missing for the client
 		t.Errorf("MissingConfig = %v, %v", c.MissingConfig, err)
 	}
 	if _, err := invoices.BuildChecklist(cfg, invoices.Invoice{ClientID: "zzz"}, "", ""); !errors.Is(err, invoices.ErrUnknownClient) {
@@ -99,7 +99,7 @@ func TestBuildChecklistMissingIssuerAndClient(t *testing.T) {
 }
 
 func TestAmountsRoundedAndValidate(t *testing.T) {
-	a := invoices.ComputeClientBInvoice(d("35000"), d("0.16")).Rounded()
+	a := compute(t, "35000", "0.16", "0", "0").Rounded()
 	if !a.Subtotal.Equal(d("30172.41")) || !a.IVA.Equal(d("4827.59")) || !a.Subtotal.Add(a.IVA).Equal(a.Total) {
 		t.Errorf("client B rounded = %+v", a)
 	}
@@ -130,5 +130,69 @@ func TestPrepareRejectsNonPositive(t *testing.T) {
 		if _, err := invoices.Prepare(cfg, nil, in); !errors.Is(err, invoices.ErrInvalidInput) {
 			t.Errorf("%s: error = %v", name, err)
 		}
+	}
+}
+
+func withholdingConfig() (settings.Config, settings.Client) {
+	cfg := checklistConfig()
+	ibl := settings.Client{
+		ID: "ibl", Name: "IBL", Currency: "MXN", IVARate: d("0.16"), RetISRRate: d("0.0125"), RetIVARate: d("0.106667"),
+		RFC: "IBL121029ED3", Regimen: "601", UsoCFDI: "G03", PostalCode: "06600",
+		ClaveProdServ: "81111500", ClaveUnidad: "E48", Concepto: "Servicios de software",
+	}
+	cfg.Clients = append(cfg.Clients, ibl)
+	return cfg, ibl
+}
+
+func TestBuildChecklistWithholdingClient(t *testing.T) {
+	cfg, _ := withholdingConfig()
+	prep, err := invoices.Prepare(cfg, nil, invoices.PrepareInput{ClientID: "ibl", Date: "2026-10-31", Amount: ptr("7318.18")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A periodicity is ignored: only público en general issues a global invoice.
+	c, err := invoices.BuildChecklist(cfg, prep.Invoice, "weekly", "2026-11-17")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Voucher.Global != nil {
+		t.Errorf("global info = %+v, want none", c.Voucher.Global)
+	}
+	for _, k := range c.ToConfirm {
+		if k == invoices.ConfirmGlobalInfo {
+			t.Error("global_info must not be confirmed for a named receiver")
+		}
+	}
+	if c.Receiver.PostalCode != "06600" || c.Issuer.PostalCode != "64000" || len(c.MissingConfig) != 0 {
+		t.Errorf("receiver = %+v missing = %v", c.Receiver, c.MissingConfig)
+	}
+	if !c.Taxes.IVAIncluded || !c.Taxes.IVA.Equal(d("1124.97")) || !c.Taxes.ISRWithheld.Equal(d("87.89")) || !c.Taxes.IVAWithheld.Equal(d("749.98")) {
+		t.Errorf("taxes = %+v", c.Taxes)
+	}
+}
+
+func TestBuildChecklistClientWithoutPostalCode(t *testing.T) {
+	cfg, ibl := withholdingConfig()
+	cfg.Clients[len(cfg.Clients)-1].PostalCode = ""
+	prep, _ := invoices.Prepare(cfg, nil, invoices.PrepareInput{ClientID: ibl.ID, Date: "2026-10-31", Amount: ptr("7318.18")})
+	c, err := invoices.BuildChecklist(cfg, prep.Invoice, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.MissingConfig) != 1 || c.MissingConfig[0] != "client.postal_code" || c.Receiver.PostalCode != "" {
+		t.Errorf("missing = %v receiver = %+v", c.MissingConfig, c.Receiver)
+	}
+}
+
+func TestBuildChecklistPublicGeneralUsesIssuerPostalCode(t *testing.T) {
+	cfg := checklistConfig()
+	cfg.Clients[1].PostalCode = "99999"
+	prep, _ := invoices.Prepare(cfg, nil, invoices.PrepareInput{ClientID: "b", Date: "2026-10-31", Amount: ptr("100")})
+	c, err := invoices.BuildChecklist(cfg, prep.Invoice, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Receiver.PostalCode != "64000" || c.Voucher.Global == nil || len(c.MissingConfig) != 0 {
+		t.Errorf("receiver = %+v global = %+v missing = %v", c.Receiver, c.Voucher.Global, c.MissingConfig)
 	}
 }

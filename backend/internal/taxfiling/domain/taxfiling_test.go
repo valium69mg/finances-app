@@ -24,11 +24,11 @@ func ptr(s string) *decimal.Decimal {
 // prepared invoice, a cancelled one and one of another period that must not count.
 func octoberInvoices() []invoices.Invoice {
 	usa := invoices.ComputeUSAInvoice(d("3500"), d("17.74")).Rounded()
-	b := invoices.ComputeClientBInvoice(d("35000"), d("0.16")).Rounded()
+	b := clientAmounts("35000")
 	return []invoices.Invoice{
 		{ID: 1, ClientID: "usa", Period: "2026-10", Currency: "USD", ExchangeRate: ptr("17.74"), Status: invoices.StatusIssued, Amounts: usa},
 		{ID: 2, ClientID: "b", Period: "2026-10", Currency: "MXN", Status: invoices.StatusIssued, Amounts: b},
-		{ID: 3, ClientID: "b", Period: "2026-10", Currency: "MXN", Status: invoices.StatusCancelled, Amounts: invoices.ComputeClientBInvoice(d("999"), d("0.16")).Rounded()},
+		{ID: 3, ClientID: "b", Period: "2026-10", Currency: "MXN", Status: invoices.StatusCancelled, Amounts: clientAmounts("999")},
 		{ID: 4, ClientID: "usa", Period: "2026-11", Currency: "USD", ExchangeRate: ptr("17.74"), Status: invoices.StatusIssued, Amounts: usa},
 		{ID: 5, ClientID: "b", Period: "2026-10", Currency: "MXN", Status: invoices.StatusPrepared, Amounts: b},
 	}
@@ -441,4 +441,10 @@ func TestPaymentStatusIsValid(t *testing.T) {
 	if !taxfiling.PaymentPending.IsValid() || !taxfiling.PaymentPaid.IsValid() || taxfiling.PaymentNone.IsValid() || taxfiling.PaymentStatus("x").IsValid() {
 		t.Error("only pendiente and pagada are valid filing statuses")
 	}
+}
+
+// clientAmounts computes the amounts of a client that takes 16% IVA with no retentions.
+func clientAmounts(net string) invoices.Amounts {
+	a, _ := invoices.ComputeClientInvoice(d(net), d("0.16"), d("0"), d("0"))
+	return a
 }
