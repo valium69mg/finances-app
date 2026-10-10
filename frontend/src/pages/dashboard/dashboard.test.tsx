@@ -342,3 +342,33 @@ describe("CycleProgress", () => {
     expect(screen.getByText("Sin presupuesto de gasto para comparar el ritmo.")).toBeInTheDocument();
   });
 });
+
+describe("linked budget rows and totals cards", () => {
+  const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
+
+  it("BudgetTable has no link unless rowLink is given", () => {
+    wrap(<BudgetTable categories={[cat({})]} />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("BudgetTable links the rows rowLink answers for, in both layouts", () => {
+    wrap(<BudgetTable categories={[cat({ category: "Renta" }), cat({ category: "Ocio" })]} rowLink={(c) => (c.category === "Renta" ? "/peticiones" : undefined)} />);
+    const links = screen.getAllByRole("link", { name: "Renta" });
+    expect(links).toHaveLength(2); // card layout and table layout
+    for (const l of links) expect(l).toHaveAttribute("href", "/peticiones");
+    expect(screen.queryByRole("link", { name: "Ocio" })).toBeNull();
+  });
+
+  it("TotalsCards links only the cards that have a target and never Disponible", () => {
+    wrap(<TotalsCards dashboard={{ income: "1", expenses: "2", savings: "3", available: "-4" }} links={{ income: "/a", expenses: "/b", savings: "/c" }} />);
+    expect(screen.getByRole("link", { name: "Ingresos" })).toHaveAttribute("href", "/a");
+    expect(screen.getByRole("link", { name: "Gastos" })).toHaveAttribute("href", "/b");
+    expect(screen.getByRole("link", { name: "Ahorros" })).toHaveAttribute("href", "/c");
+    expect(screen.queryByRole("link", { name: "Disponible" })).toBeNull();
+  });
+
+  it("TotalsCards without links renders no link (the owner's Panel for now)", () => {
+    wrap(<TotalsCards dashboard={{ income: "1", expenses: "2", savings: "3", available: "-4" }} />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+});
