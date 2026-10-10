@@ -84,4 +84,27 @@ describe("personal api", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err).toMatchObject({ status: 409, code: "category_exists" });
   });
+  it("talks to the future expenses routes under /personal", async () => {
+    const { personal, call } = setup(() => json(200, {}));
+    const input = { name: "Viaje", target_amount: "1000", due_date: "2026-12-20" };
+    await personal.futureList();
+    await personal.futureCreate(input);
+    await personal.futureUpdate(3, input);
+    await personal.futureRemove(3);
+    await personal.futureAddSaving(3, { amount: "100", date: "2026-10-10" });
+    await personal.futureAssign(3, { amount: "50" });
+    await personal.futurePay(3, { amount: "300", date: "2026-10-05", category_id: 5 });
+    const seen = [0, 1, 2, 3, 4, 5, 6].map((i) => `${call(i).init.method ?? "GET"} ${call(i).url.replace("http://x", "")}`);
+    expect(seen).toEqual([
+      "GET /personal/future-expenses",
+      "POST /personal/future-expenses",
+      "PUT /personal/future-expenses/3",
+      "DELETE /personal/future-expenses/3",
+      "POST /personal/future-expenses/3/savings",
+      "POST /personal/future-expenses/3/assign",
+      "POST /personal/future-expenses/3/pay",
+    ]);
+    expect(call(1).body).toEqual(input);
+    expect(call(6).body).toEqual({ amount: "300", date: "2026-10-05", category_id: 5 });
+  });
 });
