@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Pencil, Trash2 } from "lucide-react";
-import { deletePersonalMovement, listPersonalMovements, personalKeys, type PersonalMovement } from "../../api/personal";
+import { deletePersonalMovement, listPersonalMovements, personalKeys, type PersonalCategory, type PersonalMovement } from "../../api/personal";
 import { EmptyNote } from "../../components/EmptyNote";
 import { KIND } from "../../lib/tones";
 import { formatMoney } from "../expenses/money";
@@ -14,16 +14,21 @@ interface Props {
   config: PersonalPageConfig;
   /** YYYY-MM cycle label; empty asks the server for the current cycle. */
   month: string;
+  /** Category the list is narrowed to, if any. */
+  category?: PersonalCategory;
+  /** False while the categories load: the filter is only known once they have, so the list waits for it. */
+  ready?: boolean;
   onEdit: (movement: PersonalMovement) => void;
   onDeleted: (id: number) => void;
 }
 
-export function MovementList({ config, month, onEdit, onDeleted }: Props) {
+export function MovementList({ config, month, category, ready = true, onEdit, onDeleted }: Props) {
   const qc = useQueryClient();
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const list = useQuery({
-    queryKey: personalKeys.movements(config.kind, month),
-    queryFn: () => listPersonalMovements({ month, kind: config.kind }),
+    queryKey: personalKeys.movements(config.kind, month, category?.id ?? 0),
+    queryFn: () => listPersonalMovements({ month, kind: config.kind, categoryId: category?.id }),
+    enabled: ready,
     retry: false,
   });
   const remove = useMutation({
@@ -54,7 +59,9 @@ export function MovementList({ config, month, onEdit, onDeleted }: Props) {
     );
   }
   if (list.data.length === 0) {
-    return <EmptyNote icon={KIND[config.kind].icon}>{config.empty}</EmptyNote>;
+    return (
+      <EmptyNote icon={KIND[config.kind].icon}>{category ? `No hay movimientos de la categoría ${category.name} en este periodo.` : config.empty}</EmptyNote>
+    );
   }
 
   const total = sumMoney(list.data.map((m) => m.amount));
