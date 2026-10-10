@@ -70,8 +70,9 @@ server {
     }
 
     # Tax-filing documents: one file (10 MiB) + multipart overhead; the backend caps the
-    # request at 11 MiB. Only these routes accept a large body.
-    location ~ ^/api/tax-filing/[0-9]{4}-[0-9]{2}/documents/(acuse|comprobante)$ {
+    # request at 11 MiB. Only these routes accept a large body. The regex is quoted
+    # because nginx would read its braces as a block.
+    location ~ "^/api/tax-filing/[0-9]{4}-[0-9]{2}/documents/(acuse|comprobante)$" {
         limit_req zone=api burst=10 nodelay;
         client_max_body_size 13m;
         client_body_timeout 60s;
