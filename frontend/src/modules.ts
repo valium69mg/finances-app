@@ -5,6 +5,7 @@ import {
   Calculator,
   FileCheck,
   FileText,
+  Gift,
   HandCoins,
   LayoutDashboard,
   PiggyBank,
@@ -40,6 +41,7 @@ export const modules: ModuleTab[] = [
     icon: CalendarClock,
     description: "Aquí administrarás lo que quieres juntar para tus gastos futuros.",
   },
+  { path: "/lista-de-deseos", label: "Lista de deseos", icon: Gift, description: "Aquí anotarás lo que te gustaría comprar y lo convertirás en gasto, gasto futuro o petición." },
   { path: "/ingresos", label: "Ingresos", icon: TrendingUp, description: "Aquí registrarás y consultarás tus ingresos." },
   { path: "/gastos", label: "Gastos", icon: Receipt, description: "Aquí registrarás y clasificarás tus gastos." },
   { path: "/ahorros", label: "Ahorros", icon: PiggyBank, description: "Aquí darás seguimiento a tus aportaciones de ahorro." },
@@ -58,8 +60,8 @@ export const modules: ModuleTab[] = [
   { path: "/configuracion", label: "Configuración", icon: Settings, description: "Aquí ajustarás las preferencias de tu cuenta." },
 ];
 
-/** Her own finances: Mis ingresos, Mis gastos, Mis ahorros and Mis gastos futuros. Household only. */
-const PERSONAL_PATHS: readonly string[] = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros"];
+/** Her own finances: Mis ingresos, Mis gastos, Mis ahorros, Mis gastos futuros and Lista de deseos. Household only. */
+const PERSONAL_PATHS: readonly string[] = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros", "/lista-de-deseos"];
 
 /**
  * Tabs the household role may open. Everything else is owner-only (the backend answers 403 for it, so hiding
