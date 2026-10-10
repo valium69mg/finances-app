@@ -1,38 +1,42 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { CheckCircle2, Loader2 } from "lucide-react";
-import { payFutureExpense, type FutureExpenseItem, type PayFutureResult } from "../../api/futureExpenses";
+import type { FutureExpenseItem } from "../../api/futureExpenses";
 import { TextField } from "../../components/AuthCard";
 import { Modal } from "../../components/Modal";
-import { withValue } from "../expenses/formHelpers";
 import { formatMoney, todayISO } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
 import { ErrorBanner, primaryButton, secondaryButton } from "../settings/ui";
+import { useFutureBackend, type PaidResult } from "./backend";
 import { describeFutureError } from "./errors";
-import { defaultPayDraft, validateAmount, toPayInput, type AmountErrors, type PayDraft } from "./form";
+import { defaultPayDraft, toPayInput, validatePay, type AmountErrors, type PayCategory, type PayDraft } from "./form";
 import { useInvalidateFuture } from "./useInvalidate";
 
 interface Props {
   item: FutureExpenseItem;
-  /** Gasto category names to choose from. */
-  categories: string[];
+  /** Gasto categories to choose from. */
+  categories: PayCategory[];
+  /** Her ledger needs the category chosen (no inference); the owner's can be left automatic. */
+  categoryRequired?: boolean;
   onClose: () => void;
-  onPaid: (result: PayFutureResult) => void;
+  onPaid: (result: PaidResult) => void;
 }
 
 /**
  * Confirmation of "Marcar pagado". The amount starts at the target and is what was really paid. Paying registers
  * the Gasto, releases what was saved for the item (what was not used goes back to the free balance) and closes it.
  */
-export function PayDialog({ item, categories, onClose, onPaid }: Props) {
+export function PayDialog({ item, categories, categoryRequired = false, onClose, onPaid }: Props) {
+  const backend = useFutureBackend();
   const invalidate = useInvalidateFuture();
   const [draft, setDraft] = useState<PayDraft>(() => defaultPayDraft(item, todayISO()));
   const [errors, setErrors] = useState<AmountErrors>({});
   const amountRef = useRef<HTMLInputElement>(null);
+  const categoryRef = useRef<HTMLSelectElement>(null);
   const set = (patch: Partial<PayDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
   const pay = useMutation({
-    mutationFn: () => payFutureExpense(item.id, toPayInput(draft)),
+    mutationFn: () => backend.pay(item.id, toPayInput(draft)),
     onSuccess: async (result) => {
       await invalidate();
       onPaid(result);
@@ -42,16 +46,15 @@ export function PayDialog({ item, categories, onClose, onPaid }: Props) {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     pay.reset();
-    const found = validateAmount(draft);
+    const found = validatePay(draft, categoryRequired);
     setErrors(found);
     if (Object.keys(found).length > 0) {
       if (found.amount) amountRef.current?.focus();
+      else if (found.category) categoryRef.current?.focus();
       return;
     }
     pay.mutate();
   }
-
-  const options = withValue(categories, draft.category);
 
   return (
     <Modal title={`Marcar pagado ${item.name}`} onClose={onClose} highlight>
@@ -72,11 +75,18 @@ export function PayDialog({ item, categories, onClose, onPaid }: Props) {
             autoComplete="off"
           />
           <TextField label="Fecha de pago" type="date" value={draft.date} onChange={(e) => set({ date: e.target.value })} error={errors.date} />
-          <SelectField label="Categoría del gasto" value={draft.category} onChange={(e) => set({ category: e.target.value })} hint="Automática la deduce del nombre.">
-            <option value="">Automática</option>
-            {options.map((c) => (
-              <option key={c} value={c}>
-                {c}
+          <SelectField
+            label="Categoría del gasto"
+            selectRef={categoryRef}
+            value={draft.category}
+            onChange={(e) => set({ category: e.target.value })}
+            error={errors.category}
+            hint={categoryRequired ? "Elige una de tus categorías de gasto." : "Automática la deduce del nombre."}
+          >
+            <option value="">{categoryRequired ? "Elige una categoría" : "Automática"}</option>
+            {categories.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
               </option>
             ))}
           </SelectField>

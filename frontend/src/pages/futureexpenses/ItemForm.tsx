@@ -1,10 +1,11 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
-import { createFutureExpense, updateFutureExpense, type FutureExpenseItem } from "../../api/futureExpenses";
+import type { FutureExpenseItem } from "../../api/futureExpenses";
 import { TextField } from "../../components/AuthCard";
 import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
+import { useFutureBackend } from "./backend";
 import { describeFutureError } from "./errors";
 import { draftOf, emptyDraft, toItemInput, validateItem, type ItemDraft, type ItemErrors } from "./form";
 import { useInvalidateFuture } from "./useInvalidate";
@@ -18,6 +19,7 @@ interface Props {
 
 /** Create / edit form of a future expense: name, target amount (MXN) and due date. */
 export function ItemForm({ editing, onSaved, onCancelEdit }: Props) {
+  const backend = useFutureBackend();
   const invalidate = useInvalidateFuture();
   const [draft, setDraft] = useState<ItemDraft>(() => (editing ? draftOf(editing) : emptyDraft()));
   const [errors, setErrors] = useState<ItemErrors>({});
@@ -30,7 +32,7 @@ export function ItemForm({ editing, onSaved, onCancelEdit }: Props) {
   const save = useMutation({
     mutationFn: () => {
       const input = toItemInput(draft);
-      return editing ? updateFutureExpense(editing.id, input) : createFutureExpense(input);
+      return editing ? backend.update(editing.id, input) : backend.create(input);
     },
     onSuccess: async (item) => {
       await invalidate();

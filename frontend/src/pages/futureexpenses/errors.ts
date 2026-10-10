@@ -11,6 +11,7 @@ export function describeFutureError(err: unknown): string {
       case "invalid_future_expense":
         return `Los datos no son válidos: ${err.message}`;
       case "invalid_movement":
+      case "invalid_personal":
         return `No se pudo registrar el movimiento: ${err.message}`;
       case "already_paid":
         return "Este gasto futuro ya está pagado. Actualiza la lista para verlo.";

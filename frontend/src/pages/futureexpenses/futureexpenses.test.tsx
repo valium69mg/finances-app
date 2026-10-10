@@ -169,7 +169,7 @@ describe("PayDialog", () => {
   it("confirms with the target by default and lets the category be automatic", async () => {
     api.payFutureExpense.mockResolvedValue({ item: PAID, expense: { id: 9, category: "Otros", amount: "8000.00" } });
     const onPaid = vi.fn();
-    wrap(<PayDialog item={LAPTOP} categories={["Ocio", "Otros"]} onClose={vi.fn()} onPaid={onPaid} />);
+    wrap(<PayDialog item={LAPTOP} categories={[{ value: "Ocio", label: "Ocio" }, { value: "Otros", label: "Otros" }]} onClose={vi.fn()} onPaid={onPaid} />);
     expect(screen.getByLabelText("Monto pagado (MXN)")).toHaveValue("8000.00");
     expect(screen.getByLabelText("Categoría del gasto")).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Confirmar pago" }));
@@ -179,7 +179,7 @@ describe("PayDialog", () => {
 
   it("sends the real amount and the chosen category", async () => {
     api.payFutureExpense.mockResolvedValue({ item: PAID, expense: { id: 9, category: "Ocio", amount: "7900" } });
-    wrap(<PayDialog item={LAPTOP} categories={["Ocio", "Otros"]} onClose={vi.fn()} onPaid={vi.fn()} />);
+    wrap(<PayDialog item={LAPTOP} categories={[{ value: "Ocio", label: "Ocio" }, { value: "Otros", label: "Otros" }]} onClose={vi.fn()} onPaid={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Monto pagado (MXN)"), { target: { value: "7900" } });
     fireEvent.change(screen.getByLabelText("Categoría del gasto"), { target: { value: "Ocio" } });
     fireEvent.click(screen.getByRole("button", { name: "Confirmar pago" }));

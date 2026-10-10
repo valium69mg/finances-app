@@ -50,7 +50,7 @@ function signIn(role?: string) {
 }
 
 describe("canOpen", () => {
-  const personal = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros"];
+  const personal = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros"];
 
   it("lets the owner open every module except her personal finances", () => {
     for (const m of modules) expect(canOpen("owner", m.path), m.path).toBe(!personal.includes(m.path));
@@ -118,7 +118,7 @@ describe("route guards", () => {
     signIn("household");
     renderApp("/");
     const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
-    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros"]);
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros"]);
   });
 
   it("owner: her personal finances are neither listed nor reachable", () => {
@@ -127,6 +127,14 @@ describe("route guards", () => {
     expect(screen.getByText("dashboard page")).toBeInTheDocument();
     const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
     expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).not.toContain("Mis gastos");
+  });
+
+  it("owner: Mis gastos futuros is redirected like the other personal paths", () => {
+    signIn("owner");
+    renderApp("/mis-gastos-futuros");
+    expect(screen.getByText("dashboard page")).toBeInTheDocument();
+    const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).not.toContain("Mis gastos futuros");
   });
 
   it("owner: modules and the navigation are unchanged", () => {

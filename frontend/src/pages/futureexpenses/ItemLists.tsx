@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, PiggyBank, Pencil, Trash2, ArrowRightLeft } from "lucide-react";
-import { deleteFutureExpense, type FutureExpenseItem } from "../../api/futureExpenses";
+import type { FutureExpenseItem } from "../../api/futureExpenses";
 import { formatMoney, percentOf } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
+import { useFutureBackend } from "./backend";
 import { describeFutureError } from "./errors";
 import { isEmptyBalance } from "./form";
 import { useInvalidateFuture } from "./useInvalidate";
@@ -24,10 +25,11 @@ interface Props {
 
 /** Active future expenses with their progress, the suggested monthly amount and the day-to-day actions. */
 export function ActiveList({ items, freeBalance, editingId, onSaving, onAssign, onPay, onEdit, onDeleted }: Props) {
+  const backend = useFutureBackend();
   const invalidate = useInvalidateFuture();
   const [confirming, setConfirming] = useState<number | null>(null);
   const remove = useMutation({
-    mutationFn: (item: FutureExpenseItem) => deleteFutureExpense(item.id),
+    mutationFn: (item: FutureExpenseItem) => backend.remove(item.id),
     onSuccess: async (_, item) => {
       setConfirming(null);
       onDeleted(item);
@@ -124,10 +126,11 @@ export function ActiveList({ items, freeBalance, editingId, onSaving, onAssign, 
 
 /** Paid items, most recent first: what was paid and when. Deleting one never touches its registered expense. */
 export function PaidList({ items, onDeleted }: { items: FutureExpenseItem[]; onDeleted: (item: FutureExpenseItem) => void }) {
+  const backend = useFutureBackend();
   const invalidate = useInvalidateFuture();
   const [confirming, setConfirming] = useState<number | null>(null);
   const remove = useMutation({
-    mutationFn: (item: FutureExpenseItem) => deleteFutureExpense(item.id),
+    mutationFn: (item: FutureExpenseItem) => backend.remove(item.id),
     onSuccess: async (_, item) => {
       setConfirming(null);
       onDeleted(item);

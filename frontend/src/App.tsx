@@ -14,6 +14,7 @@ import { Invoices } from "./pages/Invoices";
 import { Login } from "./pages/Login";
 import { MisAhorros } from "./pages/MisAhorros";
 import { MisGastos } from "./pages/MisGastos";
+import { MisGastosFuturos } from "./pages/MisGastosFuturos";
 import { MisIngresos } from "./pages/MisIngresos";
 import { MonthClose } from "./pages/MonthClose";
 import { Placeholder } from "./pages/Placeholder";
@@ -29,6 +30,7 @@ function pageFor(path: string) {
   if (path === "/mis-ingresos") return <MisIngresos />;
   if (path === "/mis-gastos") return <MisGastos />;
   if (path === "/mis-ahorros") return <MisAhorros />;
+  if (path === "/mis-gastos-futuros") return <MisGastosFuturos />;
   if (path === "/configuracion") return <Settings />;
   if (path === "/gastos") return <Expenses />;
   if (path === "/ingresos") return <Income />;

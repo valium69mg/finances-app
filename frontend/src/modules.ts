@@ -1,6 +1,7 @@
 import {
   Activity,
   CalendarCheck,
+  CalendarClock,
   Calculator,
   FileCheck,
   FileText,
@@ -33,6 +34,12 @@ export const modules: ModuleTab[] = [
   { path: "/mis-ingresos", label: "Mis ingresos", icon: Wallet, description: "Aquí registrarás tus ingresos personales." },
   { path: "/mis-gastos", label: "Mis gastos", icon: ShoppingBag, description: "Aquí registrarás tus gastos personales." },
   { path: "/mis-ahorros", label: "Mis ahorros", icon: Coins, description: "Aquí registrarás tus aportaciones y retiros de ahorro." },
+  {
+    path: "/mis-gastos-futuros",
+    label: "Mis gastos futuros",
+    icon: CalendarClock,
+    description: "Aquí administrarás lo que quieres juntar para tus gastos futuros.",
+  },
   { path: "/ingresos", label: "Ingresos", icon: TrendingUp, description: "Aquí registrarás y consultarás tus ingresos." },
   { path: "/gastos", label: "Gastos", icon: Receipt, description: "Aquí registrarás y clasificarás tus gastos." },
   { path: "/ahorros", label: "Ahorros", icon: PiggyBank, description: "Aquí darás seguimiento a tus aportaciones de ahorro." },
@@ -51,8 +58,8 @@ export const modules: ModuleTab[] = [
   { path: "/configuracion", label: "Configuración", icon: Settings, description: "Aquí ajustarás las preferencias de tu cuenta." },
 ];
 
-/** Her own finances: Mis ingresos, Mis gastos and Mis ahorros. Household only. */
-const PERSONAL_PATHS: readonly string[] = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros"];
+/** Her own finances: Mis ingresos, Mis gastos, Mis ahorros and Mis gastos futuros. Household only. */
+const PERSONAL_PATHS: readonly string[] = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros"];
 
 /**
  * Tabs the household role may open. Everything else is owner-only (the backend answers 403 for it, so hiding

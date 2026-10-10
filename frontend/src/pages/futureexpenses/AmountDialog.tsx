@@ -1,11 +1,12 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Loader2, PiggyBank } from "lucide-react";
-import { addFutureSaving, assignFutureSaving, type FutureExpenseItem } from "../../api/futureExpenses";
+import type { FutureExpenseItem } from "../../api/futureExpenses";
 import { TextField } from "../../components/AuthCard";
 import { Modal } from "../../components/Modal";
 import { formatMoney, todayISO } from "../expenses/money";
 import { ErrorBanner, primaryButton, secondaryButton } from "../settings/ui";
+import { useFutureBackend } from "./backend";
 import { describeFutureError } from "./errors";
 import { isGreater, validateAmount, type AmountDraft, type AmountErrors } from "./form";
 import { useInvalidateFuture } from "./useInvalidate";
@@ -26,6 +27,7 @@ interface Props {
  * item) or an assignment of part of the free balance (a transfer that does not change the savings total).
  */
 export function AmountDialog({ item, mode, freeBalance, onClose, onDone }: Props) {
+  const backend = useFutureBackend();
   const invalidate = useInvalidateFuture();
   const [draft, setDraft] = useState<AmountDraft>({ amount: "", date: todayISO() });
   const [errors, setErrors] = useState<AmountErrors>({});
@@ -36,8 +38,8 @@ export function AmountDialog({ item, mode, freeBalance, onClose, onDone }: Props
   const run = useMutation({
     mutationFn: async () => {
       const input = { amount: draft.amount.trim(), date: draft.date };
-      if (assign) await assignFutureSaving(item.id, input);
-      else await addFutureSaving(item.id, input);
+      if (assign) await backend.assign(item.id, input);
+      else await backend.addSaving(item.id, input);
     },
     onSuccess: async () => {
       await invalidate();

@@ -37,7 +37,7 @@ export interface AmountDraft {
   date: string;
 }
 
-export type AmountErrors = Partial<Record<"amount" | "date", string>>;
+export type AmountErrors = Partial<Record<"amount" | "date" | "category", string>>;
 
 export function validateAmount(d: AmountDraft): AmountErrors {
   const errors: AmountErrors = {};
@@ -58,6 +58,19 @@ export const toPayInput = (d: PayDraft): PayFutureInput => ({
   date: d.date,
   ...(d.category !== "" ? { category: d.category } : {}),
 });
+
+/** A Gasto category offered when paying: `value` is what the payment sends (a name for the owner, an id for her). */
+export interface PayCategory {
+  value: string;
+  label: string;
+}
+
+/** Amount and date rules plus, when the category is required (her ledger), that one was chosen. */
+export function validatePay(d: PayDraft, categoryRequired: boolean): AmountErrors {
+  const errors = validateAmount(d);
+  if (categoryRequired && d.category === "") errors.category = "Elige la categoría del gasto.";
+  return errors;
+}
 
 /** Plain decimal strings compared without floats: is a greater than b? (both non-negative, at most 2 decimals) */
 export function isGreater(a: string, b: string): boolean {
