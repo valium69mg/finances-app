@@ -65,10 +65,38 @@ export interface PersonalListFilter {
   categoryId?: number;
 }
 
+/** A pay cycle: the YYYY-MM label and its inclusive YYYY-MM-DD bounds (the owner's cut day, which she cannot read). */
+export interface PersonalPeriod {
+  month: string;
+  period_start: string;
+  period_end: string;
+}
+
+/** One Gasto category of hers with what it spent in the cycle. */
+export interface PersonalCategorySpend {
+  category_id: number;
+  category: string;
+  /** Decimal string, always positive. */
+  spent: string;
+}
+
+/** Her summary of one cycle. `savings` is net of withdrawals and `available` = income - expenses - savings. */
+export interface PersonalDashboard extends PersonalPeriod {
+  income: string;
+  expenses: string;
+  savings: string;
+  available: string;
+  /** Only categories with spending in the cycle, biggest first. */
+  categories: PersonalCategorySpend[];
+}
+
 export const personalKeys = {
   all: ["personal"] as const,
   categories: (kind: MovementKind) => ["personal", "categories", kind] as const,
-  movements: (kind: MovementKind, month: string) => ["personal", "movements", kind, month] as const,
+  movements: (kind: MovementKind, month: string, categoryId = 0) => ["personal", "movements", kind, month, categoryId] as const,
+  /** An empty month lets the server pick the current cycle. */
+  dashboard: (month: string) => ["personal", "dashboard", month] as const,
+  period: (month: string) => ["personal", "period", month] as const,
   futureExpenses: ["personal", "future-expenses"] as const,
 };
 
@@ -76,6 +104,10 @@ type Client = Pick<typeof api, "request">;
 
 export function createPersonalApi(client: Client = api) {
   return {
+    /** Her summary of a cycle; an empty month asks for the current one. */
+    dashboard: (month: string) => client.request<PersonalDashboard>(`/personal/dashboard${month ? `?month=${encodeURIComponent(month)}` : ""}`),
+    /** The range of a cycle, for the hint of her month pickers; an empty month asks for the current one. */
+    period: (month: string) => client.request<PersonalPeriod>(`/personal/period${month ? `?month=${encodeURIComponent(month)}` : ""}`),
     categories: (kind: MovementKind) => client.request<PersonalCategory[]>(`/personal/categories?kind=${encodeURIComponent(kind)}`),
     createCategory: (name: string) => client.request<PersonalCategory>("/personal/categories", { method: "POST", body: { name } }),
     renameCategory: (id: number, name: string) => client.request<PersonalCategory>(`/personal/categories/${id}`, { method: "PUT", body: { name } }),
@@ -111,6 +143,8 @@ export function createPersonalApi(client: Client = api) {
 
 const defaultApi = createPersonalApi();
 
+export const getPersonalDashboard = defaultApi.dashboard;
+export const getPersonalPeriod = defaultApi.period;
 export const listPersonalCategories = defaultApi.categories;
 export const createPersonalCategory = defaultApi.createCategory;
 export const renamePersonalCategory = defaultApi.renameCategory;

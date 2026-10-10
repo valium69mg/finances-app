@@ -24,6 +24,28 @@ function setup(handler: (url: string, init: RequestInit) => Response) {
 }
 
 describe("personal api", () => {
+  it("reads her dashboard and the period of a month, omitting an empty month", async () => {
+    const dashboard = {
+      month: "2026-10",
+      period_start: "2026-09-15",
+      period_end: "2026-10-14",
+      income: "10000",
+      expenses: "1300.5",
+      savings: "1500",
+      available: "7199.5",
+      categories: [{ category_id: 6, category: "Salud", spent: "900" }],
+    };
+    const { personal, call } = setup(() => json(200, dashboard));
+    await expect(personal.dashboard("2026-10")).resolves.toEqual(dashboard);
+    await personal.dashboard("");
+    await personal.period("2026-10");
+    await personal.period("");
+    expect(call(0).url).toBe("http://x/personal/dashboard?month=2026-10");
+    expect(call(1).url).toBe("http://x/personal/dashboard");
+    expect(call(2).url).toBe("http://x/personal/period?month=2026-10");
+    expect(call(3).url).toBe("http://x/personal/period");
+  });
+
   it("lists the categories of a kind with the bearer token", async () => {
     const cats = [{ id: 1, kind: "Gasto", name: "Ropa", fixed: false }];
     const { personal, call } = setup(() => json(200, cats));

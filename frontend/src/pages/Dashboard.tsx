@@ -1,15 +1,16 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Coins, Loader2, Wallet } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dashboardKeys, getBudgetDashboard, getDashboard, isFullDashboard, type BudgetDashboard, type Dashboard as DashboardData } from "../api/dashboard";
 import { ApiError } from "../api/client";
+import { getPersonalDashboard, personalKeys } from "../api/personal";
 import { useAuth } from "../auth/AuthContext";
 import { TextField } from "../components/AuthCard";
 import { EmptyNote } from "../components/EmptyNote";
 import { IconChip } from "../components/IconChip";
 import { PageTitle } from "../components/PageTitle";
-import { BudgetTable } from "./dashboard/BudgetTable";
+import { BudgetTable, type RowLink } from "./dashboard/BudgetTable";
+import { CategorySpend } from "./dashboard/CategorySpend";
 import { CycleProgress } from "./dashboard/CycleProgress";
 import { FutureExpensesCard } from "./dashboard/FutureExpensesCard";
 import { RecentMovements } from "./dashboard/RecentMovements";
@@ -17,24 +18,35 @@ import { UpcomingBills } from "./dashboard/UpcomingBills";
 import { TaxCard } from "./dashboard/TaxCard";
 import { TotalsCards } from "./dashboard/TotalsCards";
 import { describeDashboardError } from "./dashboard/errors";
+import { useMonthParam } from "../hooks/useUrlParams";
+import { linkWithMonth } from "../lib/monthParam";
 import { moduleIcon } from "../modules";
 import { rangeText } from "./cycle";
 import { useCyclePeriod } from "./useCycle";
 import { EmergencyCard } from "./savings/PortfolioPanel";
+import { describePersonalError } from "./personal/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
 
 const isEmptyMonth = (d: DashboardData) =>
   /^-?0(\.0+)?$/.test(d.income) && /^-?0(\.0+)?$/.test(d.expenses) && /^-?0(\.0+)?$/.test(d.savings);
 
 /** Budget against spending by Gasto category: the one section every role sees. */
-function BudgetSection({ categories, emptyText }: { categories: BudgetDashboard["categories"]; emptyText: string }) {
+function BudgetSection({
+  categories,
+  emptyText,
+  rowLink,
+}: {
+  categories: BudgetDashboard["categories"];
+  emptyText: string;
+  rowLink?: RowLink;
+}) {
   return (
     <section aria-labelledby="budget-title">
       <h2 id="budget-title" className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight">
         <IconChip icon={Wallet} tone="expense" size="sm" />
         Presupuesto por categoría
       </h2>
-      {categories.length === 0 ? <EmptyNote icon={Wallet}>{emptyText}</EmptyNote> : <BudgetTable categories={categories} />}
+      {categories.length === 0 ? <EmptyNote icon={Wallet}>{emptyText}</EmptyNote> : <BudgetTable categories={categories} rowLink={rowLink} />}
     </section>
   );
 }
@@ -84,48 +96,103 @@ export function Dashboard() {
   return role === "household" ? <HouseholdDashboard /> : <OwnerDashboard />;
 }
 
+/** The household Panel's targets: every one is a page her role can open. */
+const FAMILY_BUDGET_PATH = "/peticiones";
+
 /**
- * Household view: only the budget by category. It asks the server for the current cycle (an empty month) and
- * never reads the settings, which this role cannot open, so the page does not depend on anything but its payload.
+ * Household view: her own summary of the cycle on top (interactive: every card and row links to the page behind it,
+ * carrying the month) and the family budget by category below, exactly as before. The month lives in the URL
+ * (`?mes=YYYY-MM`, empty = the current cycle, which the server resolves with the owner's cut day), so a link back
+ * to the Panel or a reload keeps it. She cannot read the settings: the range hint comes from her dashboard payload.
  */
 function HouseholdDashboard() {
-  const [picked, setPicked] = useState<string | null>(null);
-  const query = useQuery({
-    queryKey: dashboardKeys.budget(picked ?? ""),
-    queryFn: () => getBudgetDashboard(picked ?? ""),
+  const [picked, setPicked] = useMonthParam();
+  const mine = useQuery({ queryKey: personalKeys.dashboard(picked), queryFn: () => getPersonalDashboard(picked), retry: false });
+  const budget = useQuery({
+    queryKey: dashboardKeys.budget(picked),
+    queryFn: () => getBudgetDashboard(picked),
     retry: false,
   });
-  const month = picked ?? query.data?.month ?? "";
-  const hint = query.data?.period_start ? rangeText(query.data.period_start, query.data.period_end) : undefined;
+  const month = picked || mine.data?.month || budget.data?.month || "";
+  const range = mine.data ?? budget.data;
+  const hint = range?.period_start ? rangeText(range.period_start, range.period_end) : undefined;
+  // Links carry the month the figures are for (the server's own label when none was picked).
+  const linkMonth = mine.data?.month ?? picked;
 
   return (
     <section aria-labelledby="page-title">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <PageTitle icon={moduleIcon("/")}>Panel</PageTitle>
-          <p className="mt-1 text-sm text-muted">El presupuesto del mes: lo que se ha gastado en cada categoría contra lo presupuestado.</p>
+          <p className="mt-1 text-sm text-muted">Tu resumen del periodo y el presupuesto familiar por categoría.</p>
         </div>
         <div className="w-full min-w-0 max-w-full sm:w-56">
           <TextField label="Mes" type="month" hint={hint} value={month} onChange={(e) => e.target.value && setPicked(e.target.value)} />
         </div>
       </div>
 
-      <div className="mt-6">
-        {query.isPending && (
-          <p role="status" className="flex items-center gap-2 text-sm text-muted">
-            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            Cargando presupuesto…
-          </p>
-        )}
-        {query.isError && (
-          <div className="space-y-3">
-            <ErrorBanner>{describeDashboardError(query.error)}</ErrorBanner>
-            <button type="button" onClick={() => void query.refetch()} className={secondaryButton}>
-              Reintentar
-            </button>
-          </div>
-        )}
-        {query.data && <BudgetSection categories={query.data.categories} emptyText="Aún no hay categorías con presupuesto en este periodo." />}
+      <div className="mt-6 space-y-6">
+        <section aria-labelledby="mine-title">
+          <h2 id="mine-title" className="mb-3 flex items-center gap-2 text-lg font-semibold tracking-tight">
+            <IconChip icon={Coins} size="sm" />
+            Mi resumen
+          </h2>
+          {mine.isPending && (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              Cargando tu resumen…
+            </p>
+          )}
+          {mine.isError && (
+            <div className="space-y-3">
+              <ErrorBanner>{describePersonalError(mine.error)}</ErrorBanner>
+              <button type="button" onClick={() => void mine.refetch()} className={secondaryButton}>
+                Reintentar
+              </button>
+            </div>
+          )}
+          {mine.data && (
+            <div className="space-y-4">
+              <TotalsCards
+                dashboard={mine.data}
+                links={{
+                  income: linkWithMonth("/mis-ingresos", linkMonth),
+                  expenses: linkWithMonth("/mis-gastos", linkMonth),
+                  savings: linkWithMonth("/mis-ahorros", linkMonth),
+                }}
+              />
+              <CategorySpend
+                categories={mine.data.categories}
+                total={mine.data.expenses}
+                linkFor={(c) => linkWithMonth("/mis-gastos", linkMonth, { categoria: c.category_id })}
+              />
+            </div>
+          )}
+        </section>
+
+        <div>
+          {budget.isPending && (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              Cargando presupuesto…
+            </p>
+          )}
+          {budget.isError && (
+            <div className="space-y-3">
+              <ErrorBanner>{describeDashboardError(budget.error)}</ErrorBanner>
+              <button type="button" onClick={() => void budget.refetch()} className={secondaryButton}>
+                Reintentar
+              </button>
+            </div>
+          )}
+          {budget.data && (
+            <BudgetSection
+              categories={budget.data.categories}
+              emptyText="Aún no hay categorías con presupuesto en este periodo."
+              rowLink={() => FAMILY_BUDGET_PATH}
+            />
+          )}
+        </div>
       </div>
     </section>
   );
