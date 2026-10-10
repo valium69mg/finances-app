@@ -58,7 +58,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000017_users_roles.up.sql", "000022_personal_finances.up.sql"} {
+	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000017_users_roles.up.sql", "000022_personal_finances.up.sql", "000023_personal_future_expenses.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -112,12 +112,12 @@ func TestSeedDefaultsOrderAndIdempotency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 13 {
-		t.Fatalf("got %d categories (%v), want 13", len(all), names(all))
+	if len(all) != 14 {
+		t.Fatalf("got %d categories (%v), want 14", len(all), names(all))
 	}
 	want := []string{"Trabajo", "Transferencia", "Otros",
 		"Belleza", "Salud", "Tratamientos", "Tienda de conveniencia", "Ropa", "Pintura", "Maquillaje", "Compras en línea",
-		"Ahorro", "Inversión"}
+		"Ahorro", "Inversión", "Gastos futuros"}
 	for i, n := range names(all) {
 		if n != want[i] {
 			t.Fatalf("order = %v, want %v", names(all), want)
@@ -148,8 +148,8 @@ func TestSeedDefaultsUnderConcurrency(t *testing.T) {
 			t.Errorf("concurrent seed failed: %v", err)
 		}
 	}
-	if all, _ := repo.ListCategories(ctx, her, ""); len(all) != 13 {
-		t.Errorf("got %d categories after concurrent seeds, want 13", len(all))
+	if all, _ := repo.ListCategories(ctx, her, ""); len(all) != 14 {
+		t.Errorf("got %d categories after concurrent seeds, want 14", len(all))
 	}
 }
 
@@ -182,8 +182,8 @@ func TestSeedIsPerUser(t *testing.T) {
 		t.Errorf("another user sees %d categories before her own seed", len(got))
 	}
 	_ = repo.SeedDefaults(ctx, other)
-	if got, _ := repo.ListCategories(ctx, other, ""); len(got) != 13 {
-		t.Errorf("second user got %d categories, want 13", len(got))
+	if got, _ := repo.ListCategories(ctx, other, ""); len(got) != 14 {
+		t.Errorf("second user got %d categories, want 14", len(got))
 	}
 }
 
@@ -227,6 +227,7 @@ func TestCategoryCreateRenameAndDuplicates(t *testing.T) {
 
 type fixture struct {
 	repo       *postgres.Repo
+	pool       *pgxpool.Pool
 	her, other string
 	ropa       domain.Category
 	trabajo    domain.Category
@@ -236,7 +237,7 @@ type fixture struct {
 
 func setup(t *testing.T) fixture {
 	repo, pool := newRepo(t)
-	f := fixture{repo: repo, her: addUser(t, pool, "her@example.com"), other: addUser(t, pool, "other@example.com")}
+	f := fixture{repo: repo, pool: pool, her: addUser(t, pool, "her@example.com"), other: addUser(t, pool, "other@example.com")}
 	for _, u := range []string{f.her, f.other} {
 		if err := repo.SeedDefaults(ctx, u); err != nil {
 			t.Fatal(err)

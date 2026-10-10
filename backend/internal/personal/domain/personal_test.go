@@ -39,7 +39,7 @@ func TestDefaults(t *testing.T) {
 	if got := len(domain.Defaults[domain.KindExpense]); got != 8 {
 		t.Errorf("expense defaults = %d, want 8", got)
 	}
-	if got := domain.Defaults[domain.KindSavings]; len(got) != 2 || got[0] != "Ahorro" || got[1] != "Inversión" {
+	if got := domain.Defaults[domain.KindSavings]; len(got) != 3 || got[0] != "Ahorro" || got[1] != "Inversión" || got[2] != "Gastos futuros" {
 		t.Errorf("savings defaults = %v", got)
 	}
 }

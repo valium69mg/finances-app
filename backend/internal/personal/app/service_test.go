@@ -30,6 +30,9 @@ type fakeRepo struct {
 	owners  map[int]string
 	moves   []domain.Movement
 	mOwners map[int]string
+	items   []*fakeItem
+	rows    []fakeRow
+	settled []app.Settlement
 	nextCat int
 	nextMov int
 	seeds   int
@@ -184,8 +187,8 @@ func TestCategoriesSeedOnFirstUse(t *testing.T) {
 	r := newRepo()
 	svc := newSvc(r, noCfg)
 	all, err := svc.Categories(ctx, her, "")
-	if err != nil || len(all) != 13 {
-		t.Fatalf("got %d categories, %v; want 13", len(all), err)
+	if err != nil || len(all) != 14 {
+		t.Fatalf("got %d categories, %v; want 14", len(all), err)
 	}
 	gastos, err := svc.Categories(ctx, her, "Gasto")
 	if err != nil || len(gastos) != 8 {

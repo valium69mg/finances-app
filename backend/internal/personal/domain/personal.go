@@ -58,7 +58,7 @@ func (k Kind) Editable() bool { return k == KindExpense }
 var Defaults = map[Kind][]string{
 	KindIncome:  {"Trabajo", "Transferencia", "Otros"},
 	KindExpense: {"Belleza", "Salud", "Tratamientos", "Tienda de conveniencia", "Ropa", "Pintura", "Maquillaje", "Compras en línea"},
-	KindSavings: {"Ahorro", "Inversión"},
+	KindSavings: {"Ahorro", "Inversión", ledger.CategoryFutureExpenses},
 }
 
 func invalid(format string, args ...any) error {
@@ -83,8 +83,10 @@ type Movement struct {
 	Amount       decimal.Decimal
 	Description  string
 	Date         string // YYYY-MM-DD
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	// FutureExpenseID is the future expense an Ahorro feeds, nil otherwise.
+	FutureExpenseID *int
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // ParseKind checks a kind name.

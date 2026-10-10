@@ -62,9 +62,12 @@ func scanCategory(row pgx.Row) (domain.Category, error) {
 }
 
 // SeedDefaults inserts, in one transaction, the default categories of every
-// kind the user has none of. ON CONFLICT DO NOTHING makes concurrent first uses
-// converge on the same rows, and a kind with any category (for example a
-// renamed default) is skipped, so a renamed default is never re-added.
+// kind. The fixed kinds (Ingreso and Ahorro) always ensure every fixed name
+// exists, so a category added later (Gastos futuros) reaches users seeded
+// before; they cannot be renamed, so this never re-adds a renamed one. The
+// editable kind (Gasto) is seeded only while the user has none, so a renamed
+// default is never re-added. ON CONFLICT DO NOTHING makes it idempotent and
+// concurrent first uses converge on the same rows.
 func (r *Repo) SeedDefaults(ctx context.Context, userID string) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -76,10 +79,11 @@ func (r *Repo) SeedDefaults(ctx context.Context, userID string) error {
 			INSERT INTO personal_categories (user_id, kind, name)
 			SELECT $1::text::uuid, $2::text, t.name
 			FROM unnest($3::text[]) WITH ORDINALITY AS t(name, ord)
-			WHERE NOT EXISTS (SELECT 1 FROM personal_categories WHERE user_id = $1::text::uuid AND kind = $2::text)
+			WHERE NOT $4::boolean
+			   OR NOT EXISTS (SELECT 1 FROM personal_categories WHERE user_id = $1::text::uuid AND kind = $2::text)
 			ORDER BY t.ord
 			ON CONFLICT DO NOTHING`,
-			userID, string(kind), domain.Defaults[kind]); err != nil {
+			userID, string(kind), domain.Defaults[kind], kind.Editable()); err != nil {
 			return fmt.Errorf("seed %s categories: %w", kind, err)
 		}
 	}
@@ -148,17 +152,22 @@ func (r *Repo) RenameCategory(ctx context.Context, userID string, id int, name s
 
 // --- movements ----------------------------------------------------------
 
-const movementColumns = `m.id, m.kind, m.category_id, c.name, m.amount::text, m.description, m.date::text, m.created_at, m.updated_at`
+const movementColumns = `m.id, m.kind, m.category_id, c.name, m.amount::text, m.description, m.date::text, m.future_expense_id, m.created_at, m.updated_at`
 
 func scanMovement(row pgx.Row) (domain.Movement, error) {
 	var (
 		m                    domain.Movement
 		id, categoryID       int64
 		kind, amount         string
+		futureID             *int64
 		createdAt, updatedAt time.Time
 	)
-	if err := row.Scan(&id, &kind, &categoryID, &m.CategoryName, &amount, &m.Description, &m.Date, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&id, &kind, &categoryID, &m.CategoryName, &amount, &m.Description, &m.Date, &futureID, &createdAt, &updatedAt); err != nil {
 		return domain.Movement{}, err
+	}
+	if futureID != nil {
+		f := int(*futureID)
+		m.FutureExpenseID = &f
 	}
 	m.ID, m.Kind, m.CategoryID, m.CreatedAt, m.UpdatedAt = int(id), domain.Kind(kind), int(categoryID), createdAt, updatedAt
 	var err error
@@ -172,6 +181,10 @@ func scanMovement(row pgx.Row) (domain.Movement, error) {
 // errors: the composite foreign key rejects a category of another user or kind,
 // the CHECK rejects a wrong amount sign.
 func mapWriteError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.ConstraintName == "personal_movements_future_expense_savings_only" {
+		return fmt.Errorf("%w: a saving linked to a future expense must stay an Ahorro", domain.ErrInvalidInput)
+	}
 	switch pgCode(err) {
 	case codeForeignKey:
 		return fmt.Errorf("%w: category does not match the movement", domain.ErrInvalidInput)
@@ -208,13 +221,25 @@ func (r *Repo) ListMovements(ctx context.Context, userID string, f app.Filter) (
 
 // CreateMovement stores a movement.
 func (r *Repo) CreateMovement(ctx context.Context, userID string, v domain.ValidMovement) (domain.Movement, error) {
-	m, err := scanMovement(r.pool.QueryRow(ctx, `
+	return insertMovement(ctx, r.pool, userID, v, nil)
+}
+
+// rowQuerier is the QueryRow half of a pool or a transaction.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// insertMovement is the one INSERT of personal_movements. futureID links an
+// Ahorro to a future expense of the same user (the composite foreign key
+// rejects any other).
+func insertMovement(ctx context.Context, q rowQuerier, userID string, v domain.ValidMovement, futureID *int64) (domain.Movement, error) {
+	m, err := scanMovement(q.QueryRow(ctx, `
 		WITH m AS (
-			INSERT INTO personal_movements (user_id, kind, category_id, amount, description, date)
-			VALUES ($1::text::uuid, $2, $3, $4::text::numeric, $5, $6::date)
+			INSERT INTO personal_movements (user_id, kind, category_id, amount, description, date, future_expense_id)
+			VALUES ($1::text::uuid, $2, $3, $4::text::numeric, $5, $6::date, $7::bigint)
 			RETURNING *)
 		SELECT `+movementColumns+` FROM m JOIN personal_categories c ON c.id = m.category_id`,
-		userID, string(v.Kind), int64(v.CategoryID), v.Amount.String(), v.Description, v.Date))
+		userID, string(v.Kind), int64(v.CategoryID), v.Amount.String(), v.Description, v.Date, futureID))
 	if err != nil {
 		return domain.Movement{}, mapWriteError(err)
 	}
