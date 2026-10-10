@@ -40,6 +40,10 @@ type fakeService struct {
 	gotInput domain.MovementInput
 	deleted  int
 
+	period    domain.Period
+	dashboard domain.Dashboard
+	gotMonth  string
+
 	planned     domain.FuturePlanned
 	listing     app.FutureListing
 	gotFuture   domain.FutureInput
@@ -78,6 +82,15 @@ func (f *fakeService) UpdateMovement(_ context.Context, a session.Identity, id i
 func (f *fakeService) DeleteMovement(_ context.Context, a session.Identity, id int) error {
 	f.gotActor, f.deleted = a, id
 	return f.err
+}
+
+func (f *fakeService) Period(_ context.Context, a session.Identity, month string) (domain.Period, error) {
+	f.gotActor, f.gotMonth = a, month
+	return f.period, f.err
+}
+func (f *fakeService) Dashboard(_ context.Context, a session.Identity, month string) (domain.Dashboard, error) {
+	f.gotActor, f.gotMonth = a, month
+	return f.dashboard, f.err
 }
 
 var her = session.Identity{UserID: "u-her", Role: session.RoleHousehold}
@@ -119,6 +132,7 @@ const ropaJSON = `{"id":7,"kind":"Gasto","category_id":5,"category":"Ropa","amou
 func TestRoutesRequireAuth(t *testing.T) {
 	h := server(&fakeService{})
 	for _, r := range []struct{ method, path string }{
+		{"GET", "/personal/dashboard"}, {"GET", "/personal/period"},
 		{"GET", "/personal/categories"}, {"POST", "/personal/categories"}, {"PUT", "/personal/categories/1"},
 		{"GET", "/personal/movements"}, {"POST", "/personal/movements"}, {"PUT", "/personal/movements/1"}, {"DELETE", "/personal/movements/1"},
 		{"POST", "/personal/future-expenses"}, {"GET", "/personal/future-expenses"}, {"GET", "/personal/future-expenses/1"},
@@ -260,6 +274,60 @@ func TestErrorMapping(t *testing.T) {
 		}
 		if c.status == 500 && strings.Contains(rec.Body.String(), "secret detail") {
 			t.Error("an internal error leaked its cause")
+		}
+	}
+}
+
+func TestDashboardResponse(t *testing.T) {
+	svc := &fakeService{dashboard: domain.Dashboard{
+		Period: domain.Period{Month: "2026-10", Start: "2026-09-15", End: "2026-10-14"},
+		Totals: domain.KindTotals{Income: d("10000"), Expenses: d("1300.5"), Savings: d("1500")},
+		Categories: []domain.CategorySpend{
+			{CategoryID: 6, Category: "Salud", Spent: d("900")}, {CategoryID: 5, Category: "Ropa", Spent: d("400.5")},
+		},
+	}}
+	rec := do(server(svc), "GET", "/personal/dashboard?month=2026-10", "")
+	want := `{"month":"2026-10","period_start":"2026-09-15","period_end":"2026-10-14","income":"10000","expenses":"1300.5","savings":"1500","available":"7199.5","categories":[{"category_id":6,"category":"Salud","spent":"900"},{"category_id":5,"category":"Ropa","spent":"400.5"}]}`
+	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("status %d body %s\nwant %s", rec.Code, rec.Body, want)
+	}
+	if svc.gotMonth != "2026-10" || svc.gotActor != her {
+		t.Errorf("service got month %q actor %+v", svc.gotMonth, svc.gotActor)
+	}
+	do(server(svc), "GET", "/personal/dashboard", "")
+	if svc.gotMonth != "" {
+		t.Errorf("no query: month = %q, want empty", svc.gotMonth)
+	}
+}
+
+func TestDashboardEmptyCategoriesIsAnArray(t *testing.T) {
+	rec := do(server(&fakeService{}), "GET", "/personal/dashboard", "")
+	if !strings.Contains(rec.Body.String(), `"categories":[]`) {
+		t.Errorf("body %s; want an empty categories array", rec.Body)
+	}
+}
+
+func TestPeriodResponse(t *testing.T) {
+	svc := &fakeService{period: domain.Period{Month: "2026-10", Start: "2026-09-15", End: "2026-10-14"}}
+	rec := do(server(svc), "GET", "/personal/period?month=2026-10", "")
+	want := `{"month":"2026-10","period_start":"2026-09-15","period_end":"2026-10-14"}`
+	if rec.Code != 200 || strings.TrimSpace(rec.Body.String()) != want {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body)
+	}
+	if svc.gotMonth != "2026-10" {
+		t.Errorf("service got month %q", svc.gotMonth)
+	}
+}
+
+func TestDashboardAndPeriodErrors(t *testing.T) {
+	for path, cases := range map[string]map[error]int{
+		"/personal/dashboard": {domain.ErrInvalidInput: 400, domain.ErrForbidden: 403, settings.ErrMissingConfig: 422},
+		"/personal/period":    {domain.ErrInvalidInput: 400, domain.ErrForbidden: 403},
+	} {
+		for err, code := range cases {
+			if rec := do(server(&fakeService{err: err}), "GET", path, ""); rec.Code != code {
+				t.Errorf("%s with %v: status %d, want %d", path, err, rec.Code, code)
+			}
 		}
 	}
 }

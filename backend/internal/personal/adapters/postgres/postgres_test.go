@@ -398,3 +398,60 @@ func TestRenameFollowsMovements(t *testing.T) {
 		t.Errorf("movement category after rename = %+v", got)
 	}
 }
+
+func TestKindTotalsAndSpentByCategory(t *testing.T) {
+	f := setup(t)
+	mine, _ := f.repo.ListCategories(ctx, f.her, "")
+	salud := find(t, mine, "Salud")
+	for _, v := range []domain.ValidMovement{
+		mv(domain.KindIncome, f.trabajo, "10000.10", "2026-10-02"),
+		mv(domain.KindExpense, f.ropa, "300.25", "2026-10-03"),
+		mv(domain.KindExpense, f.ropa, "100", "2026-10-31"), // last day
+		mv(domain.KindExpense, salud, "900", "2026-10-04"),
+		mv(domain.KindSavings, f.ahorro, "2000", "2026-10-06"),
+		mv(domain.KindSavings, f.ahorro, "-500.50", "2026-10-07"), // withdrawal
+		mv(domain.KindExpense, f.ropa, "9999", "2026-09-30"),      // outside the cycle
+		mv(domain.KindExpense, f.ropa, "9999", "2026-11-01"),      // outside the cycle
+		mv(domain.KindIncome, f.trabajo, "9999", "2026-09-30"),    // outside the cycle
+	} {
+		if _, err := f.repo.CreateMovement(ctx, f.her, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := f.repo.CreateMovement(ctx, f.other, mv(domain.KindExpense, f.otherRopa, "5555", "2026-10-15")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := f.repo.KindTotals(ctx, f.her, "2026-10-01", "2026-10-31")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Income.Equal(d("10000.10")) || !got.Expenses.Equal(d("1300.25")) || !got.Savings.Equal(d("1499.50")) {
+		t.Errorf("totals = %+v; want 10000.10 / 1300.25 / 1499.50", got)
+	}
+	if !got.Available().Equal(d("7200.35")) {
+		t.Errorf("available = %s, want 7200.35", got.Available())
+	}
+
+	cats, err := f.repo.SpentByCategory(ctx, f.her, "2026-10-01", "2026-10-31")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cats) != 2 || cats[0].Category != "Salud" || !cats[0].Spent.Equal(d("900")) ||
+		cats[1].CategoryID != f.ropa.ID || !cats[1].Spent.Equal(d("400.25")) {
+		t.Errorf("categories = %+v; want Salud 900 then Ropa 400.25; categories without spending are left out", cats)
+	}
+
+	empty, err := f.repo.KindTotals(ctx, f.her, "2027-01-01", "2027-01-31")
+	if err != nil || !empty.Available().IsZero() {
+		t.Errorf("empty range = %+v, %v", empty, err)
+	}
+	none, err := f.repo.SpentByCategory(ctx, f.her, "2027-01-01", "2027-01-31")
+	if err != nil || none == nil || len(none) != 0 {
+		t.Errorf("empty range categories = %#v, %v; want an empty non-nil slice", none, err)
+	}
+	theirs, _ := f.repo.KindTotals(ctx, f.other, "2026-10-01", "2026-10-31")
+	if !theirs.Expenses.Equal(d("5555")) || !theirs.Income.IsZero() {
+		t.Errorf("another user's totals = %+v; each user must only see her own rows", theirs)
+	}
+}
