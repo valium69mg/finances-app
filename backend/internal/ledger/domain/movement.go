@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/shopspring/decimal"
 )
@@ -20,6 +21,14 @@ const DefaultExpensePaymentMethod = "Débito"
 // DefaultOtherPaymentMethod is the payment method of an income or savings
 // entry that names none.
 const DefaultOtherPaymentMethod = "Transferencia"
+
+// Text limits, in characters. The movements table enforces the same ones.
+// 200 leaves room for the "Pago de <name>" descriptions other modules generate
+// from a 120-character name.
+const (
+	MaxDescriptionLength = 200
+	MaxInstrumentLength  = 120
+)
 
 func invalid(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalid, fmt.Sprintf(format, args...))
@@ -104,6 +113,21 @@ func NewMovement(in MovementInput, cat Catalog, today string) (Movement, error) 
 			in.Category, in.Kind, strings.Join(cat.CategoryNames(in.Kind), ", "))
 	}
 
+	description := strings.TrimSpace(in.Description)
+	switch {
+	case utf8.RuneCountInString(description) > MaxDescriptionLength:
+		return Movement{}, invalid("description must be at most %d characters", MaxDescriptionLength)
+	case strings.ContainsRune(description, 0):
+		return Movement{}, invalid("description must not contain NUL characters")
+	}
+	instrument := strings.TrimSpace(in.Instrument)
+	switch {
+	case utf8.RuneCountInString(instrument) > MaxInstrumentLength:
+		return Movement{}, invalid("instrument must be at most %d characters", MaxInstrumentLength)
+	case strings.ContainsRune(instrument, 0):
+		return Movement{}, invalid("instrument must not contain NUL characters")
+	}
+
 	method := strings.TrimSpace(in.PaymentMethod)
 	if method == "" {
 		method = DefaultOtherPaymentMethod
@@ -173,9 +197,9 @@ func NewMovement(in MovementInput, cat Catalog, today string) (Movement, error) 
 
 	return Movement{
 		Date:          date,
-		Description:   strings.TrimSpace(in.Description),
+		Description:   description,
 		Category:      category,
-		Instrument:    strings.TrimSpace(in.Instrument),
+		Instrument:    instrument,
 		Kind:          in.Kind,
 		PaymentMethod: method,
 		Currency:      currency,

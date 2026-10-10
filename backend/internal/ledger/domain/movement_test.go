@@ -2,6 +2,7 @@ package domain
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/shopspring/decimal"
@@ -163,6 +164,32 @@ func TestNewMovementInvalid(t *testing.T) {
 		tc.mut(&in)
 		if _, err := NewMovement(in, testCatalog(), "2026-10-05"); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: err = %v, want ErrInvalid", tc.name, err)
+		}
+	}
+}
+
+func TestNewMovementTextLimits(t *testing.T) {
+	base := func(desc, instr string) MovementInput {
+		return MovementInput{Kind: KindSavings, Category: "Inversiones", Amount: dec("1"), Description: desc, Instrument: instr}
+	}
+	tests := []struct {
+		name    string
+		desc    string
+		instr   string
+		invalid bool
+	}{
+		{"description at the limit", strings.Repeat("é", MaxDescriptionLength), "", false},
+		{"description over the limit", strings.Repeat("é", MaxDescriptionLength+1), "", true},
+		{"description counts runes after trimming", "  " + strings.Repeat("é", MaxDescriptionLength) + "  ", "", false},
+		{"instrument at the limit", "", strings.Repeat("é", MaxInstrumentLength), false},
+		{"instrument over the limit", "", strings.Repeat("é", MaxInstrumentLength+1), true},
+		{"NUL in description", "a\x00b", "", true},
+		{"NUL in instrument", "", "a\x00b", true},
+	}
+	for _, tc := range tests {
+		_, err := NewMovement(base(tc.desc, tc.instr), testCatalog(), "2026-10-05")
+		if tc.invalid != errors.Is(err, ErrInvalid) || (!tc.invalid && err != nil) {
+			t.Errorf("%s: err = %v, invalid want %v", tc.name, err, tc.invalid)
 		}
 	}
 }
