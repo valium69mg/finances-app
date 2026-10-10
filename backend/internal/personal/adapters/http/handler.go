@@ -31,6 +31,8 @@ type Service interface {
 	CreateMovement(ctx context.Context, actor session.Identity, in domain.MovementInput) (domain.Movement, error)
 	UpdateMovement(ctx context.Context, actor session.Identity, id int, in domain.MovementInput) (domain.Movement, error)
 	DeleteMovement(ctx context.Context, actor session.Identity, id int) error
+	Period(ctx context.Context, actor session.Identity, month string) (domain.Period, error)
+	Dashboard(ctx context.Context, actor session.Identity, month string) (domain.Dashboard, error)
 
 	CreateFutureExpense(ctx context.Context, actor session.Identity, in domain.FutureInput) (domain.FuturePlanned, error)
 	FutureExpense(ctx context.Context, actor session.Identity, id int) (domain.FuturePlanned, error)
@@ -71,6 +73,8 @@ func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) htt
 	route := func(pattern string, fn http.HandlerFunc) {
 		mux.Handle(pattern, requireAuth(fn))
 	}
+	route("GET /personal/dashboard", h.dashboard)
+	route("GET /personal/period", h.period)
 	route("GET /personal/categories", h.categories)
 	route("POST /personal/categories", h.createCategory)
 	route("PUT /personal/categories/{id}", h.renameCategory)
@@ -268,6 +272,60 @@ func (h *Handler) deleteMovement(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// periodDTO is a pay cycle: the YYYY-MM label and its inclusive bounds.
+type periodDTO struct {
+	Month       string `json:"month"`
+	PeriodStart string `json:"period_start"`
+	PeriodEnd   string `json:"period_end"`
+}
+
+type categorySpendDTO struct {
+	CategoryID int             `json:"category_id"`
+	Category   string          `json:"category"`
+	Spent      decimal.Decimal `json:"spent"`
+}
+
+// dashboardDTO is her summary of a pay cycle. savings is net of withdrawals and
+// available = income - expenses - savings. categories lists only the Gasto
+// categories with spending in the cycle, biggest first.
+type dashboardDTO struct {
+	periodDTO
+	Income     decimal.Decimal    `json:"income"`
+	Expenses   decimal.Decimal    `json:"expenses"`
+	Savings    decimal.Decimal    `json:"savings"`
+	Available  decimal.Decimal    `json:"available"`
+	Categories []categorySpendDTO `json:"categories"`
+}
+
+func toPeriodDTO(p domain.Period) periodDTO {
+	return periodDTO{Month: p.Month, PeriodStart: p.Start, PeriodEnd: p.End}
+}
+
+func (h *Handler) period(w http.ResponseWriter, r *http.Request) {
+	p, err := h.svc.Period(r.Context(), actor(r), r.URL.Query().Get("month"))
+	if err != nil {
+		h.fail(w, "period", err)
+		return
+	}
+	httpjson.WriteJSON(w, http.StatusOK, toPeriodDTO(p))
+}
+
+func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
+	got, err := h.svc.Dashboard(r.Context(), actor(r), r.URL.Query().Get("month"))
+	if err != nil {
+		h.fail(w, "dashboard", err)
+		return
+	}
+	out := dashboardDTO{
+		periodDTO: toPeriodDTO(got.Period), Income: got.Totals.Income, Expenses: got.Totals.Expenses,
+		Savings: got.Totals.Savings, Available: got.Totals.Available(), Categories: make([]categorySpendDTO, len(got.Categories)),
+	}
+	for i, c := range got.Categories {
+		out.Categories[i] = categorySpendDTO{CategoryID: c.CategoryID, Category: c.Category, Spent: c.Spent}
+	}
+	httpjson.WriteJSON(w, http.StatusOK, out)
 }
 
 func (h *Handler) fail(w http.ResponseWriter, op string, err error) {

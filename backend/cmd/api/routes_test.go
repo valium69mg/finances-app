@@ -196,8 +196,8 @@ func TestHouseholdAllowlistIsExactlyTheDecidedOne(t *testing.T) {
 	want := []string{
 		"DELETE /personal/future-expenses/{id}", "DELETE /personal/movements/{id}", "DELETE /personal/wishlist/{id}",
 		"GET /auth/me", "GET /dashboard", "GET /expense-requests", "GET /expense-requests/categories",
-		"GET /personal/categories", "GET /personal/future-expenses", "GET /personal/future-expenses/{id}",
-		"GET /personal/movements", "GET /personal/wishlist", "POST /expense-requests",
+		"GET /personal/categories", "GET /personal/dashboard", "GET /personal/future-expenses", "GET /personal/future-expenses/{id}",
+		"GET /personal/movements", "GET /personal/period", "GET /personal/wishlist", "POST /expense-requests",
 		"POST /expense-requests/{id}/cancel", "POST /personal/categories", "POST /personal/future-expenses",
 		"POST /personal/future-expenses/{id}/assign", "POST /personal/future-expenses/{id}/pay",
 		"POST /personal/future-expenses/{id}/savings", "POST /personal/movements", "POST /personal/wishlist",

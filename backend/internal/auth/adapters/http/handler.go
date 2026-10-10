@@ -77,6 +77,8 @@ var householdAllowlist = map[string]bool{
 	// the session user and answers 403 to any other role (the owner read-only
 	// view comes in a later step), so a household user only ever touches her own.
 	"GET /personal/categories":        true,
+	"GET /personal/dashboard":         true, // phase 12, step 6: her summary of a cycle
+	"GET /personal/period":            true, // phase 12, step 6: the cycle range of a month
 	"POST /personal/categories":       true,
 	"PUT /personal/categories/{id}":   true,
 	"GET /personal/movements":         true,
