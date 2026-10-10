@@ -59,7 +59,7 @@ export function CategoriesDialog({ categories, onClose }: { categories: Personal
   return (
     <Modal title="Mis categorías de gasto" onClose={onClose}>
       <div className="space-y-5">
-        <form noValidate onSubmit={onCreate} aria-label="Nueva categoría" className="space-y-3">
+        <form noValidate onSubmit={onCreate} className="space-y-3">
           <TextField label="Nueva categoría" value={newName} onChange={(e) => setNewName(e.target.value)} error={renamingId === null ? (nameError ?? undefined) : undefined} autoComplete="off" />
           <button type="submit" disabled={create.isPending} className={primaryButton}>
             {create.isPending ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}

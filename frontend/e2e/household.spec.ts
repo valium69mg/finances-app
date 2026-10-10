@@ -69,11 +69,11 @@ test.describe("household session", () => {
     expect(Object.keys(body).sort()).toEqual(["categories", "month", "period_end", "period_start"]);
   });
 
-  test("the navigation lists only the dashboard and the requests", async ({ page }) => {
+  test("the navigation lists the dashboard, the requests and her personal finances", async ({ page }) => {
     await openAsHousehold(page);
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const links = page.getByRole("navigation", { name: "Módulos" }).getByRole("link");
-    await expect(links).toHaveText(["Panel", "Peticiones"]);
+    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros"]);
   });
 
   test("every other module redirects to the dashboard", async ({ page }) => {
@@ -113,7 +113,7 @@ test.describe("household session", () => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 2, name: "Presupuesto por categoría" })).toBeVisible();
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link")).toHaveCount(2);
+    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link")).toHaveCount(5);
   });
 
   test("login stores the role and a household user lands on the reduced dashboard", async ({ page }) => {

@@ -115,11 +115,11 @@ test.describe("household: expense requests", () => {
     await expect(page.getByRole("button", { name: /Aprobar|Rechazar/ })).toHaveCount(0);
   });
 
-  test("the navigation shows Peticiones next to the dashboard and nothing owner-only", async ({ page }) => {
+  test("the navigation shows Peticiones next to the dashboard and her own finances, nothing owner-only", async ({ page }) => {
     await openAsHousehold(page);
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const links = page.getByRole("navigation", { name: "Módulos" }).getByRole("link");
-    await expect(links).toHaveText(["Panel", "Peticiones"]);
+    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros"]);
     await expect(page.getByTestId("pending-requests-badge")).toHaveCount(0);
   });
 
