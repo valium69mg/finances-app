@@ -10,8 +10,11 @@ import {
   Receipt,
   Repeat,
   Settings,
+  ShoppingBag,
+  Coins,
   Target,
   TrendingUp,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -27,6 +30,9 @@ export interface ModuleTab {
 export const modules: ModuleTab[] = [
   { path: "/", label: "Panel", icon: LayoutDashboard, description: "Aquí verás un resumen de tus finanzas del mes." },
   { path: "/peticiones", label: "Peticiones", icon: HandCoins, description: "Aquí pedirás o revisarás peticiones de gasto." },
+  { path: "/mis-ingresos", label: "Mis ingresos", icon: Wallet, description: "Aquí registrarás tus ingresos personales." },
+  { path: "/mis-gastos", label: "Mis gastos", icon: ShoppingBag, description: "Aquí registrarás tus gastos personales." },
+  { path: "/mis-ahorros", label: "Mis ahorros", icon: Coins, description: "Aquí registrarás tus aportaciones y retiros de ahorro." },
   { path: "/ingresos", label: "Ingresos", icon: TrendingUp, description: "Aquí registrarás y consultarás tus ingresos." },
   { path: "/gastos", label: "Gastos", icon: Receipt, description: "Aquí registrarás y clasificarás tus gastos." },
   { path: "/ahorros", label: "Ahorros", icon: PiggyBank, description: "Aquí darás seguimiento a tus aportaciones de ahorro." },
@@ -45,14 +51,21 @@ export const modules: ModuleTab[] = [
   { path: "/configuracion", label: "Configuración", icon: Settings, description: "Aquí ajustarás las preferencias de tu cuenta." },
 ];
 
+/** Her own finances: Mis ingresos, Mis gastos and Mis ahorros. Household only. */
+const PERSONAL_PATHS: readonly string[] = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros"];
+
 /**
  * Tabs the household role may open. Everything else is owner-only (the backend answers 403 for it, so hiding
  * the tab and redirecting the route are only conveniences). A new module is owner-only until it is listed here.
  */
-const HOUSEHOLD_PATHS: readonly string[] = ["/", "/peticiones"];
+const HOUSEHOLD_PATHS: readonly string[] = ["/", "/peticiones", ...PERSONAL_PATHS];
 
-/** True when a session with this role may open the module at `path`. */
-export const canOpen = (role: "owner" | "household", path: string): boolean => role === "owner" || HOUSEHOLD_PATHS.includes(path);
+/**
+ * True when a session with this role may open the module at `path`. The personal finances tabs belong to the household
+ * user alone: the owner is kept out (not listed, route redirects to the dashboard) until the read-only view of step 7.
+ */
+export const canOpen = (role: "owner" | "household", path: string): boolean =>
+  role === "owner" ? !PERSONAL_PATHS.includes(path) : HOUSEHOLD_PATHS.includes(path);
 
 /** Navigation icon of a module, reused by its page header. */
 export const moduleIcon = (path: string): LucideIcon => modules.find((m) => m.path === path)?.icon ?? LayoutDashboard;

@@ -50,12 +50,14 @@ function signIn(role?: string) {
 }
 
 describe("canOpen", () => {
-  it("lets the owner open every module", () => {
-    for (const m of modules) expect(canOpen("owner", m.path), m.path).toBe(true);
+  const personal = ["/mis-ingresos", "/mis-gastos", "/mis-ahorros"];
+
+  it("lets the owner open every module except her personal finances", () => {
+    for (const m of modules) expect(canOpen("owner", m.path), m.path).toBe(!personal.includes(m.path));
   });
 
-  it("lets household open only the dashboard and the requests, so a new module is owner-only by default", () => {
-    expect(modules.filter((m) => canOpen("household", m.path)).map((m) => m.path)).toEqual(["/", "/peticiones"]);
+  it("lets household open only the dashboard, the requests and her personal finances, so a new module is owner-only by default", () => {
+    expect(modules.filter((m) => canOpen("household", m.path)).map((m) => m.path)).toEqual(["/", "/peticiones", ...personal]);
   });
 });
 
@@ -97,9 +99,9 @@ describe("the session role", () => {
 });
 
 describe("route guards", () => {
-  it("household: every module but the dashboard and the requests redirects to /", () => {
+  it("household: every owner module redirects to /", () => {
     signIn("household");
-    for (const path of modules.map((m) => m.path).filter((p) => p !== "/" && p !== "/peticiones")) {
+    for (const path of modules.map((m) => m.path).filter((p) => !canOpen("household", p))) {
       renderApp(path);
       expect(screen.getByText("dashboard page"), path).toBeInTheDocument();
       cleanup();
@@ -112,11 +114,19 @@ describe("route guards", () => {
     expect(screen.getByText("dashboard page")).toBeInTheDocument();
   });
 
-  it("household: the navigation lists only the dashboard and the requests", () => {
+  it("household: the navigation lists the dashboard, the requests and her personal finances", () => {
     signIn("household");
     renderApp("/");
     const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
-    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Panel", "Peticiones"]);
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros"]);
+  });
+
+  it("owner: her personal finances are neither listed nor reachable", () => {
+    signIn("owner");
+    renderApp("/mis-gastos");
+    expect(screen.getByText("dashboard page")).toBeInTheDocument();
+    const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).not.toContain("Mis gastos");
   });
 
   it("owner: modules and the navigation are unchanged", () => {
@@ -124,6 +134,6 @@ describe("route guards", () => {
     renderApp("/sistema");
     expect(screen.getByText("system page")).toBeInTheDocument();
     const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
-    expect(nav.querySelectorAll("a")).toHaveLength(modules.length);
+    expect(nav.querySelectorAll("a")).toHaveLength(modules.filter((m) => canOpen("owner", m.path)).length);
   });
 });
