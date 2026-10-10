@@ -277,4 +277,72 @@ func (r *Repo) DeleteMovement(ctx context.Context, userID string, id int) error 
 	return nil
 }
 
+// --- dashboard ----------------------------------------------------------
+
+// KindTotals sums the movements of the user by kind in the inclusive range.
+// Savings are net: a withdrawal is a negative row.
+func (r *Repo) KindTotals(ctx context.Context, userID, from, to string) (domain.KindTotals, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT kind, SUM(amount)::text FROM personal_movements
+		WHERE user_id = $1::text::uuid AND date BETWEEN $2::date AND $3::date
+		GROUP BY kind`, userID, from, to)
+	if err != nil {
+		return domain.KindTotals{}, err
+	}
+	defer rows.Close()
+	var t domain.KindTotals
+	for rows.Next() {
+		var kind, sum string
+		if err := rows.Scan(&kind, &sum); err != nil {
+			return domain.KindTotals{}, err
+		}
+		v, err := decimal.NewFromString(sum)
+		if err != nil {
+			return domain.KindTotals{}, fmt.Errorf("parse sum: %w", err)
+		}
+		switch domain.Kind(kind) {
+		case domain.KindIncome:
+			t.Income = v
+		case domain.KindExpense:
+			t.Expenses = v
+		case domain.KindSavings:
+			t.Savings = v
+		}
+	}
+	return t, rows.Err()
+}
+
+// SpentByCategory returns the Gasto categories with spending in the range,
+// biggest first (name breaks ties).
+func (r *Repo) SpentByCategory(ctx context.Context, userID, from, to string) ([]domain.CategorySpend, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT c.id, c.name, SUM(m.amount)::text AS spent
+		FROM personal_movements m JOIN personal_categories c ON c.id = m.category_id
+		WHERE m.user_id = $1::text::uuid AND m.kind = 'Gasto' AND m.date BETWEEN $2::date AND $3::date
+		GROUP BY c.id, c.name
+		HAVING SUM(m.amount) > 0
+		ORDER BY SUM(m.amount) DESC, c.name, c.id`, userID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.CategorySpend{}
+	for rows.Next() {
+		var (
+			s     domain.CategorySpend
+			id    int64
+			spent string
+		)
+		if err := rows.Scan(&id, &s.Category, &spent); err != nil {
+			return nil, err
+		}
+		s.CategoryID = int(id)
+		if s.Spent, err = decimal.NewFromString(spent); err != nil {
+			return nil, fmt.Errorf("parse spent: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 var _ app.Repo = (*Repo)(nil)

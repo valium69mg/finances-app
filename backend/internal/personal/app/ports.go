@@ -55,6 +55,13 @@ type Repo interface {
 	UpdateMovement(ctx context.Context, userID string, id int, v domain.ValidMovement) (domain.Movement, error)
 	DeleteMovement(ctx context.Context, userID string, id int) error
 
+	// KindTotals sums the user's movements by kind in the inclusive date range
+	// (savings net of withdrawals). Missing kinds are zero.
+	KindTotals(ctx context.Context, userID, from, to string) (domain.KindTotals, error)
+	// SpentByCategory returns the Gasto categories that have spending in the
+	// range, ordered by spent descending then name.
+	SpentByCategory(ctx context.Context, userID, from, to string) ([]domain.CategorySpend, error)
+
 	FutureRepo
 	WishRepo
 }

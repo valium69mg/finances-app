@@ -184,3 +184,38 @@ func ValidateMovement(in MovementInput) (ValidMovement, error) {
 	}
 	return ValidMovement{Kind: kind, CategoryID: in.CategoryID, Amount: in.Amount, Description: description, Date: date}, nil
 }
+
+// KindTotals are the sums of one pay cycle by kind. Savings is the net of the
+// Ahorro rows (a withdrawal is negative).
+type KindTotals struct {
+	Income   decimal.Decimal
+	Expenses decimal.Decimal
+	Savings  decimal.Decimal
+}
+
+// Available is the money left in the cycle, with the owner's dashboard rule:
+// income minus expenses minus the net savings.
+func (t KindTotals) Available() decimal.Decimal {
+	return t.Income.Sub(t.Expenses).Sub(t.Savings)
+}
+
+// CategorySpend is what a Gasto category spent in a cycle.
+type CategorySpend struct {
+	CategoryID int
+	Category   string
+	Spent      decimal.Decimal
+}
+
+// Period is a pay cycle: its YYYY-MM label and inclusive YYYY-MM-DD bounds.
+type Period struct {
+	Month string
+	Start string
+	End   string
+}
+
+// Dashboard is her summary of one pay cycle.
+type Dashboard struct {
+	Period     Period
+	Totals     KindTotals
+	Categories []CategorySpend
+}

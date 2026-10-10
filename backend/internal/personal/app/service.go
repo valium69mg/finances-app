@@ -127,19 +127,11 @@ func (s *Service) Movements(ctx context.Context, actor Identity, in ListInput) (
 		}
 		f.Kind = kind
 	}
-	cfg, err := s.settings.Get(ctx)
+	p, err := s.resolvePeriod(ctx, in.Month)
 	if err != nil {
 		return nil, err
 	}
-	cycle := cfg.Cycle()
-	month := strings.TrimSpace(in.Month)
-	if month == "" {
-		month = cycle.Current(s.now())
-	}
-	from, to, err := cycle.Range(month)
-	if err != nil {
-		return nil, fmt.Errorf("%w: month %q must be YYYY-MM", domain.ErrInvalidInput, month)
-	}
+	from, to := p.Start, p.End
 	f.From, f.To = from, to
 	return s.repo.ListMovements(ctx, actor.UserID, f)
 }
@@ -200,3 +192,52 @@ func (s *Service) DeleteMovement(ctx context.Context, actor Identity, id int) er
 }
 
 func isNotFound(err error) bool { return errors.Is(err, domain.ErrNotFound) }
+
+// resolvePeriod reads the owner's cycle_start_day and returns the cycle of the
+// YYYY-MM label ("" for the current one, "today" in the clock's zone).
+func (s *Service) resolvePeriod(ctx context.Context, month string) (domain.Period, error) {
+	cfg, err := s.settings.Get(ctx)
+	if err != nil {
+		return domain.Period{}, err
+	}
+	cycle := cfg.Cycle()
+	month = strings.TrimSpace(month)
+	if month == "" {
+		month = cycle.Current(s.now())
+	}
+	from, to, err := cycle.Range(month)
+	if err != nil {
+		return domain.Period{}, fmt.Errorf("%w: month %q must be YYYY-MM", domain.ErrInvalidInput, month)
+	}
+	return domain.Period{Month: month, Start: from, End: to}, nil
+}
+
+// Period returns the pay cycle of a month label, so her pages can show its
+// range without reading the settings.
+func (s *Service) Period(ctx context.Context, actor Identity, month string) (domain.Period, error) {
+	if err := require(actor); err != nil {
+		return domain.Period{}, err
+	}
+	return s.resolvePeriod(ctx, month)
+}
+
+// Dashboard returns her totals and the Gasto spending by category for a pay
+// cycle. It reads only her personal rows.
+func (s *Service) Dashboard(ctx context.Context, actor Identity, month string) (domain.Dashboard, error) {
+	if err := require(actor); err != nil {
+		return domain.Dashboard{}, err
+	}
+	p, err := s.resolvePeriod(ctx, month)
+	if err != nil {
+		return domain.Dashboard{}, err
+	}
+	totals, err := s.repo.KindTotals(ctx, actor.UserID, p.Start, p.End)
+	if err != nil {
+		return domain.Dashboard{}, err
+	}
+	cats, err := s.repo.SpentByCategory(ctx, actor.UserID, p.Start, p.End)
+	if err != nil {
+		return domain.Dashboard{}, err
+	}
+	return domain.Dashboard{Period: p, Totals: totals, Categories: cats}, nil
+}

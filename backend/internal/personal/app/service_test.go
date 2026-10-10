@@ -125,6 +125,41 @@ func (r *fakeRepo) ListMovements(_ context.Context, user string, f app.Filter) (
 	return out, r.err
 }
 
+func (r *fakeRepo) KindTotals(_ context.Context, user string, from, to string) (domain.KindTotals, error) {
+	var t domain.KindTotals
+	for _, m := range r.moves {
+		if r.mOwners[m.ID] != user || m.Date < from || m.Date > to {
+			continue
+		}
+		switch m.Kind {
+		case domain.KindIncome:
+			t.Income = t.Income.Add(m.Amount)
+		case domain.KindExpense:
+			t.Expenses = t.Expenses.Add(m.Amount)
+		case domain.KindSavings:
+			t.Savings = t.Savings.Add(m.Amount)
+		}
+	}
+	return t, r.err
+}
+
+func (r *fakeRepo) SpentByCategory(_ context.Context, user string, from, to string) ([]domain.CategorySpend, error) {
+	sums := map[int]decimal.Decimal{}
+	for _, m := range r.moves {
+		if r.mOwners[m.ID] == user && m.Kind == domain.KindExpense && m.Date >= from && m.Date <= to {
+			sums[m.CategoryID] = sums[m.CategoryID].Add(m.Amount)
+		}
+	}
+	var out []domain.CategorySpend
+	for _, c := range r.cats {
+		if v, ok := sums[c.ID]; ok {
+			out = append(out, domain.CategorySpend{CategoryID: c.ID, Category: c.Name, Spent: v})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Spent.GreaterThan(out[j].Spent) })
+	return out, r.err
+}
+
 func (r *fakeRepo) CreateMovement(_ context.Context, user string, v domain.ValidMovement) (domain.Movement, error) {
 	r.nextMov++
 	m := domain.Movement{ID: r.nextMov, Kind: v.Kind, CategoryID: v.CategoryID, Amount: v.Amount, Description: v.Description, Date: v.Date}
@@ -177,6 +212,8 @@ func TestEveryOperationForbidsTheOwnerAndAnonymous(t *testing.T) {
 		_, calls["create movement"] = svc.CreateMovement(ctx, actor, domain.MovementInput{})
 		_, calls["update movement"] = svc.UpdateMovement(ctx, actor, 1, domain.MovementInput{})
 		calls["delete movement"] = svc.DeleteMovement(ctx, actor, 1)
+		_, calls["period"] = svc.Period(ctx, actor, "")
+		_, calls["dashboard"] = svc.Dashboard(ctx, actor, "")
 		for name, err := range calls {
 			if !errors.Is(err, domain.ErrForbidden) {
 				t.Errorf("%s as %+v: error = %v; want ErrForbidden", name, actor, err)
@@ -381,5 +418,113 @@ func TestMovementsRejectBadInputAndSurfaceSettingsErrors(t *testing.T) {
 	failing := newSvc(newRepo(), fakeSettings{err: errSet})
 	if _, err := failing.Movements(ctx, her, app.ListInput{}); !errors.Is(err, errSet) {
 		t.Errorf("settings error = %v; want it surfaced", err)
+	}
+}
+
+func addMove(r *fakeRepo, user string, kind domain.Kind, cat domain.Category, amount, date string) {
+	r.nextMov++
+	m := domain.Movement{ID: r.nextMov, Kind: kind, CategoryID: cat.ID, Amount: d(amount), Date: date}
+	r.moves = append(r.moves, m)
+	r.mOwners[m.ID] = user
+}
+
+func TestDashboardTotalsCategoriesAndScoping(t *testing.T) {
+	r := newRepo()
+	ropa := r.addCat("u-her", domain.KindExpense, "Ropa")
+	salud := r.addCat("u-her", domain.KindExpense, "Salud")
+	vacia := r.addCat("u-her", domain.KindExpense, "Pintura")
+	trabajo := r.addCat("u-her", domain.KindIncome, "Trabajo")
+	ahorro := r.addCat("u-her", domain.KindSavings, "Ahorro")
+	_ = vacia
+	addMove(r, "u-her", domain.KindIncome, trabajo, "10000", "2026-10-02")
+	addMove(r, "u-her", domain.KindExpense, ropa, "300.50", "2026-10-03")
+	addMove(r, "u-her", domain.KindExpense, salud, "900", "2026-10-04")
+	addMove(r, "u-her", domain.KindExpense, ropa, "100", "2026-10-05")
+	addMove(r, "u-her", domain.KindSavings, ahorro, "2000", "2026-10-06")
+	addMove(r, "u-her", domain.KindSavings, ahorro, "-500", "2026-10-07") // withdrawal
+	addMove(r, "u-her", domain.KindExpense, ropa, "9999", "2026-09-30")   // before the cycle
+	addMove(r, "u-her", domain.KindExpense, ropa, "9999", "2026-11-01")   // after the cycle
+	addMove(r, "u-other", domain.KindIncome, trabajo, "777", "2026-10-02")
+	svc := newSvc(r, noCfg)
+
+	got, err := svc.Dashboard(ctx, her, "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Period != (domain.Period{Month: "2026-10", Start: "2026-10-01", End: "2026-10-31"}) {
+		t.Errorf("period = %+v", got.Period)
+	}
+	if !got.Totals.Income.Equal(d("10000")) || !got.Totals.Expenses.Equal(d("1300.50")) || !got.Totals.Savings.Equal(d("1500")) {
+		t.Errorf("totals = %+v", got.Totals)
+	}
+	if !got.Totals.Available().Equal(d("7199.50")) {
+		t.Errorf("available = %s, want 7199.50", got.Totals.Available())
+	}
+	if len(got.Categories) != 2 || got.Categories[0].Category != "Salud" || got.Categories[1].Category != "Ropa" ||
+		!got.Categories[1].Spent.Equal(d("400.50")) {
+		t.Errorf("categories = %+v; want Salud then Ropa, none without spending", got.Categories)
+	}
+}
+
+func TestDashboardUsesTheCurrentCycleAndTheOwnersCutDay(t *testing.T) {
+	r := newRepo()
+	trabajo := r.addCat("u-her", domain.KindIncome, "Trabajo")
+	addMove(r, "u-her", domain.KindIncome, trabajo, "100", "2026-10-14") // cycle 2026-10 with cut day 15
+	addMove(r, "u-her", domain.KindIncome, trabajo, "50", "2026-10-15")  // cycle 2026-11
+	svc := newSvc(r, day15)
+	got, err := svc.Dashboard(ctx, her, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// today is 2026-10-10: still the cycle labelled 2026-10 (09-15 .. 10-14).
+	if got.Period != (domain.Period{Month: "2026-10", Start: "2026-09-15", End: "2026-10-14"}) {
+		t.Errorf("period = %+v", got.Period)
+	}
+	if !got.Totals.Income.Equal(d("100")) {
+		t.Errorf("income = %s, want 100", got.Totals.Income)
+	}
+	next, _ := svc.Dashboard(ctx, her, "2026-11")
+	if !next.Totals.Income.Equal(d("50")) {
+		t.Errorf("next cycle income = %s, want 50", next.Totals.Income)
+	}
+}
+
+func TestDashboardEmptyCycleAndErrors(t *testing.T) {
+	svc := newSvc(newRepo(), noCfg)
+	got, err := svc.Dashboard(ctx, her, "2026-10")
+	if err != nil || !got.Totals.Available().IsZero() || len(got.Categories) != 0 {
+		t.Errorf("empty cycle = %+v, %v", got, err)
+	}
+	if _, err := svc.Dashboard(ctx, her, "2026-13"); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("bad month error = %v; want ErrInvalidInput", err)
+	}
+	if _, err := newSvc(newRepo(), fakeSettings{err: errSet}).Dashboard(ctx, her, ""); !errors.Is(err, errSet) {
+		t.Errorf("settings error = %v; want it propagated", err)
+	}
+	r := newRepo()
+	r.err = errors.New("db down")
+	if _, err := newSvc(r, noCfg).Dashboard(ctx, her, "2026-10"); err == nil {
+		t.Error("repository error must propagate")
+	}
+}
+
+func TestPeriod(t *testing.T) {
+	svc := newSvc(newRepo(), day15)
+	p, err := svc.Period(ctx, her, "2026-10")
+	if err != nil || p != (domain.Period{Month: "2026-10", Start: "2026-09-15", End: "2026-10-14"}) {
+		t.Errorf("got %+v, %v", p, err)
+	}
+	if cur, _ := svc.Period(ctx, her, ""); cur.Month != "2026-10" {
+		t.Errorf("empty month = %+v; want the current cycle", cur)
+	}
+	if _, err := svc.Period(ctx, her, "oct"); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("bad month error = %v; want ErrInvalidInput", err)
+	}
+}
+
+func TestKindTotalsAvailable(t *testing.T) {
+	got := domain.KindTotals{Income: d("100"), Expenses: d("30"), Savings: d("-20")}.Available()
+	if !got.Equal(d("90")) {
+		t.Errorf("available = %s, want 90 (a withdrawal adds money back)", got)
 	}
 }
