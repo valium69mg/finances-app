@@ -65,13 +65,18 @@ func scanFuture(row pgx.Row) (domain.FutureExpense, error) {
 
 // CreateFutureExpense stores an active item.
 func (r *Repo) CreateFutureExpense(ctx context.Context, userID string, v domain.FutureValidated) (domain.FutureExpense, error) {
-	it, err := scanFuture(r.pool.QueryRow(ctx, `
+	return insertFuture(ctx, r.pool, userID, v)
+}
+
+// insertFuture is the one INSERT of personal_future_expenses, shared with the
+// wishlist conversion that runs it inside its own transaction.
+func insertFuture(ctx context.Context, q rowQuerier, userID string, v domain.FutureValidated) (domain.FutureExpense, error) {
+	return scanFuture(q.QueryRow(ctx, `
 		WITH f AS (
 			INSERT INTO personal_future_expenses (user_id, name, target_amount, due_date)
 			VALUES ($1::text::uuid, $2, $3::text::numeric, $4::date) RETURNING *)
 		SELECT `+futureColumns+` FROM f`,
 		userID, v.Name, v.Target.String(), v.DueDate))
-	return it, err
 }
 
 // GetFutureExpense returns the item with its saved amount.

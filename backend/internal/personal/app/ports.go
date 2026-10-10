@@ -56,6 +56,7 @@ type Repo interface {
 	DeleteMovement(ctx context.Context, userID string, id int) error
 
 	FutureRepo
+	WishRepo
 }
 
 // SavingRow is one Ahorro row of the Gastos futuros category written by the
@@ -108,4 +109,48 @@ type FutureRepo interface {
 	// expense), amount_paid and expense_movement_id. Any error rolls everything
 	// back. It returns the paid item and its Gasto.
 	PayFuture(ctx context.Context, userID string, id int, plan func(it domain.FutureExpense) (Settlement, error)) (domain.FutureExpense, domain.Movement, error)
+}
+
+// WishRepo persists the wishlist of one user. Every method is scoped by userID:
+// an item of another user is domain.ErrNotFound. Items come with their link and,
+// for a request, the current state, so the status can be derived.
+type WishRepo interface {
+	CreateWish(ctx context.Context, userID string, v domain.ValidWish) (domain.WishItem, error)
+	GetWish(ctx context.Context, userID string, id int) (domain.WishItem, error)
+	// ListWish returns every item, newest first.
+	ListWish(ctx context.Context, userID string) ([]domain.WishItem, error)
+	// UpdateWish replaces the fields of an item of any status; the links are
+	// never touched.
+	UpdateWish(ctx context.Context, userID string, id int, v domain.ValidWish) (domain.WishItem, error)
+	// DeleteWish removes the item only, never what it converted into.
+	DeleteWish(ctx context.Context, userID string, id int) error
+	// ConvertWishToFuture is one transaction: it locks the item, returns
+	// domain.ErrAlreadyConverted unless it is active, calls plan with it, stores
+	// the future expense and replaces the link of the item with it. Any error
+	// rolls everything back.
+	ConvertWishToFuture(ctx context.Context, userID string, id int, plan func(it domain.WishItem) (domain.FutureValidated, error)) (domain.WishItem, error)
+	// ConvertWishToExpense is the same for her Gasto.
+	ConvertWishToExpense(ctx context.Context, userID string, id int, plan func(it domain.WishItem) (domain.ValidMovement, error)) (domain.WishItem, error)
+	// LinkWishRequest locks the item, returns domain.ErrAlreadyConverted unless
+	// it is active and replaces its link with the expense request.
+	LinkWishRequest(ctx context.Context, userID string, id, requestID int) (domain.WishItem, error)
+}
+
+// RequestDraft is the expense request created from a wishlist item.
+type RequestDraft struct {
+	Amount      decimal.Decimal
+	Description string
+	Category    string // an owner Gasto category name
+	Date        string // empty means today
+}
+
+// ExpenseRequests is the part of the expense requests module used by the
+// "ask the owner" conversion: the request is created through its service as
+// the session user, so its validation, the owner notification and the hourly
+// limit apply unchanged.
+type ExpenseRequests interface {
+	Create(ctx context.Context, actor Identity, d RequestDraft) (id int, err error)
+	// Cancel withdraws a pending request of the actor (compensation when the
+	// link could not be stored).
+	Cancel(ctx context.Context, actor Identity, id int) error
 }

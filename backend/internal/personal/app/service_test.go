@@ -32,6 +32,8 @@ type fakeRepo struct {
 	mOwners map[int]string
 	items   []*fakeItem
 	rows    []fakeRow
+	wishes  []*fakeWish
+	linkErr error
 	settled []app.Settlement
 	nextCat int
 	nextMov int

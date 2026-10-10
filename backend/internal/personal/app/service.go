@@ -19,6 +19,7 @@ import (
 type Service struct {
 	repo     Repo
 	settings Settings
+	requests ExpenseRequests
 	now      func() time.Time
 }
 
@@ -29,6 +30,13 @@ func NewService(repo Repo, settings Settings, now func() time.Time) *Service {
 		now = time.Now
 	}
 	return &Service{repo: repo, settings: settings, now: now}
+}
+
+// WithRequests wires the expense requests module used by the wishlist
+// conversion to a request. Without it that conversion fails.
+func (s *Service) WithRequests(r ExpenseRequests) *Service {
+	s.requests = r
+	return s
 }
 
 // require allows only a household user with an id. Defense in depth behind the
