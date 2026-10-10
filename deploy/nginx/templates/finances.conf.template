@@ -61,8 +61,17 @@ server {
     }
 
     # Invoice uploads: XML (1 MiB) + PDF (10 MiB) + multipart overhead; the backend caps
-    # the request at 12 MiB. Only these two routes accept a large body.
+    # the request at 12 MiB.
     location ~ ^/api/invoices/[0-9]+/(issue|documents)$ {
+        limit_req zone=api burst=10 nodelay;
+        client_max_body_size 13m;
+        client_body_timeout 60s;
+        include /etc/nginx/snippets/proxy-api.conf;
+    }
+
+    # Tax-filing documents: one file (10 MiB) + multipart overhead; the backend caps the
+    # request at 11 MiB. Only these routes accept a large body.
+    location ~ ^/api/tax-filing/[0-9]{4}-[0-9]{2}/documents/(acuse|comprobante)$ {
         limit_req zone=api burst=10 nodelay;
         client_max_body_size 13m;
         client_body_timeout 60s;

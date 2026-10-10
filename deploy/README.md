@@ -200,7 +200,7 @@ dcp restart api
 | Rate limit other `/api/*` | 20 req/s, burst 40 (burst 10 on the upload routes) |
 | Rate limit static app | 20 req/s, burst 60 |
 | Connections | 30 per IP |
-| Body size | 1 MiB; `POST /api/invoices/{id}/issue` and `/documents` up to 13 MiB (10 MiB PDF + 1 MiB XML + overhead); larger -> `413 {"error":"request_too_large"}` |
+| Body size | 1 MiB; `POST /api/invoices/{id}/issue` and `/documents` and `PUT /api/tax-filing/{period}/documents/{kind}` up to 13 MiB (10 MiB file + 1 MiB XML + overhead); larger -> `413 {"error":"request_too_large"}` |
 | Timeouts | headers 10 s, body 30 s (60 s uploads), upstream 5 s connect and 60 s read |
 | Headers | CSP without `unsafe-inline`/`unsafe-eval`, HSTS (1 year), nosniff, `Referrer-Policy: no-referrer`, Permissions-Policy, `frame-ancestors 'none'`, COOP/CORP |
 | Unknown Host or SNI | connection closed / TLS handshake refused (only `DOMAIN` is served) |
