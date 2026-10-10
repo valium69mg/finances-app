@@ -73,7 +73,7 @@ test.describe("household session", () => {
     await openAsHousehold(page);
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const links = page.getByRole("navigation", { name: "Módulos" }).getByRole("link");
-    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros"]);
+    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros"]);
   });
 
   test("every other module redirects to the dashboard", async ({ page }) => {
@@ -113,7 +113,7 @@ test.describe("household session", () => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 2, name: "Presupuesto por categoría" })).toBeVisible();
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link")).toHaveCount(5);
+    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link")).toHaveCount(6);
   });
 
   test("login stores the role and a household user lands on the reduced dashboard", async ({ page }) => {

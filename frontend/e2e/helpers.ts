@@ -1,4 +1,4 @@
-import { createPersonalMock, type MockPersonalMovement } from "./personalMock";
+import { createPersonalMock, type MockPersonalFuture, type MockPersonalMovement } from "./personalMock";
 import type { Page, Route } from "@playwright/test";
 import { cycleOf, cycleRange } from "../src/pages/cycle";
 import { createBillsMock, type BillsFail, type MockBill } from "./billsMock";
@@ -16,7 +16,7 @@ export type { MockDocument, MockInvoice, MockUpload } from "./invoicesMock";
 export type { MockClose, MonthCloseFail } from "./monthCloseMock";
 export type { MockFiling, MockFilingDocument, TaxFilingFail } from "./taxFilingMock";
 export type { MockUser, UsersFail } from "./usersMock";
-export type { MockPersonalMovement } from "./personalMock";
+export type { MockPersonalFuture, MockPersonalMovement } from "./personalMock";
 
 export type MockRole = "owner" | "household";
 
@@ -208,7 +208,7 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void; role?: MockRole; users?: MockUser[]; usersFail?: UsersFail; denyAll?: boolean; expenseRequests?: MockExpenseRequest[]; expenseRequestsFail?: ExpenseRequestsFail; personal?: MockPersonalMovement[] } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void; role?: MockRole; users?: MockUser[]; usersFail?: UsersFail; denyAll?: boolean; expenseRequests?: MockExpenseRequest[]; expenseRequestsFail?: ExpenseRequestsFail; personal?: MockPersonalMovement[]; personalFuture?: MockPersonalFuture[] } = {},
 ) {
   const role: MockRole = opts.role ?? "owner";
   const usersMock = createUsersMock(opts.users ?? [], opts.usersFail, json);
@@ -293,7 +293,7 @@ export async function mockApi(
     json,
   });
   // Her own finances: household only, served from memory so writes come back on the next GET.
-  const personalMock = createPersonalMock(opts.personal ?? [], { role, today: todayLocal, cycleOf: (date) => cycleOf(date, settings.general.cycle_start_day ?? 0), json });
+  const personalMock = createPersonalMock(opts.personal ?? [], { role, today: todayLocal, cycleOf: (date) => cycleOf(date, settings.general.cycle_start_day ?? 0), json }, opts.personalFuture ?? []);
   const monthCloseMock = createMonthCloseMock(opts.closes ?? [], opts.monthCloseFail, {
     // A close is computed from the same in-memory movements as the dashboard.
     figures: (month) => {
@@ -545,7 +545,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, taxUploads: taxMock.uploads, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes, expenseRequests: requestsMock.requests, requestWrites: requestsMock.writes, budgetChecks: requestsMock.budgetChecks, personalWrites: personalMock.writes, personalMonths: personalMock.months };
+  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, taxUploads: taxMock.uploads, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes, expenseRequests: requestsMock.requests, requestWrites: requestsMock.writes, budgetChecks: requestsMock.budgetChecks, personalWrites: personalMock.writes, personalFutureWrites: personalMock.futureWrites, personalMonths: personalMock.months };
 }
 
 /** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */

@@ -33,12 +33,12 @@ async function open(page: Page, path: string, personal: MockPersonalMovement[] =
 const dialog = (page: Page) => page.getByRole("dialog");
 
 test.describe("household: navigation", () => {
-  test("lists the three personal tabs", async ({ page }) => {
+  test("lists the four personal tabs", async ({ page }) => {
     await open(page, "/");
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const nav = page.getByRole("navigation", { name: "Módulos" });
-    await expect(nav.getByRole("link")).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros"]);
-    await nav.getByRole("link", { name: "Mis gastos" }).click();
+    await expect(nav.getByRole("link")).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros"]);
+    await nav.getByRole("link", { name: "Mis gastos", exact: true }).click();
     await expect(page).toHaveURL(/\/mis-gastos$/);
     await expect(page.getByRole("heading", { level: 1, name: "Mis gastos" })).toBeVisible();
   });
@@ -52,8 +52,8 @@ test.describe("owner session", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const labels = await page.getByRole("navigation", { name: "Módulos" }).getByRole("link").allInnerTexts();
-    for (const hidden of ["Mis ingresos", "Mis gastos", "Mis ahorros"]) expect(labels).not.toContain(hidden);
-    for (const path of ["/mis-ingresos", "/mis-gastos", "/mis-ahorros"]) {
+    for (const hidden of ["Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros"]) expect(labels).not.toContain(hidden);
+    for (const path of ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros"]) {
       await page.goto(path);
       await expect(page, path).toHaveURL(/\/$/);
     }
@@ -154,7 +154,7 @@ test.describe("Mis ahorros", () => {
   test("shows a withdrawal as negative and nets the total", async ({ page }) => {
     const api = await open(page, "/mis-ahorros", [{ id: 1, kind: "Ahorro", category: "Ahorro", amount: "1000.00", description: "Aportación inicial", date: today() }]);
     await page.getByRole("button", { name: "Nuevo movimiento" }).click();
-    await expect(dialog(page).getByLabel("Categoría").locator("option")).toHaveText(["Ahorro", "Inversión"]);
+    await expect(dialog(page).getByLabel("Categoría").locator("option")).toHaveText(["Ahorro", "Inversión", "Gastos futuros"]);
     await dialog(page).getByLabel("Tipo").selectOption({ label: "Retiro" });
     await dialog(page).getByLabel("Descripción").fill("Retiro emergencia");
     await dialog(page).getByLabel("Monto (MXN)").fill("250.50");
