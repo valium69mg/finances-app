@@ -35,6 +35,8 @@ import (
 	ledgerpg "github.com/valium69mg/finances-app/backend/internal/ledger/adapters/postgres"
 	monthclosepg "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/postgres"
 	monthcloseapp "github.com/valium69mg/finances-app/backend/internal/monthclose/app"
+	personalpg "github.com/valium69mg/finances-app/backend/internal/personal/adapters/postgres"
+	personalapp "github.com/valium69mg/finances-app/backend/internal/personal/app"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clock"
 	"github.com/valium69mg/finances-app/backend/internal/platform/config"
@@ -227,11 +229,13 @@ func run() error {
 		Limiter: limiter, AppBaseURL: cfg.AppBaseURL, Now: now, Logger: slog.Default(),
 	})
 
+	personalSvc := personalapp.NewService(personalpg.NewRepo(pool), settingsSvc, now)
+
 	mux := http.NewServeMux()
 	registerRoutes(mux, routeDeps{
 		Health: health.Handler(pool), Auth: auth, Settings: settingsSvc, Expenses: expensesSvc, Income: incomeSvc,
 		Savings: savingsSvc, Invoices: invoicesSvc, TaxFiling: taxfilingSvc, Bills: billsSvc, FutureExpense: futureSvc,
-		Dashboard: dashboardSvc, MonthClose: monthcloseSvc, System: systemSvc, Users: usersSvc, ExpenseReq: expenseRequestsSvc,
+		Dashboard: dashboardSvc, MonthClose: monthcloseSvc, System: systemSvc, Users: usersSvc, ExpenseReq: expenseRequestsSvc, Personal: personalSvc,
 	}, auth.RequireAuth, slog.Default())
 
 	corsOrigin, err := cors.OriginFromURL(cfg.AppBaseURL)

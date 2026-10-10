@@ -13,6 +13,7 @@ import (
 	incomehttp "github.com/valium69mg/finances-app/backend/internal/income/adapters/http"
 	invoiceshttp "github.com/valium69mg/finances-app/backend/internal/invoices/adapters/http"
 	monthclosehttp "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/http"
+	personalhttp "github.com/valium69mg/finances-app/backend/internal/personal/adapters/http"
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
 	savingshttp "github.com/valium69mg/finances-app/backend/internal/savings/adapters/http"
 	settingshttp "github.com/valium69mg/finances-app/backend/internal/settings/adapters/http"
@@ -41,6 +42,7 @@ type routeDeps struct {
 	System        systemhttp.Service
 	Users         usershttp.Service
 	ExpenseReq    expenserequestshttp.Service
+	Personal      personalhttp.Service
 }
 
 // registerRoutes mounts every route. Every authenticated route goes through
@@ -63,4 +65,5 @@ func registerRoutes(mux httpmw.Router, d routeDeps, requireAuth func(http.Handle
 	systemhttp.New(d.System, logger).Register(mux, requireAuth)
 	usershttp.New(d.Users, logger).Register(mux, requireAuth)
 	expenserequestshttp.New(d.ExpenseReq, logger).Register(mux, requireAuth)
+	personalhttp.New(d.Personal, logger).Register(mux, requireAuth)
 }

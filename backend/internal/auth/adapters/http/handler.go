@@ -72,6 +72,17 @@ var householdAllowlist = map[string]bool{
 	// Not listed on purpose (owner-only): GET /expense-requests/{id}/budget-check,
 	// POST /expense-requests/{id}/approve, POST /expense-requests/{id}/reject and
 	// POST /expense-requests/{id}/revert.
+
+	// Personal finances (phase 12, steps 1-3). The service scopes every row to
+	// the session user and answers 403 to any other role (the owner read-only
+	// view comes in a later step), so a household user only ever touches her own.
+	"GET /personal/categories":        true,
+	"POST /personal/categories":       true,
+	"PUT /personal/categories/{id}":   true,
+	"GET /personal/movements":         true,
+	"POST /personal/movements":        true,
+	"PUT /personal/movements/{id}":    true,
+	"DELETE /personal/movements/{id}": true,
 }
 
 // HouseholdAllowed reports whether the household role may call the route
