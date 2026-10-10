@@ -175,27 +175,36 @@ func (s *Service) sendVerificationInBackground(ctx context.Context, user domain.
 
 // Login is step two: it only authenticates. Unknown, unverified, deactivated and
 // wrong-password cases all return domain.ErrInvalidCredentials, and no email is ever sent.
-// Only failed attempts consume the per-email and per-IP budgets.
+// Only failed attempts consume the per-email and per-IP budgets. The budget is
+// reserved up front with Allow, so parallel guesses cannot all pass a check
+// before the first one fails, and released again unless the attempt failed.
 func (s *Service) Login(ctx context.Context, rawEmail, password, ip string) (*Session, error) {
 	email, err := domain.NormalizeEmail(rawEmail)
 	if err != nil {
 		return nil, err
 	}
 	emailKey, ipKey := keyLoginFailEmail+email, keyLoginFailIP+ip
-	if !s.Limiter.Peek(emailKey, LoginEmailFailLimit, LoginFailWindow) ||
-		!s.Limiter.Peek(ipKey, LoginIPFailLimit, LoginFailWindow) {
+	if !s.Limiter.Allow(emailKey, LoginEmailFailLimit, LoginFailWindow) {
 		return nil, domain.ErrRateLimited
+	}
+	if !s.Limiter.Allow(ipKey, LoginIPFailLimit, LoginFailWindow) {
+		s.Limiter.Release(emailKey) // the rejected attempt must not cost the email its budget
+		return nil, domain.ErrRateLimited
+	}
+	release := func() {
+		s.Limiter.Release(emailKey)
+		s.Limiter.Release(ipKey)
 	}
 
 	user, err := s.Users.FindByEmail(ctx, email)
 	if err != nil && !errors.Is(err, domain.ErrNotFound) {
+		release() // an infrastructure error is not a wrong password
 		return nil, fmt.Errorf("find user: %w", err)
 	}
 	if err != nil || !user.Verified || !user.Active || !domain.CheckPassword(user.PasswordHash, password) {
-		s.Limiter.Record(emailKey, LoginFailWindow)
-		s.Limiter.Record(ipKey, LoginFailWindow)
-		return nil, domain.ErrInvalidCredentials
+		return nil, domain.ErrInvalidCredentials // the reservation stays: it is the recorded failure
 	}
+	release()
 	return s.issueSession(ctx, user)
 }
 

@@ -237,3 +237,29 @@ func TestConcurrentRecordsAreAllCounted(t *testing.T) {
 		t.Fatalf("limit %d must be exhausted after %d records", n, n)
 	}
 }
+
+func TestReleaseGivesBackOneEvent(t *testing.T) {
+	now := start
+	l := ratelimit.New(func() time.Time { return now })
+	l.Release("k") // unknown key: no-op
+	if !l.Allow("k", 1, time.Minute) {
+		t.Fatal("first event fits")
+	}
+	if l.Allow("k", 1, time.Minute) {
+		t.Fatal("second event must not fit")
+	}
+	l.Release("k")
+	if !l.Allow("k", 1, time.Minute) {
+		t.Fatal("a released event frees its slot")
+	}
+	l.Release("k")
+	l.Release("k") // never below zero
+	if !l.Allow("k", 1, time.Minute) || l.Allow("k", 1, time.Minute) {
+		t.Fatal("extra releases must not grant more than the limit")
+	}
+	now = now.Add(2 * time.Minute)
+	l.Release("k") // expired window: no-op
+	if !l.Allow("k", 1, time.Minute) {
+		t.Fatal("fresh window")
+	}
+}

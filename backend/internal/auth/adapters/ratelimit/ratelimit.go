@@ -83,6 +83,21 @@ func (l *Limiter) Record(key string, span time.Duration) {
 	l.windows[key] = w
 }
 
+// Release removes one event from the live window of key, undoing an Allow or
+// Record. It does nothing when the key is unknown or its window has expired.
+func (l *Limiter) Release(key string) {
+	now := l.now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	w, ok := l.windows[key]
+	if !ok || w.expired(now) || w.count == 0 {
+		return
+	}
+	w.count--
+	l.windows[key] = w
+}
+
 // current returns the live window for key, opening a fresh one when the key is
 // unknown or its window has expired. Callers must hold l.mu.
 func (l *Limiter) current(key string, now time.Time, span time.Duration) window {

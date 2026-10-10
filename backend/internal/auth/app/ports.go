@@ -62,6 +62,10 @@ type RateLimiter interface {
 	// Record counts one event unconditionally. Pair it with Peek to count only
 	// some outcomes (e.g. failed logins).
 	Record(key string, window time.Duration)
+	// Release gives back one event of key, e.g. a reservation made with Allow
+	// that turned out not to count. It never goes below zero and does nothing
+	// for an unknown or expired key.
+	Release(key string)
 }
 
 // SystemClock is the wall clock.

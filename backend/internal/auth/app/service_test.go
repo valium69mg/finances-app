@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -587,6 +588,59 @@ func TestLoginSuccessDoesNotResetFailures(t *testing.T) {
 	_, _ = e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1") // 5th failure
 	if _, err := e.svc.Login(ctx, verifiedEmail, password, "1.1.1.1"); !errors.Is(err, domain.ErrRateLimited) {
 		t.Fatalf("err = %v, want ErrRateLimited", err)
+	}
+}
+
+func TestLoginParallelGuessesStayWithinTheEmailBudget(t *testing.T) {
+	e := newEnv(t)
+	const attempts = 40
+	var wg sync.WaitGroup
+	results := make(chan error, attempts)
+	for range attempts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := e.svc.Login(ctx, verifiedEmail, wrongPassword, "1.1.1.1")
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	checked, limited := 0, 0
+	for err := range results {
+		switch {
+		case errors.Is(err, domain.ErrInvalidCredentials):
+			checked++
+		case errors.Is(err, domain.ErrRateLimited):
+			limited++
+		default:
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+	// A wrong-password answer means the attempt reached the password check.
+	if checked != app.LoginEmailFailLimit || limited != attempts-app.LoginEmailFailLimit {
+		t.Fatalf("checked = %d, limited = %d; want %d and %d", checked, limited, app.LoginEmailFailLimit, attempts-app.LoginEmailFailLimit)
+	}
+}
+
+func TestLoginRejectedByIPDoesNotCostTheEmailBudget(t *testing.T) {
+	e := newEnv(t)
+	// Exhaust the IP budget with failures against distinct unknown emails.
+	for i := range app.LoginIPFailLimit {
+		if _, err := e.svc.Login(ctx, fmt.Sprintf("ghost%d@example.com", i), wrongPassword, "9.9.9.9"); !errors.Is(err, domain.ErrInvalidCredentials) {
+			t.Fatalf("failure %d: %v", i+1, err)
+		}
+	}
+	for range 3 {
+		if _, err := e.svc.Login(ctx, verifiedEmail, password, "9.9.9.9"); !errors.Is(err, domain.ErrRateLimited) {
+			t.Fatalf("err = %v, want ErrRateLimited", err)
+		}
+	}
+	// Those rejections left no reservation on the email: its whole budget is intact elsewhere.
+	for i := 1; i <= app.LoginEmailFailLimit; i++ {
+		if _, err := e.svc.Login(ctx, verifiedEmail, wrongPassword, "2.2.2.2"); !errors.Is(err, domain.ErrInvalidCredentials) {
+			t.Fatalf("failure %d: %v", i, err)
+		}
 	}
 }
 
