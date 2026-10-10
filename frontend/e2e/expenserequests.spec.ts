@@ -119,7 +119,7 @@ test.describe("household: expense requests", () => {
     await openAsHousehold(page);
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const links = page.getByRole("navigation", { name: "Módulos" }).getByRole("link");
-    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros"]);
+    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
     await expect(page.getByTestId("pending-requests-badge")).toHaveCount(0);
   });
 

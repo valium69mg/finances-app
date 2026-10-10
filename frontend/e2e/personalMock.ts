@@ -31,7 +31,28 @@ export interface MockPersonalMovement {
   date: string;
 }
 
+/** An item of her wishlist. `request_id` links it to an expense request of the requests mock (seeded by the test). */
+export interface MockPersonalWish {
+  id: number;
+  name: string;
+  price: string;
+  /** Gasto category name of hers. */
+  category: string;
+  store_url?: string | null;
+  priority?: "alta" | "media" | "baja";
+  note?: string | null;
+  request_id?: number;
+  future_expense_id?: number;
+  expense_movement_id?: number;
+}
+
 type Json = (route: Route, status: number, body?: unknown) => Promise<void>;
+
+/** The expense requests mock, as the wishlist conversion to a request needs it. */
+export interface RequestsPort {
+  create: (body: Record<string, unknown>) => { status: number; body: unknown };
+  stateOf: (id: number) => string | null;
+}
 
 export interface PersonalDeps {
   role: "owner" | "household";
@@ -39,6 +60,7 @@ export interface PersonalDeps {
   /** Cycle label of a date, as the owner's cut day defines it. */
   cycleOf: (date: string) => string;
   json: Json;
+  requests: RequestsPort;
 }
 
 interface Category {
@@ -55,7 +77,7 @@ const SEED: Record<PersonalKind, string[]> = {
 
 const validAmount = (v: unknown) => typeof v === "string" && /^-?\d{1,12}(\.\d{1,2})?$/.test(v) && Number(v) !== 0;
 
-export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalDeps, futureSeed: MockPersonalFuture[] = []) {
+export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalDeps, futureSeed: MockPersonalFuture[] = [], wishSeed: MockPersonalWish[] = []) {
   const categories: Category[] = [];
   let nextCategoryId = 1;
   (Object.keys(SEED) as PersonalKind[]).forEach((kind) => SEED[kind].forEach((name) => categories.push({ id: nextCategoryId++, kind, name })));
@@ -291,6 +313,180 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     return reply(200, { item: futureDto(item), expense: movementDto(expense) });
   }
 
+
+  // --- wishlist ----------------------------------------------------------
+
+  /** Every write the wishlist page sent: method, path and JSON body. */
+  const wishWrites: { method: string; path: string; body: unknown }[] = [];
+
+  interface StoredWish {
+    id: number;
+    name: string;
+    priceCents: number;
+    category_id: number;
+    store_url: string | null;
+    priority: "alta" | "media" | "baja";
+    note: string | null;
+    future_expense_id: number | null;
+    expense_movement_id: number | null;
+    expense_request_id: number | null;
+  }
+  let nextWishId = wishSeed.reduce((max, w) => Math.max(max, w.id), 0) + 1;
+  const wishes: StoredWish[] = wishSeed.map((w) => ({
+    id: w.id,
+    name: w.name,
+    priceCents: cents(w.price),
+    category_id: byName("Gasto", w.category)?.id ?? 0,
+    store_url: w.store_url ?? null,
+    priority: w.priority ?? "media",
+    note: w.note ?? null,
+    future_expense_id: w.future_expense_id ?? null,
+    expense_movement_id: w.expense_movement_id ?? null,
+    expense_request_id: w.request_id ?? null,
+  }));
+  const RANK = { alta: 0, media: 1, baja: 2 };
+
+  /** What the item links to. A target that no longer exists counts as no link, like the database's ON DELETE SET NULL. */
+  function conversionOf(w: StoredWish) {
+    if (w.future_expense_id !== null && futures.some((f) => f.id === w.future_expense_id)) return { type: "gasto_futuro", target_id: w.future_expense_id, request_state: null };
+    if (w.expense_movement_id !== null && movements.some((m) => m.id === w.expense_movement_id)) return { type: "gasto", target_id: w.expense_movement_id, request_state: null };
+    if (w.expense_request_id !== null) {
+      const state = deps.requests.stateOf(w.expense_request_id);
+      if (state !== null) return { type: "peticion", target_id: w.expense_request_id, request_state: state };
+    }
+    return null;
+  }
+  const statusOf = (w: StoredWish) => {
+    const c = conversionOf(w);
+    if (!c) return "activa";
+    return c.type === "peticion" && c.request_state !== "solicitada" && c.request_state !== "aprobada" ? "activa" : "convertida";
+  };
+  const wishDto = (w: StoredWish) => ({
+    id: w.id,
+    name: w.name,
+    price: money(w.priceCents),
+    category_id: w.category_id,
+    category: categories.find((c) => c.id === w.category_id)?.name ?? "",
+    store_url: w.store_url,
+    priority: w.priority,
+    note: w.note,
+    status: statusOf(w),
+    conversion: conversionOf(w),
+    created_at: "2026-10-01T10:00:00Z",
+    updated_at: "2026-10-01T10:00:00Z",
+  });
+
+  function validateWish(body: Record<string, unknown>): string | null {
+    if (typeof body.name !== "string" || body.name.trim() === "") return "invalid wishlist item: name is required";
+    if (!validPositive(body.price)) return "invalid wishlist item: price must be greater than zero";
+    const cat = categories.find((c) => c.id === body.category_id);
+    if (!cat || cat.kind !== "Gasto") return "invalid wishlist item: category_id is not one of your Gasto categories";
+    if (body.store_url !== undefined && !(typeof body.store_url === "string" && /^https?:\/\/\S+$/i.test(body.store_url))) return "invalid wishlist item: store_url must be a valid http or https link";
+    if (body.priority !== undefined && !(typeof body.priority === "string" && body.priority in RANK)) return "invalid wishlist item: priority must be alta, media or baja";
+    return null;
+  }
+
+  async function handleWishlist(route: Route, request: Request, pathname: string): Promise<boolean> {
+    const { json } = deps;
+    const method = request.method();
+    const reply = (status: number, body?: unknown) => json(route, status, body).then(() => true);
+
+    if (pathname === "/personal/wishlist" && method === "GET") {
+      const active = wishes.filter((w) => statusOf(w) === "activa").sort((a, b) => RANK[a.priority] - RANK[b.priority] || b.id - a.id);
+      const converted = wishes.filter((w) => statusOf(w) === "convertida").sort((a, b) => b.id - a.id);
+      return reply(200, [...active, ...converted].map(wishDto));
+    }
+
+    if (pathname === "/personal/wishlist" && method === "POST") {
+      const body = request.postDataJSON();
+      wishWrites.push({ method, path: pathname, body });
+      const problem = validateWish(body);
+      if (problem) return reply(400, { error: "invalid_wishlist_item", message: problem });
+      const item: StoredWish = {
+        id: nextWishId++,
+        name: body.name.trim(),
+        priceCents: cents(body.price),
+        category_id: body.category_id,
+        store_url: body.store_url ?? null,
+        priority: body.priority ?? "media",
+        note: body.note ?? null,
+        future_expense_id: null,
+        expense_movement_id: null,
+        expense_request_id: null,
+      };
+      wishes.push(item);
+      return reply(201, wishDto(item));
+    }
+
+    const m = /^\/personal\/wishlist\/(\d+)(\/convert\/(future-expense|expense|request))?$/.exec(pathname);
+    if (!m) return false;
+    const item = wishes.find((w) => w.id === Number(m[1]));
+    const way = m[3];
+
+    if (!way && method === "PUT") {
+      const body = request.postDataJSON();
+      wishWrites.push({ method, path: pathname, body });
+      if (!item) return reply(404, { error: "not_found" });
+      const problem = validateWish(body);
+      if (problem) return reply(400, { error: "invalid_wishlist_item", message: problem });
+      item.name = body.name.trim();
+      item.priceCents = cents(body.price);
+      item.category_id = body.category_id;
+      item.store_url = body.store_url ?? null;
+      item.priority = body.priority ?? "media";
+      item.note = body.note ?? null;
+      return reply(200, wishDto(item));
+    }
+
+    if (!way && method === "DELETE") {
+      wishWrites.push({ method, path: pathname, body: undefined });
+      if (!item) return reply(404, { error: "not_found" });
+      wishes.splice(wishes.indexOf(item), 1);
+      return reply(204);
+    }
+
+    if (!way || method !== "POST") return false;
+    const body = request.postDataJSON() ?? {};
+    wishWrites.push({ method, path: pathname, body });
+    if (!item) return reply(404, { error: "not_found" });
+    if (statusOf(item) !== "activa") return reply(409, { error: "already_converted" });
+    const amount = body.amount === undefined ? item.priceCents : cents(body.amount);
+    const date = body.date || deps.today();
+    const clearLinks = () => {
+      item.future_expense_id = item.expense_movement_id = item.expense_request_id = null;
+    };
+
+    if (way === "future-expense") {
+      const target = body.target_amount === undefined ? item.priceCents : cents(body.target_amount);
+      if (body.target_amount !== undefined && !validPositive(body.target_amount)) return reply(400, { error: "invalid_future_expense", message: "invalid future expense: target amount must be greater than zero" });
+      if (typeof body.due_date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(body.due_date)) return reply(400, { error: "invalid_future_expense", message: "invalid future expense: due date must be a date like YYYY-MM-DD" });
+      const created: StoredFuture = { id: nextFutureId++, name: item.name, targetCents: target, due_date: body.due_date, status: "active", paid_at: null, amountPaidCents: null, expense_movement_id: null };
+      futures.push(created);
+      clearLinks();
+      item.future_expense_id = created.id;
+      return reply(200, wishDto(item));
+    }
+
+    if (way === "expense") {
+      if (body.amount !== undefined && !validPositive(body.amount)) return reply(400, { error: "invalid_wishlist_item", message: "invalid wishlist item: amount must be greater than zero" });
+      const category = categories.find((c) => c.id === (body.category_id ?? item.category_id));
+      if (!category || category.kind !== "Gasto") return reply(400, { error: "invalid_wishlist_item", message: "invalid wishlist item: category_id is not one of your Gasto categories" });
+      const expense: Stored = { id: nextId++, kind: "Gasto", category_id: category.id, amount: money(amount), description: item.name, date, future_expense_id: null };
+      movements.push(expense);
+      clearLinks();
+      item.expense_movement_id = expense.id;
+      return reply(200, wishDto(item));
+    }
+
+    // request: created as the session user through the requests mock (its validation and limits apply).
+    if (typeof body.category !== "string" || body.category === "") return reply(400, { error: "invalid_wishlist_item", message: "invalid wishlist item: category is required" });
+    const created = deps.requests.create({ amount: money(amount), description: item.name, suggested_category: body.category, date });
+    if (created.status !== 201) return reply(created.status, created.body);
+    clearLinks();
+    item.expense_request_id = (created.body as { id: number }).id;
+    return reply(200, wishDto(item));
+  }
+
   async function handle(route: Route, request: Request, pathname: string, searchParams: URLSearchParams): Promise<boolean> {
     if (!pathname.startsWith("/personal/")) return false;
     const { json } = deps;
@@ -301,6 +497,7 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     const method = request.method();
 
     if (pathname.startsWith("/personal/future-expenses")) return handleFuture(route, request, pathname);
+    if (pathname.startsWith("/personal/wishlist")) return handleWishlist(route, request, pathname);
 
     if (pathname === "/personal/categories") {
       if (method === "GET") {
@@ -389,5 +586,5 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     return false;
   }
 
-  return { handle, writes, months, futureWrites };
+  return { handle, writes, months, futureWrites, wishWrites };
 }

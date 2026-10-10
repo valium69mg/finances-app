@@ -37,7 +37,7 @@ test.describe("household: navigation", () => {
     await open(page, "/");
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const nav = page.getByRole("navigation", { name: "Módulos" });
-    await expect(nav.getByRole("link")).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros"]);
+    await expect(nav.getByRole("link")).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
     await nav.getByRole("link", { name: "Mis gastos", exact: true }).click();
     await expect(page).toHaveURL(/\/mis-gastos$/);
     await expect(page.getByRole("heading", { level: 1, name: "Mis gastos" })).toBeVisible();
@@ -52,8 +52,8 @@ test.describe("owner session", () => {
     await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
     if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
     const labels = await page.getByRole("navigation", { name: "Módulos" }).getByRole("link").allInnerTexts();
-    for (const hidden of ["Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros"]) expect(labels).not.toContain(hidden);
-    for (const path of ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros"]) {
+    for (const hidden of ["Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]) expect(labels).not.toContain(hidden);
+    for (const path of ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros", "/lista-de-deseos"]) {
       await page.goto(path);
       await expect(page, path).toHaveURL(/\/$/);
     }

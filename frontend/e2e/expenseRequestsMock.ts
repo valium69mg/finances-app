@@ -135,6 +135,38 @@ export function createExpenseRequestsMock(seed: MockExpenseRequest[], fail: Expe
     };
   }
 
+  /** The creation rules of POST /expense-requests, also used by the wishlist conversion. */
+  function createRow(body: Record<string, unknown>): { status: number; body: unknown } {
+    if (fail === "rate_limit") return { status: 429, body: { error: "rate_limited" } };
+    if (fail === "create") return { status: 400, body: { error: "invalid_expense_request", message: "invalid expense request: amount must be greater than zero" } };
+    if (!validAmount(body.amount)) return { status: 400, body: { error: "invalid_expense_request", message: "invalid expense request: amount must be greater than zero" } };
+    if (typeof body.description !== "string" || body.description.trim() === "") {
+      return { status: 400, body: { error: "invalid_expense_request", message: "invalid expense request: description is required" } };
+    }
+    if (body.suggested_category && !gastoCategories().includes(body.suggested_category as string)) {
+      return { status: 400, body: { error: "invalid_expense_request", message: "invalid expense request: suggested category must be one of the Gasto categories" } };
+    }
+    const row: Stored = {
+      id: nextId++,
+      requester_email: me(),
+      amount: body.amount as string,
+      description: body.description.trim(),
+      suggested_category: (body.suggested_category as string) || null,
+      expense_date: isDate(body.date) ? (body.date as string) : deps.today(),
+      status: "solicitada",
+      decision_comment: null,
+      decided_at: null,
+      result_kind: null,
+      result_movement_id: null,
+      result_future_expense_id: null,
+      created_at: "2026-10-05T12:00:00Z",
+      revert_count: 0,
+      reverted_at: null,
+    };
+    requests.push(row);
+    return { status: 201, body: dto(row) };
+  }
+
   async function handle(route: Route, request: Request, pathname: string, searchParams: URLSearchParams): Promise<boolean> {
     if (!pathname.startsWith("/expense-requests")) return false;
     const { json } = deps;
@@ -159,32 +191,8 @@ export function createExpenseRequestsMock(seed: MockExpenseRequest[], fail: Expe
     if (pathname === "/expense-requests" && method === "POST") {
       const body = request.postDataJSON();
       writes.push({ method, path: pathname, body });
-      if (fail === "rate_limit") return reply(429, { error: "rate_limited" });
-      if (fail === "create") return reply(400, { error: "invalid_expense_request", message: "invalid expense request: amount must be greater than zero" });
-      if (!validAmount(body.amount)) return reply(400, { error: "invalid_expense_request", message: "invalid expense request: amount must be greater than zero" });
-      if (typeof body.description !== "string" || body.description.trim() === "") return reply(400, { error: "invalid_expense_request", message: "invalid expense request: description is required" });
-      if (body.suggested_category && !gastoCategories().includes(body.suggested_category)) {
-        return reply(400, { error: "invalid_expense_request", message: "invalid expense request: suggested category must be one of the Gasto categories" });
-      }
-      const row: Stored = {
-        id: nextId++,
-        requester_email: me(),
-        amount: body.amount,
-        description: body.description.trim(),
-        suggested_category: body.suggested_category || null,
-        expense_date: isDate(body.date) ? body.date : deps.today(),
-        status: "solicitada",
-        decision_comment: null,
-        decided_at: null,
-        result_kind: null,
-        result_movement_id: null,
-        result_future_expense_id: null,
-        created_at: "2026-10-05T12:00:00Z",
-        revert_count: 0,
-        reverted_at: null,
-      };
-      requests.push(row);
-      return reply(201, dto(row));
+      const created = createRow(body);
+      return reply(created.status, created.body);
     }
 
     const match = /^\/expense-requests\/(\d+)\/(cancel|budget-check|approve|reject|revert)$/.exec(pathname);
@@ -276,5 +284,12 @@ export function createExpenseRequestsMock(seed: MockExpenseRequest[], fail: Expe
     return reply(400, { error: "invalid_expense_request", message: "invalid expense request: destination must be gasto or gasto_futuro" });
   }
 
-  return { handle, requests, writes, budgetChecks };
+  /** For the wishlist conversion: creates a request as the session user with the same rules as POST /expense-requests. */
+  const create = (body: Record<string, unknown>) => {
+    writes.push({ method: "POST", path: "/expense-requests", body });
+    return createRow(body);
+  };
+  /** Current state of a request, null when it does not exist. */
+  const stateOf = (id: number) => requests.find((r) => r.id === id)?.status ?? null;
+  return { handle, requests, writes, budgetChecks, create, stateOf, gastoCategories };
 }
