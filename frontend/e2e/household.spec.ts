@@ -38,7 +38,7 @@ async function openAsHousehold(page: Page, path = "/") {
 }
 
 test.describe("household session", () => {
-  test("the dashboard shows only the budget by category", async ({ page }) => {
+  test("the dashboard shows the family budget by category and none of the owner's figures", async ({ page }) => {
     const api = await openAsHousehold(page);
     await expect(page.getByRole("heading", { level: 1, name: "Panel" })).toBeVisible();
     await expect(page.getByRole("heading", { level: 2, name: "Presupuesto por categoría" })).toBeVisible();
@@ -53,7 +53,9 @@ test.describe("household session", () => {
     for (const heading of ["Resumen del mes", "Movimientos recientes", "Próximos pagos", "Fondo de emergencia"]) {
       await expect(page.getByRole("heading", { name: heading })).toHaveCount(0);
     }
-    await expect(page.locator("main").getByRole("link")).toHaveCount(0);
+    // Every link on the page goes to a module her role can open.
+    const hrefs = await page.locator("main").getByRole("link").evaluateAll((links) => links.map((a) => (a as HTMLAnchorElement).getAttribute("href") ?? ""));
+    for (const href of hrefs) expect(href, href).toMatch(/^\/(peticiones|mis-ingresos|mis-gastos|mis-ahorros)(\?|$)/);
 
     // The page never touched the settings, and the server was asked for the current cycle.
     expect(api.dashboardMonths).toEqual([""]);

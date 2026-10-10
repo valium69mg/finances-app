@@ -176,11 +176,14 @@ test.describe("Mis ahorros", () => {
 
   test("asks the server for the picked month", async ({ page }) => {
     const api = await open(page, "/mis-ahorros");
-    await expect(page.getByText("Mostrando el periodo actual.")).toBeVisible();
+    // Until she picks one the hint is the range of the current cycle, read from /personal/period.
+    await expect(page.getByText(/^\d{1,2} \w{3} – \d{1,2} \w{3}$/)).toBeVisible();
+    expect(new URL(page.url()).searchParams.get("mes")).toBeNull();
     await page.getByLabel("Mes").fill("2026-08");
     await expect(page.getByText("No hay aportaciones ni retiros en este periodo.")).toBeVisible();
     const months = (await api).personalMonths;
     expect(months[0]).toBe("");
-    expect(months).toContain("2026-08");
+    await expect.poll(() => months).toContain("2026-08");
+    await expect.poll(() => new URL(page.url()).searchParams.get("mes")).toBe("2026-08");
   });
 });

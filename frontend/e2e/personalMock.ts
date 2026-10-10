@@ -59,6 +59,8 @@ export interface PersonalDeps {
   today: () => string;
   /** Cycle label of a date, as the owner's cut day defines it. */
   cycleOf: (date: string) => string;
+  /** First and last day of a cycle label. */
+  rangeOf: (month: string) => { from: string; to: string };
   json: Json;
   requests: RequestsPort;
 }
@@ -106,6 +108,11 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
   const writes: { method: string; path: string; body: unknown }[] = [];
   /** Months asked of GET /personal/movements, in order (empty string when none was sent). */
   const months: string[] = [];
+  /** Query strings of GET /personal/movements, in order. */
+  const movementQueries: string[] = [];
+  /** Months asked of GET /personal/dashboard and GET /personal/period, in order (empty when none was sent). */
+  const dashboardMonths: string[] = [];
+  const periodMonths: string[] = [];
 
   const categoryDto = (c: Category) => ({ id: c.id, kind: c.kind, name: c.name, fixed: c.kind !== "Gasto" });
   const movementDto = (m: Stored) => ({
@@ -538,14 +545,54 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
       return true;
     }
 
+    if (pathname === "/personal/period" && method === "GET") {
+      const month = searchParams.get("month") ?? "";
+      periodMonths.push(month);
+      const wanted = month || deps.cycleOf(deps.today());
+      const range = deps.rangeOf(wanted);
+      await json(route, 200, { month: wanted, period_start: range.from, period_end: range.to });
+      return true;
+    }
+
+    if (pathname === "/personal/dashboard" && method === "GET") {
+      const month = searchParams.get("month") ?? "";
+      dashboardMonths.push(month);
+      const wanted = month || deps.cycleOf(deps.today());
+      const range = deps.rangeOf(wanted);
+      const inCycle = movements.filter((m) => deps.cycleOf(m.date) === wanted);
+      const sum = (kind: PersonalKind) => inCycle.filter((m) => m.kind === kind).reduce((total, m) => total + cents(m.amount), 0);
+      const income = sum("Ingreso");
+      const expenses = sum("Gasto");
+      const savings = sum("Ahorro");
+      const spent = new Map<number, number>();
+      inCycle.filter((m) => m.kind === "Gasto").forEach((m) => spent.set(m.category_id, (spent.get(m.category_id) ?? 0) + cents(m.amount)));
+      const list = [...spent.entries()]
+        .map(([id, amount]) => ({ category_id: id, category: categories.find((c) => c.id === id)?.name ?? "", amount }))
+        .sort((a, b) => b.amount - a.amount || a.category.localeCompare(b.category))
+        .map((c) => ({ category_id: c.category_id, category: c.category, spent: money(c.amount) }));
+      await json(route, 200, {
+        month: wanted,
+        period_start: range.from,
+        period_end: range.to,
+        income: money(income),
+        expenses: money(expenses),
+        savings: money(savings),
+        available: money(income - expenses - savings),
+        categories: list,
+      });
+      return true;
+    }
+
     if (pathname === "/personal/movements") {
       if (method === "GET") {
         const month = searchParams.get("month") ?? "";
         months.push(month);
+        movementQueries.push(searchParams.toString());
         const kind = searchParams.get("kind");
+        const categoryId = Number(searchParams.get("category_id") ?? 0);
         const wanted = month || deps.cycleOf(deps.today());
         const rows = movements
-          .filter((m) => (!kind || m.kind === kind) && deps.cycleOf(m.date) === wanted)
+          .filter((m) => (!kind || m.kind === kind) && (!categoryId || m.category_id === categoryId) && deps.cycleOf(m.date) === wanted)
           .sort((a, b) => (a.date === b.date ? b.id - a.id : a.date < b.date ? 1 : -1));
         await json(route, 200, rows.map(movementDto));
         return true;
@@ -586,5 +633,5 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     return false;
   }
 
-  return { handle, writes, months, futureWrites, wishWrites };
+  return { handle, writes, months, movementQueries, dashboardMonths, periodMonths, futureWrites, wishWrites };
 }

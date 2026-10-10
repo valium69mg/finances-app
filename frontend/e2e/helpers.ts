@@ -293,7 +293,7 @@ export async function mockApi(
     json,
   });
   // Her own finances: household only, served from memory so writes come back on the next GET.
-  const personalMock = createPersonalMock(opts.personal ?? [], { role, today: todayLocal, cycleOf: (date) => cycleOf(date, settings.general.cycle_start_day ?? 0), json, requests: requestsMock }, opts.personalFuture ?? [], opts.personalWishlist ?? []);
+  const personalMock = createPersonalMock(opts.personal ?? [], { role, today: todayLocal, cycleOf: (date) => cycleOf(date, settings.general.cycle_start_day ?? 0), rangeOf: (month) => cycleRange(month, settings.general.cycle_start_day ?? 0) ?? { from: month, to: month }, json, requests: requestsMock }, opts.personalFuture ?? [], opts.personalWishlist ?? []);
   const monthCloseMock = createMonthCloseMock(opts.closes ?? [], opts.monthCloseFail, {
     // A close is computed from the same in-memory movements as the dashboard.
     figures: (month) => {
@@ -545,7 +545,7 @@ export async function mockApi(
         return json(route, 404, { error: "not_found" });
     }
   });
-  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, taxUploads: taxMock.uploads, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes, expenseRequests: requestsMock.requests, requestWrites: requestsMock.writes, budgetChecks: requestsMock.budgetChecks, personalWrites: personalMock.writes, personalFutureWrites: personalMock.futureWrites, personalWishWrites: personalMock.wishWrites, personalMonths: personalMock.months };
+  return { system, requests, writes, expenses, income, savings, valuations, dashboardMonths, invoices: invoiceMock.invoices, invoiceCalls: invoiceMock.uploads, filings: taxMock.filings, taxWrites: taxMock.writes, taxUploads: taxMock.uploads, bills: billsMock.bills, billWrites: billsMock.writes, futureWrites: futureMock.writes, closes: monthCloseMock.closes, closeWrites: monthCloseMock.writes, users: usersMock.users, userWrites: usersMock.writes, expenseRequests: requestsMock.requests, requestWrites: requestsMock.writes, budgetChecks: requestsMock.budgetChecks, personalWrites: personalMock.writes, personalFutureWrites: personalMock.futureWrites, personalWishWrites: personalMock.wishWrites, personalMonths: personalMock.months, personalMovementQueries: personalMock.movementQueries, personalDashboardMonths: personalMock.dashboardMonths, personalPeriodMonths: personalMock.periodMonths };
 }
 
 /** True when a movement date falls in the personal cycle labelled `month`, using the mock settings' cycle_start_day. */
