@@ -36,6 +36,7 @@ import (
 	monthclosepg "github.com/valium69mg/finances-app/backend/internal/monthclose/adapters/postgres"
 	monthcloseapp "github.com/valium69mg/finances-app/backend/internal/monthclose/app"
 	personalpg "github.com/valium69mg/finances-app/backend/internal/personal/adapters/postgres"
+	personalrequests "github.com/valium69mg/finances-app/backend/internal/personal/adapters/requests"
 	personalapp "github.com/valium69mg/finances-app/backend/internal/personal/app"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clientip"
 	"github.com/valium69mg/finances-app/backend/internal/platform/clock"
@@ -229,7 +230,10 @@ func run() error {
 		Limiter: limiter, AppBaseURL: cfg.AppBaseURL, Now: now, Logger: slog.Default(),
 	})
 
-	personalSvc := personalapp.NewService(personalpg.NewRepo(pool), settingsSvc, now)
+	// The wishlist asks the owner through the expense requests service (same
+	// validation, notification and hourly limit as the Peticiones page).
+	personalSvc := personalapp.NewService(personalpg.NewRepo(pool), settingsSvc, now).
+		WithRequests(personalrequests.New(expenseRequestsSvc))
 
 	mux := http.NewServeMux()
 	registerRoutes(mux, routeDeps{

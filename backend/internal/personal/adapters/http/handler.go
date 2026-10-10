@@ -13,6 +13,7 @@ import (
 
 	"github.com/shopspring/decimal"
 
+	requestsdomain "github.com/valium69mg/finances-app/backend/internal/expenserequests/domain"
 	"github.com/valium69mg/finances-app/backend/internal/personal/app"
 	"github.com/valium69mg/finances-app/backend/internal/personal/domain"
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpjson"
@@ -39,6 +40,14 @@ type Service interface {
 	ContributeFuture(ctx context.Context, actor session.Identity, id int, in app.FutureSavingInput) (domain.FuturePlanned, domain.Movement, error)
 	AssignFuture(ctx context.Context, actor session.Identity, id int, in app.FutureAssignInput) (domain.FuturePlanned, error)
 	PayFuture(ctx context.Context, actor session.Identity, id int, in app.FuturePayInput) (domain.FuturePlanned, domain.Movement, error)
+
+	Wishlist(ctx context.Context, actor session.Identity) ([]domain.WishItem, error)
+	CreateWish(ctx context.Context, actor session.Identity, in domain.WishInput) (domain.WishItem, error)
+	UpdateWish(ctx context.Context, actor session.Identity, id int, in domain.WishInput) (domain.WishItem, error)
+	DeleteWish(ctx context.Context, actor session.Identity, id int) error
+	ConvertWishToFuture(ctx context.Context, actor session.Identity, id int, in app.WishFutureInput) (domain.WishItem, error)
+	ConvertWishToExpense(ctx context.Context, actor session.Identity, id int, in app.WishExpenseInput) (domain.WishItem, error)
+	ConvertWishToRequest(ctx context.Context, actor session.Identity, id int, in app.WishRequestInput) (domain.WishItem, error)
 }
 
 // Handler serves the /personal routes.
@@ -77,6 +86,13 @@ func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) htt
 	route("POST /personal/future-expenses/{id}/savings", h.contributeFuture)
 	route("POST /personal/future-expenses/{id}/assign", h.assignFuture)
 	route("POST /personal/future-expenses/{id}/pay", h.payFuture)
+	route("GET /personal/wishlist", h.listWish)
+	route("POST /personal/wishlist", h.createWish)
+	route("PUT /personal/wishlist/{id}", h.updateWish)
+	route("DELETE /personal/wishlist/{id}", h.deleteWish)
+	route("POST /personal/wishlist/{id}/convert/future-expense", h.convertWishToFuture)
+	route("POST /personal/wishlist/{id}/convert/expense", h.convertWishToExpense)
+	route("POST /personal/wishlist/{id}/convert/request", h.convertWishToRequest)
 }
 
 // --- DTOs ---------------------------------------------------------------
@@ -263,6 +279,15 @@ func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 		reply(http.StatusBadRequest, "invalid_personal")
 	case errors.Is(err, domain.ErrFutureInvalid):
 		reply(http.StatusBadRequest, "invalid_future_expense")
+	case errors.Is(err, domain.ErrWishInvalid):
+		reply(http.StatusBadRequest, "invalid_wishlist_item")
+	case errors.Is(err, domain.ErrAlreadyConverted):
+		httpjson.WriteError(w, http.StatusConflict, "already_converted")
+	case errors.Is(err, requestsdomain.ErrInvalidInput):
+		reply(http.StatusBadRequest, "invalid_expense_request")
+	case errors.Is(err, requestsdomain.ErrRateLimited):
+		w.Header().Set("Retry-After", "3600")
+		httpjson.WriteError(w, http.StatusTooManyRequests, "rate_limited")
 	case errors.Is(err, domain.ErrAlreadyPaid):
 		reply(http.StatusConflict, "already_paid")
 	case errors.Is(err, domain.ErrInsufficientFreeBalance):

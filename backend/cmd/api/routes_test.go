@@ -194,13 +194,16 @@ func TestHouseholdAllowlistIsExactlyTheDecidedOne(t *testing.T) {
 	got := authhttp.HouseholdAllowlist()
 	sort.Strings(got)
 	want := []string{
-		"DELETE /personal/future-expenses/{id}", "DELETE /personal/movements/{id}", "GET /auth/me", "GET /dashboard",
-		"GET /expense-requests", "GET /expense-requests/categories", "GET /personal/categories",
-		"GET /personal/future-expenses", "GET /personal/future-expenses/{id}", "GET /personal/movements",
-		"POST /expense-requests", "POST /expense-requests/{id}/cancel", "POST /personal/categories",
-		"POST /personal/future-expenses", "POST /personal/future-expenses/{id}/assign", "POST /personal/future-expenses/{id}/pay",
-		"POST /personal/future-expenses/{id}/savings", "POST /personal/movements",
-		"PUT /personal/categories/{id}", "PUT /personal/future-expenses/{id}", "PUT /personal/movements/{id}",
+		"DELETE /personal/future-expenses/{id}", "DELETE /personal/movements/{id}", "DELETE /personal/wishlist/{id}",
+		"GET /auth/me", "GET /dashboard", "GET /expense-requests", "GET /expense-requests/categories",
+		"GET /personal/categories", "GET /personal/future-expenses", "GET /personal/future-expenses/{id}",
+		"GET /personal/movements", "GET /personal/wishlist", "POST /expense-requests",
+		"POST /expense-requests/{id}/cancel", "POST /personal/categories", "POST /personal/future-expenses",
+		"POST /personal/future-expenses/{id}/assign", "POST /personal/future-expenses/{id}/pay",
+		"POST /personal/future-expenses/{id}/savings", "POST /personal/movements", "POST /personal/wishlist",
+		"POST /personal/wishlist/{id}/convert/expense", "POST /personal/wishlist/{id}/convert/future-expense",
+		"POST /personal/wishlist/{id}/convert/request", "PUT /personal/categories/{id}",
+		"PUT /personal/future-expenses/{id}", "PUT /personal/movements/{id}", "PUT /personal/wishlist/{id}",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("household allowlist = %v, want %v; widening it is a decision (PLAN.md phase 9)", got, want)

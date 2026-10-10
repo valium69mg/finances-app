@@ -47,6 +47,8 @@ type fakeService struct {
 	gotAssign   app.FutureAssignInput
 	gotPay      app.FuturePayInput
 	deletedItem int
+
+	wl wishCalls
 }
 
 func (f *fakeService) Categories(_ context.Context, a session.Identity, kind string) ([]domain.Category, error) {
@@ -122,6 +124,8 @@ func TestRoutesRequireAuth(t *testing.T) {
 		{"POST", "/personal/future-expenses"}, {"GET", "/personal/future-expenses"}, {"GET", "/personal/future-expenses/1"},
 		{"PUT", "/personal/future-expenses/1"}, {"DELETE", "/personal/future-expenses/1"}, {"POST", "/personal/future-expenses/1/savings"},
 		{"POST", "/personal/future-expenses/1/assign"}, {"POST", "/personal/future-expenses/1/pay"},
+		{"GET", "/personal/wishlist"}, {"POST", "/personal/wishlist"}, {"PUT", "/personal/wishlist/1"}, {"DELETE", "/personal/wishlist/1"},
+		{"POST", "/personal/wishlist/1/convert/future-expense"}, {"POST", "/personal/wishlist/1/convert/expense"}, {"POST", "/personal/wishlist/1/convert/request"},
 	} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(r.method, r.path, nil))
