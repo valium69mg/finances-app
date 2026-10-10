@@ -17,6 +17,7 @@ import { cycleOf, cycleRangeLabel } from "../cycle";
 import { DEBOUNCE_MS, useDebounced, withValue } from "../expenses/formHelpers";
 import { isPositiveDecimal, todayISO } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
+import { MAX_MOVEMENT_DESCRIPTION_LENGTH } from "../movementErrors";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeIncomeError } from "./errors";
 
@@ -105,7 +106,7 @@ export function IncomeForm({ settings, editing, onSaved, onCancelEdit }: Props) 
         {title}
       </h2>
       <div className={`${fieldGrid} lg:grid-cols-3`}>
-        <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} autoComplete="off" />
+        <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH} autoComplete="off" />
         <TextField
           label="Monto"
           inputMode="decimal"

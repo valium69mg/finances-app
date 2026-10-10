@@ -6,6 +6,7 @@ import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
 import { isPositiveDecimal } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
+import { MAX_MOVEMENT_DESCRIPTION_LENGTH } from "../movementErrors";
 import { ErrorBanner, fieldGrid, primaryButton } from "../settings/ui";
 import { describeSavingsError } from "./errors";
 import { InstrumentSelect } from "./InstrumentSelect";
@@ -81,7 +82,7 @@ export function TransferForm({ settings }: { settings: AllSettings }) {
             </option>
           ))}
         </SelectField>
-        <TextField label="Descripción del traspaso (opcional)" value={description} onChange={(e) => setDescription(e.target.value)} autoComplete="off" />
+        <TextField label="Descripción del traspaso (opcional)" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH} autoComplete="off" />
       </div>
 
       {(errors.from || errors.to) && <ErrorBanner>{errors.from ?? errors.to}</ErrorBanner>}

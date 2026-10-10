@@ -8,6 +8,7 @@ import { TextField } from "../../components/AuthCard";
 import { withValue } from "../expenses/formHelpers";
 import { isNonZeroDecimal, isPositiveDecimal, todayISO } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
+import { MAX_MOVEMENT_DESCRIPTION_LENGTH } from "../movementErrors";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeSavingsError } from "./errors";
 import { InstrumentSelect } from "./InstrumentSelect";
@@ -137,7 +138,7 @@ export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) 
             </option>
           ))}
         </SelectField>
-        <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} autoComplete="off" />
+        <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH} autoComplete="off" />
       </div>
 
       {save.isError && <ErrorBanner>{describeSavingsError(save.error)}</ErrorBanner>}

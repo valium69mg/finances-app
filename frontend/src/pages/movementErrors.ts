@@ -1,6 +1,9 @@
 import { ApiError } from "../api/client";
 import { describeSaveError } from "./settings/ui";
 
+/** Same limit as the backend (ledger.MaxDescriptionLength) and the movements table. */
+export const MAX_MOVEMENT_DESCRIPTION_LENGTH = 200;
+
 interface MovementErrorOptions {
   /** Backend error code whose `message` is worth showing, e.g. "invalid_expense". */
   invalidCode: string;
