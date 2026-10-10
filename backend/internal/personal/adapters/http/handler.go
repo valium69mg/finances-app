@@ -30,6 +30,15 @@ type Service interface {
 	CreateMovement(ctx context.Context, actor session.Identity, in domain.MovementInput) (domain.Movement, error)
 	UpdateMovement(ctx context.Context, actor session.Identity, id int, in domain.MovementInput) (domain.Movement, error)
 	DeleteMovement(ctx context.Context, actor session.Identity, id int) error
+
+	CreateFutureExpense(ctx context.Context, actor session.Identity, in domain.FutureInput) (domain.FuturePlanned, error)
+	FutureExpense(ctx context.Context, actor session.Identity, id int) (domain.FuturePlanned, error)
+	UpdateFutureExpense(ctx context.Context, actor session.Identity, id int, in domain.FutureInput) (domain.FuturePlanned, error)
+	DeleteFutureExpense(ctx context.Context, actor session.Identity, id int) error
+	FutureExpenses(ctx context.Context, actor session.Identity) (app.FutureListing, error)
+	ContributeFuture(ctx context.Context, actor session.Identity, id int, in app.FutureSavingInput) (domain.FuturePlanned, domain.Movement, error)
+	AssignFuture(ctx context.Context, actor session.Identity, id int, in app.FutureAssignInput) (domain.FuturePlanned, error)
+	PayFuture(ctx context.Context, actor session.Identity, id int, in app.FuturePayInput) (domain.FuturePlanned, domain.Movement, error)
 }
 
 // Handler serves the /personal routes.
@@ -60,6 +69,14 @@ func (h *Handler) Register(mux httpmw.Router, requireAuth func(http.Handler) htt
 	route("POST /personal/movements", h.createMovement)
 	route("PUT /personal/movements/{id}", h.updateMovement)
 	route("DELETE /personal/movements/{id}", h.deleteMovement)
+	route("POST /personal/future-expenses", h.createFuture)
+	route("GET /personal/future-expenses", h.listFuture)
+	route("GET /personal/future-expenses/{id}", h.getFuture)
+	route("PUT /personal/future-expenses/{id}", h.updateFuture)
+	route("DELETE /personal/future-expenses/{id}", h.deleteFuture)
+	route("POST /personal/future-expenses/{id}/savings", h.contributeFuture)
+	route("POST /personal/future-expenses/{id}/assign", h.assignFuture)
+	route("POST /personal/future-expenses/{id}/pay", h.payFuture)
 }
 
 // --- DTOs ---------------------------------------------------------------
@@ -96,8 +113,11 @@ type movementDTO struct {
 	Amount      decimal.Decimal `json:"amount"`
 	Description string          `json:"description"`
 	Date        string          `json:"date"`
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
+	// FutureExpenseID is the future expense an Ahorro feeds, null otherwise. A
+	// manual update never changes it.
+	FutureExpenseID *int   `json:"future_expense_id"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 const timeFormat = "2006-01-02T15:04:05Z"
@@ -109,7 +129,7 @@ func toCategoryDTO(c domain.Category) categoryDTO {
 func toMovementDTO(m domain.Movement) movementDTO {
 	return movementDTO{
 		ID: m.ID, Kind: string(m.Kind), CategoryID: m.CategoryID, Category: m.CategoryName, Amount: m.Amount,
-		Description: m.Description, Date: m.Date,
+		Description: m.Description, Date: m.Date, FutureExpenseID: m.FutureExpenseID,
 		CreatedAt: m.CreatedAt.UTC().Format(timeFormat), UpdatedAt: m.UpdatedAt.UTC().Format(timeFormat),
 	}
 }
@@ -241,6 +261,12 @@ func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
 		reply(http.StatusBadRequest, "invalid_personal")
+	case errors.Is(err, domain.ErrFutureInvalid):
+		reply(http.StatusBadRequest, "invalid_future_expense")
+	case errors.Is(err, domain.ErrAlreadyPaid):
+		reply(http.StatusConflict, "already_paid")
+	case errors.Is(err, domain.ErrInsufficientFreeBalance):
+		reply(http.StatusConflict, "insufficient_free_balance")
 	case errors.Is(err, domain.ErrForbidden):
 		httpjson.WriteError(w, http.StatusForbidden, "forbidden")
 	case errors.Is(err, domain.ErrNotFound):

@@ -83,6 +83,16 @@ var householdAllowlist = map[string]bool{
 	"POST /personal/movements":        true,
 	"PUT /personal/movements/{id}":    true,
 	"DELETE /personal/movements/{id}": true,
+
+	// Personal future expenses (phase 12, step 4): same scoping as above.
+	"POST /personal/future-expenses":              true,
+	"GET /personal/future-expenses":               true,
+	"GET /personal/future-expenses/{id}":          true,
+	"PUT /personal/future-expenses/{id}":          true,
+	"DELETE /personal/future-expenses/{id}":       true,
+	"POST /personal/future-expenses/{id}/savings": true,
+	"POST /personal/future-expenses/{id}/assign":  true,
+	"POST /personal/future-expenses/{id}/pay":     true,
 }
 
 // HouseholdAllowed reports whether the household role may call the route

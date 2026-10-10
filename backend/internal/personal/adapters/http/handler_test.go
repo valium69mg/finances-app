@@ -39,6 +39,14 @@ type fakeService struct {
 	gotList  app.ListInput
 	gotInput domain.MovementInput
 	deleted  int
+
+	planned     domain.FuturePlanned
+	listing     app.FutureListing
+	gotFuture   domain.FutureInput
+	gotSaving   app.FutureSavingInput
+	gotAssign   app.FutureAssignInput
+	gotPay      app.FuturePayInput
+	deletedItem int
 }
 
 func (f *fakeService) Categories(_ context.Context, a session.Identity, kind string) ([]domain.Category, error) {
@@ -104,13 +112,16 @@ func ropaMovement() domain.Movement {
 	}
 }
 
-const ropaJSON = `{"id":7,"kind":"Gasto","category_id":5,"category":"Ropa","amount":"199.9","description":"Blusa","date":"2026-10-04","created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}`
+const ropaJSON = `{"id":7,"kind":"Gasto","category_id":5,"category":"Ropa","amount":"199.9","description":"Blusa","date":"2026-10-04","future_expense_id":null,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}`
 
 func TestRoutesRequireAuth(t *testing.T) {
 	h := server(&fakeService{})
 	for _, r := range []struct{ method, path string }{
 		{"GET", "/personal/categories"}, {"POST", "/personal/categories"}, {"PUT", "/personal/categories/1"},
 		{"GET", "/personal/movements"}, {"POST", "/personal/movements"}, {"PUT", "/personal/movements/1"}, {"DELETE", "/personal/movements/1"},
+		{"POST", "/personal/future-expenses"}, {"GET", "/personal/future-expenses"}, {"GET", "/personal/future-expenses/1"},
+		{"PUT", "/personal/future-expenses/1"}, {"DELETE", "/personal/future-expenses/1"}, {"POST", "/personal/future-expenses/1/savings"},
+		{"POST", "/personal/future-expenses/1/assign"}, {"POST", "/personal/future-expenses/1/pay"},
 	} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(r.method, r.path, nil))

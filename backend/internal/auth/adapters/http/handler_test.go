@@ -547,6 +547,10 @@ func TestHouseholdAllowlistIsExplicit(t *testing.T) {
 		"GET /personal/categories":           true, "POST /personal/categories": true, "PUT /personal/categories/{id}": true,
 		"GET /personal/movements": true, "POST /personal/movements": true, "PUT /personal/movements/{id}": true,
 		"DELETE /personal/movements/{id}": true,
+		"POST /personal/future-expenses":  true, "GET /personal/future-expenses": true, "GET /personal/future-expenses/{id}": true,
+		"PUT /personal/future-expenses/{id}": true, "DELETE /personal/future-expenses/{id}": true,
+		"POST /personal/future-expenses/{id}/savings": true, "POST /personal/future-expenses/{id}/assign": true,
+		"POST /personal/future-expenses/{id}/pay": true,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("allowlist = %v, want exactly %v", got, want)
