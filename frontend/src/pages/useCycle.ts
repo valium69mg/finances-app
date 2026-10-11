@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getSettings, settingsKeys } from "../api/settings";
 import { currentCycle, cycleRangeLabel, previousCycle } from "./cycle";
+import { useMonthParam } from "../hooks/useUrlParams";
 import { todayISO } from "./expenses/money";
 
 /** Cycle start day from the cached settings; 0 (calendar month) until they load or when they fail. */
@@ -22,6 +23,25 @@ export function useCyclePeriod(initial: "current" | "previous" = "current") {
   const current = currentCycle(todayISO(), startDay);
   const fallback = initial === "previous" ? previousCycle(current) : current;
   const month = picked ?? (ready ? fallback : null);
+  return {
+    month,
+    setMonth: setPicked,
+    startDay,
+    currentMonth: current,
+    rangeHint: month ? cycleRangeLabel(month, startDay) : "",
+  };
+}
+
+/**
+ * Like `useCyclePeriod("current")`, but the month lives in the URL (`?mes=YYYY-MM`): the Panel's links open the page
+ * on it, picking another month replaces the history entry and keeps the other parameters, and a malformed value is
+ * ignored (current cycle). Used by the owner's Gastos, Ingresos and Ahorros.
+ */
+export function useUrlCyclePeriod() {
+  const { startDay, ready } = useCycleStartDay();
+  const [picked, setPicked] = useMonthParam();
+  const current = currentCycle(todayISO(), startDay);
+  const month = picked || (ready ? current : null);
   return {
     month,
     setMonth: setPicked,

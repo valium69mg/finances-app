@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ListPlus, Loader2, Plus, X } from "lucide-react";
+import { ListPlus, Loader2, Plus } from "lucide-react";
 import { getPersonalPeriod, listPersonalCategories, personalKeys, type PersonalMovement } from "../../api/personal";
 import { TextField } from "../../components/AuthCard";
+import { FilterChip } from "../../components/FilterChip";
 import { PageTitle } from "../../components/PageTitle";
 import { useCategoryParam, useMonthParam } from "../../hooks/useUrlParams";
 import { KIND } from "../../lib/tones";
@@ -106,21 +107,7 @@ export function PersonalMovements({ config, manageCategories = false }: { config
             />
           </div>
         </div>
-        {filter && (
-          <p className="mb-4">
-            <span className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background py-1 pl-3 pr-1 text-sm">
-              <span className="min-w-0 break-words">Categoría: {filter.name}</span>
-              <button
-                type="button"
-                onClick={() => setCategory(0)}
-                aria-label={`Quitar filtro de categoría ${filter.name}`}
-                className="focus-ring inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted transition-colors duration-200 hover:bg-border hover:text-foreground"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </span>
-          </p>
-        )}
+        {filter && <FilterChip label={`Categoría: ${filter.name}`} clearLabel={`Quitar filtro de categoría ${filter.name}`} onClear={() => setCategory(0)} />}
         <MovementList
           config={config}
           month={month}
