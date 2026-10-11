@@ -31,8 +31,16 @@ describe("loginFlowReducer", () => {
   it.each<LoginFlowState>([
     { step: "password", email: "a@b.co" },
     { step: "verification_sent", email: "a@b.co" },
+    { step: "reset_requested", email: "a@b.co" },
   ])("restart returns to step one from %j keeping the email", (state) => {
     expect(loginFlowReducer(state, { type: "restart" })).toEqual({ step: "email", email: "a@b.co" });
+  });
+
+  it("moves to the reset panel keeping the email", () => {
+    expect(loginFlowReducer({ step: "password", email: "a@b.co" }, { type: "reset_requested" })).toEqual({
+      step: "reset_requested",
+      email: "a@b.co",
+    });
   });
 
   it("does not mutate the previous state", () => {
@@ -47,13 +55,16 @@ describe("stepLabel", () => {
     ["email", "Paso 1 de 2"],
     ["password", "Paso 2 de 2"],
     ["verification_sent", null],
+    ["reset_requested", null],
   ] as const)("%s -> %s", (step, label) => {
     expect(stepLabel(step)).toBe(label);
   });
 });
 
 describe("describeError", () => {
-  const cases: [string, "identify" | "login", unknown, string, "email" | "password"][] = [
+  const cases: [string, "identify" | "login" | "forgot", unknown, string, "email" | "password"][] = [
+    ["forgot 429", "forgot", new ApiError(429, "rate_limited"), MESSAGES.rateLimited, "password"],
+    ["forgot 500", "forgot", new ApiError(500, "internal_error"), MESSAGES.generic, "password"],
     ["identify 429", "identify", new ApiError(429, "rate_limited"), MESSAGES.rateLimited, "email"],
     ["identify invalid email", "identify", new ApiError(400, "invalid_email"), MESSAGES.invalidEmail, "email"],
     ["identify 500", "identify", new ApiError(500, "internal_error"), MESSAGES.generic, "email"],

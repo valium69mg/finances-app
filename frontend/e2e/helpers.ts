@@ -77,6 +77,10 @@ export type IdentifyMode =
   | "rate_limited"
   | "network_error"
   | "server_error";
+/** Outcome of POST /auth/forgot in the mock. */
+export type ForgotMode = "ok" | "rate_limited" | "server_error";
+/** Outcome of POST /auth/reset in the mock. */
+export type ResetMode = "ok" | "invalid_token" | "weak_password" | "rate_limited";
 export type LoginMode = "ok" | "unauthorized" | "rate_limited" | "network_error";
 
 export interface RecordedRequest {
@@ -209,12 +213,14 @@ function json(route: Route, status: number, body?: unknown) {
 /** Mocks the whole API surface so tests never need the backend. */
 export async function mockApi(
   page: Page,
-  opts: { login?: LoginMode; identify?: IdentifyMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void; role?: MockRole; users?: MockUser[]; usersFail?: UsersFail; denyAll?: boolean; expenseRequests?: MockExpenseRequest[]; expenseRequestsFail?: ExpenseRequestsFail; personal?: MockPersonalMovement[]; personalFuture?: MockPersonalFuture[]; personalWishlist?: MockPersonalWish[] } = {},
+  opts: { login?: LoginMode; identify?: IdentifyMode; forgot?: ForgotMode; reset?: ResetMode; settingsFail?: string; expensesFail?: string; expenses?: MockExpense[]; incomeFail?: string; income?: MockIncome[]; savingsFail?: string; savingsListFail?: boolean; portfolioFail?: boolean; savings?: MockSaving[]; valuations?: MockValuation[]; dashboardFail?: "server" | "incomplete"; dashboardNoTax?: boolean; dashboardFuture?: { items: { id: number; name: string; due_date: string; target: string; saved: string; remaining: string; suggested_monthly: string; cycles_left: number }[]; target: string; saved: string; remaining: string; suggested_monthly: string; free_balance: string }; futureExpenses?: MockFutureExpense[]; futureFreeBalance?: string; futureFail?: FutureExpensesFail; dashboardFiling?: { filing_status: "ninguna" | "pendiente" | "pagada"; previous_period_pending: boolean }; invoices?: MockInvoice[]; invoicesFail?: InvoicesFail; filings?: MockFiling[]; taxFilingFail?: TaxFilingFail; bills?: MockBill[]; billsFail?: BillsFail; closes?: MockClose[]; monthCloseFail?: MonthCloseFail; issuer?: { rfc: string; name: string; regimen: string; postal_code: string; note: string }; cycleStartDay?: number; system?: MockSystemStatus; systemFail?: "unavailable" | "server"; settingsPatch?: (settings: any) => void; role?: MockRole; users?: MockUser[]; usersFail?: UsersFail; denyAll?: boolean; expenseRequests?: MockExpenseRequest[]; expenseRequestsFail?: ExpenseRequestsFail; personal?: MockPersonalMovement[]; personalFuture?: MockPersonalFuture[]; personalWishlist?: MockPersonalWish[] } = {},
 ) {
   const role: MockRole = opts.role ?? "owner";
   const usersMock = createUsersMock(opts.users ?? [], opts.usersFail, json);
   const login = opts.login ?? "ok";
   const identify = opts.identify ?? "password_required";
+  const forgot = opts.forgot ?? "ok";
+  const reset = opts.reset ?? "ok";
   const settingsFail = opts.settingsFail;
   const expensesFail = opts.expensesFail;
   // In-memory expenses so writes are served back on the next GET.
@@ -531,6 +537,15 @@ export async function mockApi(
         if (identify === "server_error") return json(route, 500, { error: "internal_error" });
         if (identify === "network_error") return route.abort("failed");
         return json(route, 200, { status: identify });
+      case "/auth/forgot":
+        if (forgot === "rate_limited") return json(route, 429, { error: "rate_limited" });
+        if (forgot === "server_error") return json(route, 500, { error: "internal_error" });
+        return json(route, 200, { status: "reset_requested" });
+      case "/auth/reset":
+        if (reset === "invalid_token") return json(route, 400, { error: "invalid_token" });
+        if (reset === "weak_password") return json(route, 400, { error: "weak_password" });
+        if (reset === "rate_limited") return json(route, 429, { error: "rate_limited" });
+        return json(route, 204);
       case "/auth/login":
         if (login === "unauthorized") return json(route, 401, { error: "invalid_credentials" });
         if (login === "rate_limited") return json(route, 429, { error: "rate_limited" });

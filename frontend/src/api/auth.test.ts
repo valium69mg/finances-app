@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "./client";
-import { fetchMe, identify, login, logout } from "./auth";
+import { fetchMe, identify, login, logout, requestPasswordReset, resetPassword } from "./auth";
 
 const json = (status: number, body?: unknown) =>
   new Response(body === undefined ? null : JSON.stringify(body), {
@@ -141,5 +141,53 @@ describe("logout and fetchMe", () => {
     const fn = mockFetch(() => json(200, { id: "u1", email: "a@b.co", verified: true }));
     await expect(fetchMe()).resolves.toMatchObject({ id: "u1" });
     expect((lastRequest(fn).init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+});
+
+describe("requestPasswordReset", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("posts only the email to /auth/forgot, anonymously, and resolves with nothing to read", async () => {
+    localStorage.setItem("access_token", "stale");
+    const fn = mockFetch(() => json(200, { status: "reset_requested" }));
+    await expect(requestPasswordReset("a@b.co")).resolves.toBeUndefined();
+    const { url, init, body } = lastRequest(fn);
+    expect(url).toMatch(/\/auth\/forgot$/);
+    expect(init.method).toBe("POST");
+    expect(body).toEqual({ email: "a@b.co" });
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
+  it.each([
+    [400, "invalid_email"],
+    [429, "rate_limited"],
+    [500, "internal_error"],
+  ])("rejects with ApiError(%i, %s)", async (status, code) => {
+    mockFetch(() => json(status, { error: code }));
+    await expect(requestPasswordReset("a@b.co")).rejects.toMatchObject({ name: "ApiError", status, code });
+  });
+});
+
+describe("resetPassword", () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("posts the token and the password to /auth/reset, anonymously", async () => {
+    const fn = mockFetch(() => json(204));
+    await expect(resetPassword("tok", "a long enough password")).resolves.toBeUndefined();
+    const { url, init, body } = lastRequest(fn);
+    expect(url).toMatch(/\/auth\/reset$/);
+    expect(body).toEqual({ token: "tok", password: "a long enough password" });
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+
+  it.each([
+    [400, "invalid_token"],
+    [400, "weak_password"],
+    [429, "rate_limited"],
+  ])("rejects with ApiError(%i, %s)", async (status, code) => {
+    mockFetch(() => json(status, { error: code }));
+    await expect(resetPassword("tok", "pw")).rejects.toMatchObject({ status, code });
   });
 });
