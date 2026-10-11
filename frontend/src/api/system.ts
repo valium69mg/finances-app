@@ -24,6 +24,17 @@ export interface DiskStatus {
   path_monitored: boolean;
 }
 
+/** State of the nightly database backup. */
+export type BackupState = "ok" | "stale" | "missing" | "unknown";
+
+export interface BackupStatus {
+  /** RFC 3339 timestamp of the last successful backup; null when there is no readable record. */
+  last_success_at: string | null;
+  status: BackupState;
+  /** Age in hours beyond which the backup counts as stale (and the e-mail alert is sent). */
+  stale_after_hours: number;
+}
+
 export interface SystemStatus {
   /** 0..100, one decimal. */
   cpu_percent: number;
@@ -37,6 +48,8 @@ export interface SystemStatus {
   /** Used-space percentage of the disk that triggers the e-mail alert. */
   disk_alert_percent: number;
   reminders_enabled: boolean;
+  /** Null when the backup is not monitored (for example in local development). */
+  backup: BackupStatus | null;
   /** RFC 3339 timestamp taken by the server. */
   sampled_at: string;
 }

@@ -29,6 +29,24 @@ function usage(cpu: number, memory: number, disk: number) {
 }
 
 test.describe("system page", () => {
+  test("shows the last backup when it is monitored and nothing when it is not", async ({ page }) => {
+    await open(page);
+    await expect(page.getByTestId("backup-status")).toHaveCount(0);
+  });
+
+  for (const [name, backup, expected] of [
+    ["a recent backup", { last_success_at: "2026-10-10T09:00:12Z", status: "ok", stale_after_hours: 36 }, ["03:00", "Al día"]],
+    ["a stale backup", { last_success_at: "2026-10-01T09:00:12Z", status: "stale", stale_after_hours: 36 }, ["Atrasado (más de 36 h)"]],
+    ["no backup recorded", { last_success_at: null, status: "missing", stale_after_hours: 36 }, ["Sin registro", "Sin respaldo registrado"]],
+  ] as const) {
+    test(`reports ${name} in Último respaldo`, async ({ page }) => {
+      await open(page, { system: systemStatus({ backup }) });
+      const line = page.getByTestId("backup-status");
+      await expect(line).toContainText("Último respaldo:");
+      for (const text of expected) await expect(line).toContainText(text);
+    });
+  }
+
   test("is a tab before Configuración and shows the three cards with bars and numbers", async ({ page }) => {
     await open(page);
 

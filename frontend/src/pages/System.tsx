@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { getSystemStatus, systemKeys, type SystemStatus } from "../api/system";
 import { describeSystemError } from "./system/errors";
-import { formatAge, formatGB, formatLoad, formatUptime } from "./system/format";
+import { describeBackup, formatAge, formatGB, formatLoad, formatUptime } from "./system/format";
 import { UsageCard, UsageCardSkeleton } from "./system/UsageCard";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
 import { PageTitle } from "../components/PageTitle";
@@ -35,6 +35,16 @@ function useNow(): number {
     };
   }, []);
   return now;
+}
+
+function BackupStatusLine({ backup }: { backup: NonNullable<SystemStatus["backup"]> }) {
+  const line = describeBackup(backup);
+  return (
+    <p data-testid="backup-status" className="text-sm text-muted">
+      Último respaldo: <span className="font-medium text-foreground">{line.when}</span> ·{" "}
+      <span className={line.ok ? "font-medium text-foreground" : "font-medium text-destructive"}>{line.label}</span>
+    </p>
+  );
 }
 
 function StatusBody({ status }: { status: SystemStatus }) {
@@ -75,6 +85,8 @@ function StatusBody({ status }: { status: SystemStatus }) {
           </section>
         )}
       </div>
+
+      {status.backup && <BackupStatusLine backup={status.backup} />}
 
       <p className="text-sm text-muted">
         Tiempo encendido: <span className="font-medium text-foreground">{formatUptime(status.uptime_seconds)}</span>

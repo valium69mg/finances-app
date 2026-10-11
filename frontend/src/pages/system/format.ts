@@ -1,5 +1,7 @@
 /** Formatting helpers of the Sistema page (pure, unit tested). */
 
+import type { BackupStatus } from "../../api/system";
+
 export type UsageLevel = "normal" | "warning" | "danger";
 
 /** Usage at or above this percentage is a warning. */
@@ -62,4 +64,37 @@ export function formatAge(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   if (s < 60) return `Actualizado hace ${s} s`;
   return `Actualizado hace ${Math.floor(s / 60)} min`;
+}
+
+const backupDate = new Intl.DateTimeFormat("es-MX", {
+  timeZone: "America/Mexico_City",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+export interface BackupLine {
+  /** Date and time of the last backup in Mexico City, or a short explanation when there is none. */
+  when: string;
+  /** Spanish state label. */
+  label: string;
+  ok: boolean;
+}
+
+/** The "Último respaldo" line: when it ran and whether that is acceptable. */
+export function describeBackup(backup: BackupStatus): BackupLine {
+  const when = backup.last_success_at ? backupDate.format(new Date(backup.last_success_at)) : "Sin registro";
+  switch (backup.status) {
+    case "ok":
+      return { when, label: "Al día", ok: true };
+    case "stale":
+      return { when, label: `Atrasado (más de ${backup.stale_after_hours} h)`, ok: false };
+    case "missing":
+      return { when: "Sin registro", label: "Sin respaldo registrado", ok: false };
+    default:
+      return { when: "Sin registro", label: "No se pudo leer el estado", ok: false };
+  }
 }

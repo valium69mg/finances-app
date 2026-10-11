@@ -49,6 +49,7 @@ export interface MockSystemStatus {
   load_average: { one: number; five: number; fifteen: number };
   disk_alert_percent: number;
   reminders_enabled: boolean;
+  backup: { last_success_at: string | null; status: "ok" | "stale" | "missing" | "unknown"; stale_after_hours: number } | null;
   sampled_at: string;
 }
 
@@ -65,6 +66,7 @@ export function systemStatus(over: Partial<MockSystemStatus> = {}): MockSystemSt
     load_average: { one: 0.52, five: 0.58, fifteen: 0.59 },
     disk_alert_percent: 80,
     reminders_enabled: true,
+    backup: null,
     sampled_at: "2026-09-30T18:00:05Z",
     ...over,
   };

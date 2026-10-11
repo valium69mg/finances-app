@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampPercent, formatAge, formatGB, formatLoad, formatPercent, formatUptime, usageLevel } from "./format";
+import { clampPercent, describeBackup, formatAge, formatGB, formatLoad, formatPercent, formatUptime, usageLevel } from "./format";
 
 describe("usageLevel", () => {
   it("switches at 60 and 80", () => {
@@ -58,5 +58,34 @@ describe("formatAge", () => {
     expect(formatAge(59)).toBe("Actualizado hace 59 s");
     expect(formatAge(125)).toBe("Actualizado hace 2 min");
     expect(formatAge(-2)).toBe("Actualizado hace 0 s");
+  });
+});
+
+describe("describeBackup", () => {
+  it("shows the Mexico City time of a recent backup", () => {
+    // 09:00 UTC is 03:00 in Mexico City (no daylight saving).
+    const line = describeBackup({ last_success_at: "2026-10-10T09:00:12Z", status: "ok", stale_after_hours: 36 });
+    expect(line.when).toContain("10/10/2026");
+    expect(line.when).toContain("03:00");
+    expect(line).toMatchObject({ label: "Al día", ok: true });
+  });
+
+  it("flags a stale backup with the threshold", () => {
+    const line = describeBackup({ last_success_at: "2026-10-01T09:00:00Z", status: "stale", stale_after_hours: 36 });
+    expect(line.label).toBe("Atrasado (más de 36 h)");
+    expect(line.ok).toBe(false);
+  });
+
+  it("explains a missing or unreadable record", () => {
+    expect(describeBackup({ last_success_at: null, status: "missing", stale_after_hours: 36 })).toEqual({
+      when: "Sin registro",
+      label: "Sin respaldo registrado",
+      ok: false,
+    });
+    expect(describeBackup({ last_success_at: null, status: "unknown", stale_after_hours: 36 })).toEqual({
+      when: "Sin registro",
+      label: "No se pudo leer el estado",
+      ok: false,
+    });
   });
 });
