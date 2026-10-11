@@ -58,6 +58,20 @@ export function verifyEmail(token: string, password: string): Promise<void> {
   return api.request<void>("/auth/verify", { body: { token, password }, anonymous: true });
 }
 
+/**
+ * Asks for a password reset email. The API answers 200 for any well-formed email
+ * (unknown, inactive, unverified and verified accounts look the same), so the
+ * caller must show a neutral message and never infer anything from the result.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await api.request<unknown>("/auth/forgot", { body: { email }, anonymous: true });
+}
+
+/** Completes a reset from the emailed link: sets the new password and ends every session. */
+export function resetPassword(token: string, password: string): Promise<void> {
+  return api.request<void>("/auth/reset", { body: { token, password }, anonymous: true });
+}
+
 export function fetchMe(): Promise<Me> {
   return api.request<Me>("/auth/me");
 }

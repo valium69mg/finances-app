@@ -24,7 +24,7 @@ import { Savings } from "./pages/Savings";
 import { Settings } from "./pages/Settings";
 import { System } from "./pages/System";
 import { TaxFiling } from "./pages/TaxFiling";
-import { VerifyEmail } from "./pages/VerifyEmail";
+import { ResetPassword, VerifyEmail } from "./pages/VerifyEmail";
 
 function pageFor(path: string) {
   if (path === "/") return <Dashboard />;
@@ -55,6 +55,7 @@ export function App() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/verify" element={<VerifyEmail />} />
+      <Route path="/restablecer" element={<ResetPassword />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>
           {modules.map((m) => (

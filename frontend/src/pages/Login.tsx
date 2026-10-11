@@ -1,9 +1,9 @@
 import { useEffect, useReducer, useRef, useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { MailCheck } from "lucide-react";
-import { identify, login } from "../api/auth";
+import { identify, login, requestPasswordReset } from "../api/auth";
 import { useAuth } from "../auth/AuthContext";
-import { AuthCard, PasswordField, SubmitButton, TextField, buttonClass, linkClass } from "../components/AuthCard";
+import { AuthCard, FieldError, PasswordField, SubmitButton, TextField, buttonClass, linkClass } from "../components/AuthCard";
 import {
   MESSAGES,
   describeError,
@@ -18,6 +18,7 @@ const SUBTITLES = {
   email: "Ingresa tu correo para continuar.",
   password: "Escribe tu contraseña para entrar.",
   verification_sent: undefined,
+  reset_requested: undefined,
 } as const;
 
 export function Login() {
@@ -90,6 +91,20 @@ export function Login() {
     }
   }
 
+  async function onForgot() {
+    setError(null);
+    setBusy(true);
+    try {
+      await requestPasswordReset(flow.email);
+      setPassword("");
+      dispatch({ type: "reset_requested" });
+    } catch (err) {
+      fail("forgot", describeError("forgot", err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function restart() {
     setError(null);
     setPassword("");
@@ -98,7 +113,7 @@ export function Login() {
   }
 
   const counter = stepLabel(flow.step);
-  const title = flow.step === "verification_sent" ? "Revisa tu correo" : "Iniciar sesión";
+  const title = flow.step === "verification_sent" || flow.step === "reset_requested" ? "Revisa tu correo" : "Iniciar sesión";
 
   return (
     <AuthCard title={title} subtitle={SUBTITLES[flow.step]}>
@@ -156,7 +171,27 @@ export function Login() {
           <SubmitButton busy={busy} busyLabel="Entrando…">
             Iniciar sesión
           </SubmitButton>
+          <div>
+            <button type="button" onClick={onForgot} disabled={busy} className={`${linkClass} min-h-11 text-sm`}>
+              ¿Olvidaste tu contraseña?
+            </button>
+            {error?.stage === "forgot" && <FieldError id="forgot-error">{error.message}</FieldError>}
+          </div>
         </form>
+      )}
+
+      {flow.step === "reset_requested" && (
+        <div ref={panelRef} tabIndex={-1} role="status" className="focus-ring space-y-4 rounded-lg outline-none">
+          <p className="flex items-start gap-2 text-sm">
+            <MailCheck className="mt-0.5 h-5 w-5 shrink-0 text-accent" aria-hidden="true" />
+            <span>
+              Si la cuenta existe, te enviamos un correo con un enlace para restablecer tu contraseña. El enlace vence en 1 hora.
+            </span>
+          </p>
+          <button type="button" onClick={restart} className={`${buttonClass} !bg-transparent !text-primary border border-border hover:!bg-background`}>
+            Volver a iniciar sesión
+          </button>
+        </div>
       )}
 
       {flow.step === "verification_sent" && (

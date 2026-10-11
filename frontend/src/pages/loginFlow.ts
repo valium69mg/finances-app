@@ -1,7 +1,7 @@
 import { ApiError } from "../api/client";
 import type { IdentifyStatus } from "../api/auth";
 
-export type LoginStep = "email" | "password" | "verification_sent";
+export type LoginStep = "email" | "password" | "verification_sent" | "reset_requested";
 
 export interface LoginFlowState {
   step: LoginStep;
@@ -11,6 +11,7 @@ export interface LoginFlowState {
 
 export type LoginFlowAction =
   | { type: "identified"; email: string; status: IdentifyStatus }
+  | { type: "reset_requested" }
   | { type: "restart" };
 
 export const initialLoginFlow: LoginFlowState = { step: "email", email: "" };
@@ -22,6 +23,9 @@ export function loginFlowReducer(state: LoginFlowState, action: LoginFlowAction)
         step: action.status === "password_required" ? "password" : "verification_sent",
         email: action.email,
       };
+    case "reset_requested":
+      // Keeps the email; the panel only says "if the account exists, we sent an email".
+      return { step: "reset_requested", email: state.email };
     case "restart":
       // Keep the email so the user can correct a typo instead of retyping it.
       return { step: "email", email: state.email };
@@ -36,7 +40,7 @@ export function stepLabel(step: LoginStep): string | null {
 }
 
 /** Which request failed; decides the wording and which field receives focus. */
-export type LoginStage = "identify" | "login";
+export type LoginStage = "identify" | "login" | "forgot";
 
 export interface DescribedError {
   message: string;
@@ -55,6 +59,7 @@ export const MESSAGES = {
 } as const;
 
 export function describeError(stage: LoginStage, err: unknown): DescribedError {
+  // The forgot link lives on the password step, so its errors point at that field.
   const field = stage === "identify" ? "email" : "password";
   if (err instanceof ApiError) {
     if (err.status === 429) return { message: MESSAGES.rateLimited, field };
