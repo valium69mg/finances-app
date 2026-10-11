@@ -105,7 +105,7 @@ func (r wishRequest) input() domain.WishInput {
 }
 
 func (h *Handler) listWish(w http.ResponseWriter, r *http.Request) {
-	got, err := h.svc.Wishlist(r.Context(), actor(r))
+	got, err := h.svc.Wishlist(r.Context(), actor(r), targetUser(r))
 	if err != nil {
 		h.fail(w, "list wishlist", err)
 		return

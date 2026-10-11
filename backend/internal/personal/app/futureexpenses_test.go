@@ -183,7 +183,7 @@ func newItem(t *testing.T, svc *app.Service, actor app.Identity, target string) 
 
 func categoryID(t *testing.T, svc *app.Service, actor app.Identity, name string) int {
 	t.Helper()
-	cats, err := svc.Categories(ctx, actor, "")
+	cats, err := svc.Categories(ctx, actor, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,10 +201,10 @@ func TestFutureOperationsForbidTheOwnerAndAnonymous(t *testing.T) {
 	for _, actor := range []app.Identity{owner, {}, {Role: "household"}} {
 		calls := map[string]error{}
 		_, calls["create"] = svc.CreateFutureExpense(ctx, actor, domain.FutureInput{})
-		_, calls["get"] = svc.FutureExpense(ctx, actor, 1)
+		_, calls["get"] = svc.FutureExpense(ctx, actor, "", 1)
 		_, calls["update"] = svc.UpdateFutureExpense(ctx, actor, 1, domain.FutureInput{})
 		calls["delete"] = svc.DeleteFutureExpense(ctx, actor, 1)
-		_, calls["list"] = svc.FutureExpenses(ctx, actor)
+		_, calls["list"] = svc.FutureExpenses(ctx, actor, "")
 		_, _, calls["contribute"] = svc.ContributeFuture(ctx, actor, 1, app.FutureSavingInput{})
 		_, calls["assign"] = svc.AssignFuture(ctx, actor, 1, app.FutureAssignInput{})
 		_, _, calls["pay"] = svc.PayFuture(ctx, actor, 1, app.FuturePayInput{})
@@ -241,7 +241,7 @@ func TestCreateFutureExpenseValidatesAndPlans(t *testing.T) {
 func TestFutureExpensesAreScopedToTheUser(t *testing.T) {
 	svc := newSvc(newRepo(), noCfg)
 	id := newItem(t, svc, her, "1000")
-	if _, err := svc.FutureExpense(ctx, other, id); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := svc.FutureExpense(ctx, other, "", id); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("get: %v; want ErrNotFound", err)
 	}
 	if _, err := svc.UpdateFutureExpense(ctx, other, id, domain.FutureInput{Name: "x", Target: d("1"), DueDate: "2026-12-20"}); !errors.Is(err, domain.ErrNotFound) {
@@ -259,7 +259,7 @@ func TestFutureExpensesAreScopedToTheUser(t *testing.T) {
 	if _, _, err := svc.PayFuture(ctx, other, id, app.FuturePayInput{CategoryID: 1}); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("pay: %v; want ErrNotFound", err)
 	}
-	if l, _ := svc.FutureExpenses(ctx, other); len(l.Plan.Items) != 0 {
+	if l, _ := svc.FutureExpenses(ctx, other, ""); len(l.Plan.Items) != 0 {
 		t.Errorf("another user lists %d items", len(l.Plan.Items))
 	}
 }
@@ -448,7 +448,7 @@ func TestListSplitsActiveAndPaid(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.rows = append(r.rows, fakeRow{user: her.UserID, SavingRow: app.SavingRow{Amount: d("75")}})
-	l, err := svc.FutureExpenses(ctx, her)
+	l, err := svc.FutureExpenses(ctx, her, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -459,7 +459,7 @@ func TestListSplitsActiveAndPaid(t *testing.T) {
 		t.Errorf("free %s target %s", l.Plan.FreeBalance, l.Plan.Target)
 	}
 	failing := newSvc(&fakeRepo{owners: map[int]string{}, mOwners: map[int]string{}}, fakeSettings{err: errSet})
-	if _, err := failing.FutureExpenses(ctx, her); !errors.Is(err, errSet) {
+	if _, err := failing.FutureExpenses(ctx, her, ""); !errors.Is(err, errSet) {
 		t.Errorf("settings failure: %v", err)
 	}
 }

@@ -24,26 +24,26 @@ import (
 
 // Service is the set of use cases the handlers need.
 type Service interface {
-	Categories(ctx context.Context, actor session.Identity, kind string) ([]domain.Category, error)
+	Categories(ctx context.Context, actor session.Identity, userID, kind string) ([]domain.Category, error)
 	CreateCategory(ctx context.Context, actor session.Identity, name string) (domain.Category, error)
 	RenameCategory(ctx context.Context, actor session.Identity, id int, name string) (domain.Category, error)
 	Movements(ctx context.Context, actor session.Identity, in app.ListInput) ([]domain.Movement, error)
 	CreateMovement(ctx context.Context, actor session.Identity, in domain.MovementInput) (domain.Movement, error)
 	UpdateMovement(ctx context.Context, actor session.Identity, id int, in domain.MovementInput) (domain.Movement, error)
 	DeleteMovement(ctx context.Context, actor session.Identity, id int) error
-	Period(ctx context.Context, actor session.Identity, month string) (domain.Period, error)
-	Dashboard(ctx context.Context, actor session.Identity, month string) (domain.Dashboard, error)
+	Period(ctx context.Context, actor session.Identity, userID, month string) (domain.Period, error)
+	Dashboard(ctx context.Context, actor session.Identity, userID, month string) (domain.Dashboard, error)
 
 	CreateFutureExpense(ctx context.Context, actor session.Identity, in domain.FutureInput) (domain.FuturePlanned, error)
-	FutureExpense(ctx context.Context, actor session.Identity, id int) (domain.FuturePlanned, error)
+	FutureExpense(ctx context.Context, actor session.Identity, userID string, id int) (domain.FuturePlanned, error)
 	UpdateFutureExpense(ctx context.Context, actor session.Identity, id int, in domain.FutureInput) (domain.FuturePlanned, error)
 	DeleteFutureExpense(ctx context.Context, actor session.Identity, id int) error
-	FutureExpenses(ctx context.Context, actor session.Identity) (app.FutureListing, error)
+	FutureExpenses(ctx context.Context, actor session.Identity, userID string) (app.FutureListing, error)
 	ContributeFuture(ctx context.Context, actor session.Identity, id int, in app.FutureSavingInput) (domain.FuturePlanned, domain.Movement, error)
 	AssignFuture(ctx context.Context, actor session.Identity, id int, in app.FutureAssignInput) (domain.FuturePlanned, error)
 	PayFuture(ctx context.Context, actor session.Identity, id int, in app.FuturePayInput) (domain.FuturePlanned, domain.Movement, error)
 
-	Wishlist(ctx context.Context, actor session.Identity) ([]domain.WishItem, error)
+	Wishlist(ctx context.Context, actor session.Identity, userID string) ([]domain.WishItem, error)
 	CreateWish(ctx context.Context, actor session.Identity, in domain.WishInput) (domain.WishItem, error)
 	UpdateWish(ctx context.Context, actor session.Identity, id int, in domain.WishInput) (domain.WishItem, error)
 	DeleteWish(ctx context.Context, actor session.Identity, id int) error
@@ -66,6 +66,10 @@ func New(svc Service, logger *slog.Logger) *Handler {
 	return &Handler{svc: svc, logger: logger}
 }
 
+// Reads accept ?user_id=<uuid>: the owner must pass the household user to look
+// at (read-only), a household user's own rows are returned whatever it says.
+// Every write is household-only.
+//
 // Register mounts the routes on mux, each wrapped by requireAuth. Every pattern
 // here must also be on the household allowlist (auth handler) and in
 // cmd/api/routes_test.go.
@@ -163,10 +167,13 @@ func actor(r *http.Request) session.Identity {
 	return id
 }
 
+// targetUser is the ?user_id of a read: the household user the owner looks at.
+func targetUser(r *http.Request) string { return r.URL.Query().Get("user_id") }
+
 // --- handlers -----------------------------------------------------------
 
 func (h *Handler) categories(w http.ResponseWriter, r *http.Request) {
-	got, err := h.svc.Categories(r.Context(), actor(r), r.URL.Query().Get("kind"))
+	got, err := h.svc.Categories(r.Context(), actor(r), targetUser(r), r.URL.Query().Get("kind"))
 	if err != nil {
 		h.fail(w, "categories", err)
 		return
@@ -210,7 +217,7 @@ func (h *Handler) renameCategory(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) movements(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	in := app.ListInput{Month: q.Get("month"), Kind: q.Get("kind")}
+	in := app.ListInput{UserID: q.Get("user_id"), Month: q.Get("month"), Kind: q.Get("kind")}
 	if raw := q.Get("category_id"); raw != "" {
 		id, err := strconv.Atoi(raw)
 		if err != nil || id <= 0 {
@@ -304,7 +311,7 @@ func toPeriodDTO(p domain.Period) periodDTO {
 }
 
 func (h *Handler) period(w http.ResponseWriter, r *http.Request) {
-	p, err := h.svc.Period(r.Context(), actor(r), r.URL.Query().Get("month"))
+	p, err := h.svc.Period(r.Context(), actor(r), targetUser(r), r.URL.Query().Get("month"))
 	if err != nil {
 		h.fail(w, "period", err)
 		return
@@ -313,7 +320,7 @@ func (h *Handler) period(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
-	got, err := h.svc.Dashboard(r.Context(), actor(r), r.URL.Query().Get("month"))
+	got, err := h.svc.Dashboard(r.Context(), actor(r), targetUser(r), r.URL.Query().Get("month"))
 	if err != nil {
 		h.fail(w, "dashboard", err)
 		return

@@ -26,8 +26,8 @@ type wishCalls struct {
 
 func (f *fakeService) wish() *wishCalls { return &f.wl }
 
-func (f *fakeService) Wishlist(_ context.Context, a session.Identity) ([]domain.WishItem, error) {
-	f.gotActor = a
+func (f *fakeService) Wishlist(_ context.Context, a session.Identity, userID string) ([]domain.WishItem, error) {
+	f.gotActor, f.gotUserID = a, userID
 	return f.wish().list, f.err
 }
 func (f *fakeService) CreateWish(_ context.Context, a session.Identity, in domain.WishInput) (domain.WishItem, error) {

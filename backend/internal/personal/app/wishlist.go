@@ -38,11 +38,12 @@ func (s *Service) wishCategory(ctx context.Context, userID string, id int) (doma
 
 // Wishlist returns every item of the caller: the active ones first (priority
 // alta to baja, newest first) and the converted ones after.
-func (s *Service) Wishlist(ctx context.Context, actor Identity) ([]domain.WishItem, error) {
-	if err := require(actor); err != nil {
+func (s *Service) Wishlist(ctx context.Context, actor Identity, target string) ([]domain.WishItem, error) {
+	userID, err := s.subject(ctx, actor, target)
+	if err != nil {
 		return nil, err
 	}
-	items, err := s.repo.ListWish(ctx, actor.UserID)
+	items, err := s.repo.ListWish(ctx, userID)
 	if err != nil {
 		return nil, err
 	}

@@ -50,12 +50,14 @@ func (s *Service) CreateFutureExpense(ctx context.Context, actor Identity, in do
 	return s.planned(ctx, it)
 }
 
-// FutureExpense returns one item of the caller with its plan.
-func (s *Service) FutureExpense(ctx context.Context, actor Identity, id int) (domain.FuturePlanned, error) {
-	if err := require(actor); err != nil {
+// FutureExpense returns one item of the subject with its plan (read-only for
+// the owner, see subject).
+func (s *Service) FutureExpense(ctx context.Context, actor Identity, target string, id int) (domain.FuturePlanned, error) {
+	userID, err := s.subject(ctx, actor, target)
+	if err != nil {
 		return domain.FuturePlanned{}, err
 	}
-	it, err := s.repo.GetFutureExpense(ctx, actor.UserID, id)
+	it, err := s.repo.GetFutureExpense(ctx, userID, id)
 	if err != nil {
 		return domain.FuturePlanned{}, err
 	}
@@ -98,11 +100,12 @@ type FutureListing struct {
 
 // FutureExpenses returns the plan of the active items (earliest due date first)
 // and the paid items (most recently paid first).
-func (s *Service) FutureExpenses(ctx context.Context, actor Identity) (FutureListing, error) {
-	if err := require(actor); err != nil {
+func (s *Service) FutureExpenses(ctx context.Context, actor Identity, target string) (FutureListing, error) {
+	userID, err := s.subject(ctx, actor, target)
+	if err != nil {
 		return FutureListing{}, err
 	}
-	items, err := s.repo.ListFutureExpenses(ctx, actor.UserID)
+	items, err := s.repo.ListFutureExpenses(ctx, userID)
 	if err != nil {
 		return FutureListing{}, err
 	}
@@ -110,7 +113,7 @@ func (s *Service) FutureExpenses(ctx context.Context, actor Identity) (FutureLis
 	if err != nil {
 		return FutureListing{}, err
 	}
-	free, err := s.repo.FutureFreeBalance(ctx, actor.UserID)
+	free, err := s.repo.FutureFreeBalance(ctx, userID)
 	if err != nil {
 		return FutureListing{}, err
 	}
@@ -184,7 +187,7 @@ func (s *Service) ContributeFuture(ctx context.Context, actor Identity, id int, 
 	if err != nil {
 		return domain.FuturePlanned{}, domain.Movement{}, err
 	}
-	planned, err := s.FutureExpense(ctx, actor, id)
+	planned, err := s.FutureExpense(ctx, actor, "", id)
 	return planned, m, err
 }
 
@@ -220,7 +223,7 @@ func (s *Service) AssignFuture(ctx context.Context, actor Identity, id int, in F
 	if err := s.repo.AssignFuture(ctx, actor.UserID, id, in.Amount, date, domain.TrimDescription("Asignado a "+it.Name)); err != nil {
 		return domain.FuturePlanned{}, err
 	}
-	return s.FutureExpense(ctx, actor, id)
+	return s.FutureExpense(ctx, actor, "", id)
 }
 
 // FuturePayInput is the payment of an item. CategoryID is required and must be

@@ -205,15 +205,15 @@ func TestEveryOperationForbidsTheOwnerAndAnonymous(t *testing.T) {
 	svc := newSvc(newRepo(), noCfg)
 	for _, actor := range []session.Identity{owner, {}, {UserID: "x", Role: "admin"}, {Role: session.RoleHousehold}} {
 		calls := map[string]error{}
-		_, calls["categories"] = svc.Categories(ctx, actor, "")
+		_, calls["categories"] = svc.Categories(ctx, actor, "", "")
 		_, calls["create category"] = svc.CreateCategory(ctx, actor, "x")
 		_, calls["rename"] = svc.RenameCategory(ctx, actor, 1, "x")
 		_, calls["movements"] = svc.Movements(ctx, actor, app.ListInput{})
 		_, calls["create movement"] = svc.CreateMovement(ctx, actor, domain.MovementInput{})
 		_, calls["update movement"] = svc.UpdateMovement(ctx, actor, 1, domain.MovementInput{})
 		calls["delete movement"] = svc.DeleteMovement(ctx, actor, 1)
-		_, calls["period"] = svc.Period(ctx, actor, "")
-		_, calls["dashboard"] = svc.Dashboard(ctx, actor, "")
+		_, calls["period"] = svc.Period(ctx, actor, "", "")
+		_, calls["dashboard"] = svc.Dashboard(ctx, actor, "", "")
 		for name, err := range calls {
 			if !errors.Is(err, domain.ErrForbidden) {
 				t.Errorf("%s as %+v: error = %v; want ErrForbidden", name, actor, err)
@@ -225,18 +225,18 @@ func TestEveryOperationForbidsTheOwnerAndAnonymous(t *testing.T) {
 func TestCategoriesSeedOnFirstUse(t *testing.T) {
 	r := newRepo()
 	svc := newSvc(r, noCfg)
-	all, err := svc.Categories(ctx, her, "")
+	all, err := svc.Categories(ctx, her, "", "")
 	if err != nil || len(all) != 14 {
 		t.Fatalf("got %d categories, %v; want 14", len(all), err)
 	}
-	gastos, err := svc.Categories(ctx, her, "Gasto")
+	gastos, err := svc.Categories(ctx, her, "", "Gasto")
 	if err != nil || len(gastos) != 8 {
 		t.Fatalf("got %d Gasto categories, %v; want 8", len(gastos), err)
 	}
-	if _, err := svc.Categories(ctx, her, "nope"); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := svc.Categories(ctx, her, "", "nope"); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Errorf("bad kind error = %v; want ErrInvalidInput", err)
 	}
-	if got, _ := svc.Categories(ctx, other, "Ingreso"); len(got) != 3 {
+	if got, _ := svc.Categories(ctx, other, "", "Ingreso"); len(got) != 3 {
 		t.Errorf("another user must get her own seed, got %d", len(got))
 	}
 }
@@ -248,7 +248,7 @@ func TestCreateCategorySeedsFirstAndRejectsDuplicates(t *testing.T) {
 	if err != nil || c.Name != "Café" || c.Kind != domain.KindExpense {
 		t.Fatalf("got %+v, %v", c, err)
 	}
-	gastos, _ := svc.Categories(ctx, her, "Gasto")
+	gastos, _ := svc.Categories(ctx, her, "", "Gasto")
 	if len(gastos) != 9 {
 		t.Errorf("a first custom category must not suppress the defaults: got %d Gasto categories, want 9", len(gastos))
 	}
@@ -263,7 +263,7 @@ func TestCreateCategorySeedsFirstAndRejectsDuplicates(t *testing.T) {
 func TestRenameCategory(t *testing.T) {
 	r := newRepo()
 	svc := newSvc(r, noCfg)
-	cats, _ := svc.Categories(ctx, her, "")
+	cats, _ := svc.Categories(ctx, her, "", "")
 	byName := map[string]domain.Category{}
 	for _, c := range cats {
 		byName[c.Name] = c
@@ -291,7 +291,7 @@ func TestRenameCategory(t *testing.T) {
 // catID returns the id of a seeded category of her.
 func catID(t *testing.T, svc *app.Service, who session.Identity, kind, name string) int {
 	t.Helper()
-	cats, err := svc.Categories(ctx, who, kind)
+	cats, err := svc.Categories(ctx, who, "", kind)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +447,7 @@ func TestDashboardTotalsCategoriesAndScoping(t *testing.T) {
 	addMove(r, "u-other", domain.KindIncome, trabajo, "777", "2026-10-02")
 	svc := newSvc(r, noCfg)
 
-	got, err := svc.Dashboard(ctx, her, "2026-10")
+	got, err := svc.Dashboard(ctx, her, "", "2026-10")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +472,7 @@ func TestDashboardUsesTheCurrentCycleAndTheOwnersCutDay(t *testing.T) {
 	addMove(r, "u-her", domain.KindIncome, trabajo, "100", "2026-10-14") // cycle 2026-10 with cut day 15
 	addMove(r, "u-her", domain.KindIncome, trabajo, "50", "2026-10-15")  // cycle 2026-11
 	svc := newSvc(r, day15)
-	got, err := svc.Dashboard(ctx, her, "")
+	got, err := svc.Dashboard(ctx, her, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestDashboardUsesTheCurrentCycleAndTheOwnersCutDay(t *testing.T) {
 	if !got.Totals.Income.Equal(d("100")) {
 		t.Errorf("income = %s, want 100", got.Totals.Income)
 	}
-	next, _ := svc.Dashboard(ctx, her, "2026-11")
+	next, _ := svc.Dashboard(ctx, her, "", "2026-11")
 	if !next.Totals.Income.Equal(d("50")) {
 		t.Errorf("next cycle income = %s, want 50", next.Totals.Income)
 	}
@@ -491,33 +491,33 @@ func TestDashboardUsesTheCurrentCycleAndTheOwnersCutDay(t *testing.T) {
 
 func TestDashboardEmptyCycleAndErrors(t *testing.T) {
 	svc := newSvc(newRepo(), noCfg)
-	got, err := svc.Dashboard(ctx, her, "2026-10")
+	got, err := svc.Dashboard(ctx, her, "", "2026-10")
 	if err != nil || !got.Totals.Available().IsZero() || len(got.Categories) != 0 {
 		t.Errorf("empty cycle = %+v, %v", got, err)
 	}
-	if _, err := svc.Dashboard(ctx, her, "2026-13"); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := svc.Dashboard(ctx, her, "", "2026-13"); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Errorf("bad month error = %v; want ErrInvalidInput", err)
 	}
-	if _, err := newSvc(newRepo(), fakeSettings{err: errSet}).Dashboard(ctx, her, ""); !errors.Is(err, errSet) {
+	if _, err := newSvc(newRepo(), fakeSettings{err: errSet}).Dashboard(ctx, her, "", ""); !errors.Is(err, errSet) {
 		t.Errorf("settings error = %v; want it propagated", err)
 	}
 	r := newRepo()
 	r.err = errors.New("db down")
-	if _, err := newSvc(r, noCfg).Dashboard(ctx, her, "2026-10"); err == nil {
+	if _, err := newSvc(r, noCfg).Dashboard(ctx, her, "", "2026-10"); err == nil {
 		t.Error("repository error must propagate")
 	}
 }
 
 func TestPeriod(t *testing.T) {
 	svc := newSvc(newRepo(), day15)
-	p, err := svc.Period(ctx, her, "2026-10")
+	p, err := svc.Period(ctx, her, "", "2026-10")
 	if err != nil || p != (domain.Period{Month: "2026-10", Start: "2026-09-15", End: "2026-10-14"}) {
 		t.Errorf("got %+v, %v", p, err)
 	}
-	if cur, _ := svc.Period(ctx, her, ""); cur.Month != "2026-10" {
+	if cur, _ := svc.Period(ctx, her, "", ""); cur.Month != "2026-10" {
 		t.Errorf("empty month = %+v; want the current cycle", cur)
 	}
-	if _, err := svc.Period(ctx, her, "oct"); !errors.Is(err, domain.ErrInvalidInput) {
+	if _, err := svc.Period(ctx, her, "", "oct"); !errors.Is(err, domain.ErrInvalidInput) {
 		t.Errorf("bad month error = %v; want ErrInvalidInput", err)
 	}
 }

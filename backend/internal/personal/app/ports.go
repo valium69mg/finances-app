@@ -20,6 +20,13 @@ type Settings interface {
 	Get(ctx context.Context) (settings.Config, error)
 }
 
+// Directory is the part of the users module used by the owner's read-only
+// view to validate the target user.
+type Directory interface {
+	// Role returns the role of the user, domain.ErrNotFound for an unknown id.
+	Role(ctx context.Context, userID string) (session.Role, error)
+}
+
 // Filter narrows a movement listing. Zero values mean no filter.
 type Filter struct {
 	From, To   string // inclusive YYYY-MM-DD cycle range

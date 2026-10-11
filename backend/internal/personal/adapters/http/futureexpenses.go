@@ -130,7 +130,7 @@ func (h *Handler) createFuture(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listFuture(w http.ResponseWriter, r *http.Request) {
-	l, err := h.svc.FutureExpenses(r.Context(), actor(r))
+	l, err := h.svc.FutureExpenses(r.Context(), actor(r), targetUser(r))
 	if err != nil {
 		h.fail(w, "list future expenses", err)
 		return
@@ -146,7 +146,7 @@ func (h *Handler) getFuture(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p, err := h.svc.FutureExpense(r.Context(), actor(r), id)
+	p, err := h.svc.FutureExpense(r.Context(), actor(r), targetUser(r), id)
 	if err != nil {
 		h.fail(w, "get future expense", err)
 		return

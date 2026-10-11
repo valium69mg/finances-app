@@ -1,13 +1,14 @@
 // Package app holds the personal finances use cases: the categories and the
-// movements of a household user. Every call is scoped to the session user and
-// denied to any other role. The owner read-only view comes in a later step
-// (phase 12 step 7); until then the owner is forbidden here too.
+// movements of a household user. Writes are scoped to the session user and
+// denied to any other role. The owner may only READ, for one household user at a
+// time (see Service.subject).
 package app
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ type Service struct {
 	repo     Repo
 	settings Settings
 	requests ExpenseRequests
+	users    Directory
 	now      func() time.Time
 }
 
@@ -39,8 +41,16 @@ func (s *Service) WithRequests(r ExpenseRequests) *Service {
 	return s
 }
 
-// require allows only a household user with an id. Defense in depth behind the
-// HTTP allowlist; the owner is denied until the read-only view (step 7).
+// WithUsers wires the directory the owner's read-only view uses to validate
+// the target user. Without it every owner read is forbidden.
+func (s *Service) WithUsers(d Directory) *Service {
+	s.users = d
+	return s
+}
+
+// require allows only a household user with an id. Every WRITE goes through it:
+// the owner never writes on her behalf. Defense in depth behind the HTTP
+// allowlist.
 func require(actor Identity) error {
 	if actor.UserID == "" || actor.Role != session.RoleHousehold {
 		return domain.ErrForbidden
@@ -48,10 +58,56 @@ func require(actor Identity) error {
 	return nil
 }
 
-// Categories returns the categories of the caller, seeding the defaults first.
-// kind is optional ("" for every kind).
-func (s *Service) Categories(ctx context.Context, actor Identity, kind string) ([]domain.Category, error) {
-	if err := require(actor); err != nil {
+// uuidShape is the canonical textual form of a user id.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// subject resolves whose rows a READ touches, the one place where the read
+// routes pick a user id, so no query loses its user scope:
+//   - a household session always reads her own rows; target is ignored (it
+//     cannot widen her access, so there is nothing to reject);
+//   - the owner reads the rows of target, which must be a well-formed id
+//     (domain.ErrInvalidInput otherwise) of an existing user with role
+//     household (domain.ErrNotFound otherwise: an owner id, an unknown id). An
+//     inactive household user stays readable, since her history is still the
+//     owner's to see;
+//   - any other caller is domain.ErrForbidden.
+//
+// The returned id is only ever used by read queries: writes use require.
+func (s *Service) subject(ctx context.Context, actor Identity, target string) (string, error) {
+	if actor.UserID == "" {
+		return "", domain.ErrForbidden
+	}
+	switch actor.Role {
+	case session.RoleHousehold:
+		return actor.UserID, nil
+	case session.RoleOwner:
+		if s.users == nil {
+			return "", domain.ErrForbidden
+		}
+		target = strings.TrimSpace(target)
+		if !uuidShape.MatchString(target) {
+			return "", fmt.Errorf("%w: user_id must be a user id", domain.ErrInvalidInput)
+		}
+		target = strings.ToLower(target)
+		role, err := s.users.Role(ctx, target)
+		if err != nil {
+			return "", err
+		}
+		if role != session.RoleHousehold {
+			return "", domain.ErrNotFound
+		}
+		return target, nil
+	default:
+		return "", domain.ErrForbidden
+	}
+}
+
+// Categories returns the categories of the subject. A household caller seeds
+// her defaults first; the owner's read never writes, so a target without
+// categories yet returns what exists. kind is optional ("" for every kind).
+func (s *Service) Categories(ctx context.Context, actor Identity, target, kind string) ([]domain.Category, error) {
+	userID, err := s.subject(ctx, actor, target)
+	if err != nil {
 		return nil, err
 	}
 	var k domain.Kind
@@ -62,10 +118,12 @@ func (s *Service) Categories(ctx context.Context, actor Identity, kind string) (
 		}
 		k = parsed
 	}
-	if err := s.repo.SeedDefaults(ctx, actor.UserID); err != nil {
-		return nil, err
+	if actor.Role == session.RoleHousehold {
+		if err := s.repo.SeedDefaults(ctx, userID); err != nil {
+			return nil, err
+		}
 	}
-	return s.repo.ListCategories(ctx, actor.UserID, k)
+	return s.repo.ListCategories(ctx, userID, k)
 }
 
 // CreateCategory adds a Gasto category.
@@ -108,6 +166,8 @@ func (s *Service) RenameCategory(ctx context.Context, actor Identity, id int, na
 // ListInput filters a movement listing. Month is a YYYY-MM pay cycle label
 // ("" for the current cycle); Kind and CategoryID are optional.
 type ListInput struct {
+	// UserID is the owner's target (ignored for a household caller).
+	UserID     string
 	Month      string
 	Kind       string
 	CategoryID int
@@ -116,7 +176,8 @@ type ListInput struct {
 // Movements returns the caller's movements in the pay cycle, newest first. The
 // cycle uses the owner's cycle_start_day.
 func (s *Service) Movements(ctx context.Context, actor Identity, in ListInput) ([]domain.Movement, error) {
-	if err := require(actor); err != nil {
+	userID, err := s.subject(ctx, actor, in.UserID)
+	if err != nil {
 		return nil, err
 	}
 	f := Filter{CategoryID: in.CategoryID}
@@ -133,7 +194,7 @@ func (s *Service) Movements(ctx context.Context, actor Identity, in ListInput) (
 	}
 	from, to := p.Start, p.End
 	f.From, f.To = from, to
-	return s.repo.ListMovements(ctx, actor.UserID, f)
+	return s.repo.ListMovements(ctx, userID, f)
 }
 
 // check validates the input and that the category is hers and has the kind of
@@ -214,8 +275,8 @@ func (s *Service) resolvePeriod(ctx context.Context, month string) (domain.Perio
 
 // Period returns the pay cycle of a month label, so her pages can show its
 // range without reading the settings.
-func (s *Service) Period(ctx context.Context, actor Identity, month string) (domain.Period, error) {
-	if err := require(actor); err != nil {
+func (s *Service) Period(ctx context.Context, actor Identity, target, month string) (domain.Period, error) {
+	if _, err := s.subject(ctx, actor, target); err != nil {
 		return domain.Period{}, err
 	}
 	return s.resolvePeriod(ctx, month)
@@ -223,19 +284,20 @@ func (s *Service) Period(ctx context.Context, actor Identity, month string) (dom
 
 // Dashboard returns her totals and the Gasto spending by category for a pay
 // cycle. It reads only her personal rows.
-func (s *Service) Dashboard(ctx context.Context, actor Identity, month string) (domain.Dashboard, error) {
-	if err := require(actor); err != nil {
+func (s *Service) Dashboard(ctx context.Context, actor Identity, target, month string) (domain.Dashboard, error) {
+	userID, err := s.subject(ctx, actor, target)
+	if err != nil {
 		return domain.Dashboard{}, err
 	}
 	p, err := s.resolvePeriod(ctx, month)
 	if err != nil {
 		return domain.Dashboard{}, err
 	}
-	totals, err := s.repo.KindTotals(ctx, actor.UserID, p.Start, p.End)
+	totals, err := s.repo.KindTotals(ctx, userID, p.Start, p.End)
 	if err != nil {
 		return domain.Dashboard{}, err
 	}
-	cats, err := s.repo.SpentByCategory(ctx, actor.UserID, p.Start, p.End)
+	cats, err := s.repo.SpentByCategory(ctx, userID, p.Start, p.End)
 	if err != nil {
 		return domain.Dashboard{}, err
 	}

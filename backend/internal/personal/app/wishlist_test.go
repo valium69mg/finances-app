@@ -143,7 +143,7 @@ func (f *fakeRequests) Cancel(_ context.Context, _ app.Identity, id int) error {
 
 func gastoID(t *testing.T, svc *app.Service, user app.Identity, name string) int {
 	t.Helper()
-	cats, err := svc.Categories(ctx, user, "Gasto")
+	cats, err := svc.Categories(ctx, user, "", "Gasto")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestWishlistForbidsTheOwnerAndAnonymous(t *testing.T) {
 	svc := newSvc(newRepo(), noCfg).WithRequests(&fakeRequests{})
 	for _, actor := range []app.Identity{owner, {}, {UserID: "x", Role: "admin"}} {
 		calls := map[string]error{}
-		_, calls["list"] = svc.Wishlist(ctx, actor)
+		_, calls["list"] = svc.Wishlist(ctx, actor, "")
 		_, calls["create"] = svc.CreateWish(ctx, actor, domain.WishInput{})
 		_, calls["update"] = svc.UpdateWish(ctx, actor, 1, domain.WishInput{})
 		calls["delete"] = svc.DeleteWish(ctx, actor, 1)
@@ -192,7 +192,7 @@ func TestWishCategoryMustBeHerGasto(t *testing.T) {
 	mine := gastoID(t, svc, her, "Ropa")
 	theirs := gastoID(t, svc, other, "Ropa")
 	income := func() int {
-		cats, _ := svc.Categories(ctx, her, "Ingreso")
+		cats, _ := svc.Categories(ctx, her, "", "Ingreso")
 		return cats[0].ID
 	}()
 	for name, id := range map[string]int{"foreign": theirs, "income": income, "unknown": 9999, "zero": 0} {
@@ -220,7 +220,7 @@ func TestWishlistScopedAndOrdered(t *testing.T) {
 	if _, err := svc.ConvertWishToExpense(ctx, her, high.ID, app.WishExpenseInput{}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := svc.Wishlist(ctx, her)
+	got, err := svc.Wishlist(ctx, her, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +359,7 @@ func TestConvertToRequestErrorsAndCompensation(t *testing.T) {
 	if _, err := svc.ConvertWishToRequest(ctx, her, w.ID, app.WishRequestInput{Category: "Personal"}); err == nil || err.Error() != "rate limited" {
 		t.Fatalf("request error = %v; want it passed through", err)
 	}
-	if got, _ := svc.Wishlist(ctx, her); got[0].Status() != domain.WishActive {
+	if got, _ := svc.Wishlist(ctx, her, ""); got[0].Status() != domain.WishActive {
 		t.Error("the item must stay active when the request fails")
 	}
 

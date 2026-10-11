@@ -32,13 +32,14 @@ type fakeService struct {
 	movements  []domain.Movement
 	movement   domain.Movement
 
-	gotActor session.Identity
-	gotKind  string
-	gotName  string
-	gotID    int
-	gotList  app.ListInput
-	gotInput domain.MovementInput
-	deleted  int
+	gotActor  session.Identity
+	gotKind   string
+	gotUserID string
+	gotName   string
+	gotID     int
+	gotList   app.ListInput
+	gotInput  domain.MovementInput
+	deleted   int
 
 	period    domain.Period
 	dashboard domain.Dashboard
@@ -55,8 +56,8 @@ type fakeService struct {
 	wl wishCalls
 }
 
-func (f *fakeService) Categories(_ context.Context, a session.Identity, kind string) ([]domain.Category, error) {
-	f.gotActor, f.gotKind = a, kind
+func (f *fakeService) Categories(_ context.Context, a session.Identity, userID, kind string) ([]domain.Category, error) {
+	f.gotActor, f.gotKind, f.gotUserID = a, kind, userID
 	return f.categories, f.err
 }
 func (f *fakeService) CreateCategory(_ context.Context, a session.Identity, name string) (domain.Category, error) {
@@ -84,12 +85,12 @@ func (f *fakeService) DeleteMovement(_ context.Context, a session.Identity, id i
 	return f.err
 }
 
-func (f *fakeService) Period(_ context.Context, a session.Identity, month string) (domain.Period, error) {
-	f.gotActor, f.gotMonth = a, month
+func (f *fakeService) Period(_ context.Context, a session.Identity, userID, month string) (domain.Period, error) {
+	f.gotActor, f.gotMonth, f.gotUserID = a, month, userID
 	return f.period, f.err
 }
-func (f *fakeService) Dashboard(_ context.Context, a session.Identity, month string) (domain.Dashboard, error) {
-	f.gotActor, f.gotMonth = a, month
+func (f *fakeService) Dashboard(_ context.Context, a session.Identity, userID, month string) (domain.Dashboard, error) {
+	f.gotActor, f.gotMonth, f.gotUserID = a, month, userID
 	return f.dashboard, f.err
 }
 
@@ -328,6 +329,43 @@ func TestDashboardAndPeriodErrors(t *testing.T) {
 			if rec := do(server(&fakeService{err: err}), "GET", path, ""); rec.Code != code {
 				t.Errorf("%s with %v: status %d, want %d", path, err, rec.Code, code)
 			}
+		}
+	}
+}
+
+func TestReadsPassTheUserIDToTheService(t *testing.T) {
+	const target = "11111111-1111-4111-8111-111111111111"
+	for _, path := range []string{
+		"/personal/dashboard", "/personal/period", "/personal/categories", "/personal/movements",
+		"/personal/future-expenses", "/personal/future-expenses/3", "/personal/wishlist",
+	} {
+		svc := &fakeService{}
+		if rec := do(server(svc), "GET", path+"?user_id="+target, ""); rec.Code != 200 {
+			t.Fatalf("GET %s: status %d: %s", path, rec.Code, rec.Body)
+		}
+		got := svc.gotUserID
+		if path == "/personal/movements" {
+			got = svc.gotList.UserID
+		}
+		if got != target {
+			t.Errorf("GET %s: service got user id %q, want %q", path, got, target)
+		}
+	}
+}
+
+func TestReadErrorsOfTheOwnersView(t *testing.T) {
+	for name, tc := range map[string]struct {
+		err    error
+		status int
+		code   string
+	}{
+		"missing or malformed": {fmt.Errorf("%w: user_id must be a user id", domain.ErrInvalidInput), 400, "invalid_personal"},
+		"not a household user": {domain.ErrNotFound, 404, "not_found"},
+		"not allowed":          {domain.ErrForbidden, 403, "forbidden"},
+	} {
+		rec := do(server(&fakeService{err: tc.err}), "GET", "/personal/wishlist?user_id=x", "")
+		if rec.Code != tc.status || !strings.Contains(rec.Body.String(), tc.code) {
+			t.Errorf("%s: %d %s; want %d %s", name, rec.Code, rec.Body, tc.status, tc.code)
 		}
 	}
 }

@@ -16,8 +16,8 @@ func (f *fakeService) CreateFutureExpense(_ context.Context, a session.Identity,
 	f.gotActor, f.gotFuture = a, in
 	return f.planned, f.err
 }
-func (f *fakeService) FutureExpense(_ context.Context, a session.Identity, id int) (domain.FuturePlanned, error) {
-	f.gotActor, f.gotID = a, id
+func (f *fakeService) FutureExpense(_ context.Context, a session.Identity, userID string, id int) (domain.FuturePlanned, error) {
+	f.gotActor, f.gotID, f.gotUserID = a, id, userID
 	return f.planned, f.err
 }
 func (f *fakeService) UpdateFutureExpense(_ context.Context, a session.Identity, id int, in domain.FutureInput) (domain.FuturePlanned, error) {
@@ -28,8 +28,8 @@ func (f *fakeService) DeleteFutureExpense(_ context.Context, a session.Identity,
 	f.gotActor, f.deletedItem = a, id
 	return f.err
 }
-func (f *fakeService) FutureExpenses(_ context.Context, a session.Identity) (app.FutureListing, error) {
-	f.gotActor = a
+func (f *fakeService) FutureExpenses(_ context.Context, a session.Identity, userID string) (app.FutureListing, error) {
+	f.gotActor, f.gotUserID = a, userID
 	return f.listing, f.err
 }
 func (f *fakeService) ContributeFuture(_ context.Context, a session.Identity, id int, in app.FutureSavingInput) (domain.FuturePlanned, domain.Movement, error) {
