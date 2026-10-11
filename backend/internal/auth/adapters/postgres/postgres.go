@@ -130,21 +130,42 @@ func NewVerificationTokenRepo(pool *pgxpool.Pool) *VerificationTokenRepo {
 	return &VerificationTokenRepo{pool: pool}
 }
 
-// Create stores a verification token.
+// Create stores a verification or reset token. A reset token first marks the
+// user's older unused reset tokens as used, in the same transaction, so only the
+// newest reset link works.
 func (r *VerificationTokenRepo) Create(ctx context.Context, t domain.VerificationToken) error {
-	_, err := r.pool.Exec(ctx,
-		`INSERT INTO verification_tokens (token_hash, user_id, expires_at) VALUES ($1, $2::uuid, $3)`,
-		t.Hash, t.UserID, t.ExpiresAt)
-	return err
+	purpose := t.Purpose
+	if purpose == "" {
+		purpose = domain.PurposeVerification
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if purpose == domain.PurposeReset {
+		if _, err := tx.Exec(ctx,
+			`UPDATE verification_tokens SET used_at = now()
+			 WHERE user_id = $1::uuid AND purpose = $2 AND used_at IS NULL`,
+			t.UserID, string(purpose)); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO verification_tokens (token_hash, user_id, expires_at, purpose) VALUES ($1, $2::uuid, $3, $4)`,
+		t.Hash, t.UserID, t.ExpiresAt, string(purpose)); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-// Consume atomically marks an unused, unexpired token as used and returns its user id.
-func (r *VerificationTokenRepo) Consume(ctx context.Context, hash string, now time.Time) (string, error) {
+// Consume atomically marks an unused, unexpired token of the purpose as used and returns its user id.
+func (r *VerificationTokenRepo) Consume(ctx context.Context, hash string, purpose domain.TokenPurpose, now time.Time) (string, error) {
 	var userID string
 	err := r.pool.QueryRow(ctx,
 		`UPDATE verification_tokens SET used_at = $2
-		 WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2
-		 RETURNING user_id::text`, hash, now).Scan(&userID)
+		 WHERE token_hash = $1 AND purpose = $3 AND used_at IS NULL AND expires_at > $2
+		 RETURNING user_id::text`, hash, now, string(purpose)).Scan(&userID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", domain.ErrNotFound
 	}

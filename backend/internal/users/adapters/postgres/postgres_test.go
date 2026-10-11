@@ -64,7 +64,7 @@ func newPool(t *testing.T) *pgxpool.Pool {
 	// 000006 is needed because 000017 also adds movements.created_by.
 	for _, name := range []string{
 		"000002_users.up.sql", "000003_refresh_tokens.up.sql", "000004_verification_tokens.up.sql",
-		"000006_movements.up.sql", "000017_users_roles.up.sql",
+		"000006_movements.up.sql", "000017_users_roles.up.sql", "000025_verification_token_purpose.up.sql",
 	} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
