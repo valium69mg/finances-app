@@ -3,6 +3,7 @@ package domain_test
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/valium69mg/finances-app/backend/internal/system/domain"
 )
@@ -70,5 +71,28 @@ func TestPercent(t *testing.T) {
 	}
 	if got := domain.Percent(2, 3); math.Abs(got-66.7) > 1e-9 {
 		t.Errorf("Percent(2, 3) = %v, want 66.7", got)
+	}
+}
+
+func TestNewBackup(t *testing.T) {
+	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
+	at := func(d time.Duration) *time.Time { v := now.Add(-d); return &v }
+	tests := []struct {
+		name string
+		last *time.Time
+		want string
+	}{
+		{"no record", nil, domain.BackupMissing},
+		{"recent", at(time.Hour), domain.BackupOK},
+		{"exactly at the threshold", at(36 * time.Hour), domain.BackupOK},
+		{"over the threshold", at(36*time.Hour + time.Second), domain.BackupStale},
+		{"clock skew into the future", at(-time.Hour), domain.BackupOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := domain.NewBackup(tt.last, now, 36*time.Hour).Status; got != tt.want {
+				t.Errorf("status = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }

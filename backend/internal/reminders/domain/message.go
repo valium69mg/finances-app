@@ -43,6 +43,26 @@ func DiskMessage(usedPct float64, thresholdPct int) Message {
 	}
 }
 
+// BackupMessage builds the stale backup alert. last is nil when there is no
+// record of a successful backup; otherwise it is shown in the time zone it
+// carries (the caller converts it to the reminders zone).
+func BackupMessage(last *time.Time) Message {
+	var text string
+	if last == nil {
+		text = "No hay registro de un respaldo exitoso de la base de datos."
+	} else {
+		text = fmt.Sprintf("El último respaldo exitoso de la base de datos fue el %s, hace más de %d horas.",
+			last.Format("02/01/2006 15:04"), int(BackupStaleAfter.Hours()))
+	}
+	const advice = "Revisa el servicio de respaldo en el servidor (journalctl -u finances-postgres-backup.service). " +
+		"Mientras no haya un respaldo reciente, este aviso se repite cada día."
+	return Message{
+		Subject: "Alerta: el respaldo de la base de datos está atrasado",
+		Text:    "Hola,\n\n" + text + "\n" + advice + "\n",
+		HTML:    "<p>Hola,</p><p>" + html.EscapeString(text) + "</p><p>" + html.EscapeString(advice) + "</p>",
+	}
+}
+
 var monthNames = [...]string{
 	"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
 	"Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",

@@ -90,7 +90,7 @@ func TestStatusJSONShape(t *testing.T) {
 		`"swap":{"total_bytes":1000,"used_bytes":100},` +
 		`"disk":{"total_bytes":50000000000,"used_bytes":41000000000,"used_percent":82,"path_monitored":true},` +
 		`"uptime_seconds":90061,"load_average":{"one":0.52,"five":0.58,"fifteen":0.59},` +
-		`"disk_alert_percent":80,"reminders_enabled":true,"sampled_at":"2026-09-30T18:00:05Z"}`
+		`"disk_alert_percent":80,"reminders_enabled":true,"backup":null,"sampled_at":"2026-09-30T18:00:05Z"}`
 	var wantMap map[string]any
 	if err := json.Unmarshal([]byte(want), &wantMap); err != nil {
 		t.Fatal(err)
@@ -119,6 +119,24 @@ func TestStatusNullDiskAndSwap(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"disk":null`) {
 		t.Errorf("the keys must be present as null: %s", rec.Body)
+	}
+}
+
+func TestStatusBackup(t *testing.T) {
+	r := report()
+	last := time.Date(2026, 10, 10, 9, 0, 12, 0, time.UTC)
+	r.Backup = &domain.Backup{LastSuccessAt: &last, Status: domain.BackupStale, StaleAfter: 36 * time.Hour}
+	rec := get(&fakeService{out: r}, true)
+	want := `"backup":{"last_success_at":"2026-10-10T09:00:12Z","status":"stale","stale_after_hours":36}`
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("body = %s, want it to contain %s", rec.Body, want)
+	}
+
+	r.Backup = &domain.Backup{Status: domain.BackupMissing, StaleAfter: 36 * time.Hour}
+	rec = get(&fakeService{out: r}, true)
+	want = `"backup":{"last_success_at":null,"status":"missing","stale_after_hours":36}`
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("body = %s, want it to contain %s", rec.Body, want)
 	}
 }
 

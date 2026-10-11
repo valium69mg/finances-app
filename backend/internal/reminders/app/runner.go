@@ -63,20 +63,27 @@ type DiskProbe interface {
 	UsedPercent() (float64, error)
 }
 
+// BackupProbe reads when the last database backup succeeded. found is false
+// when no backup was ever recorded (the status file does not exist).
+type BackupProbe interface {
+	LastSuccess(ctx context.Context) (at time.Time, found bool, err error)
+}
+
 // OwnerEmail returns the address the reminders go to, or domain.ErrNoOwner.
 type OwnerEmail interface {
 	OwnerEmail(ctx context.Context) (string, error)
 }
 
-// Deps are the collaborators and settings of a Runner. Disk, Tax and Invoices
-// may be nil to turn the disk alert, the tax filing reminders and the salary
-// invoice reminder off. Now must return the time in the zone that defines
+// Deps are the collaborators and settings of a Runner. Disk, Backup, Tax and
+// Invoices may be nil to turn the disk alert, the backup alert, the tax filing
+// reminders and the salary invoice reminder off. Now must return the time in the zone that defines
 // "today" (and the 08:00 gate); nil selects time.Now.
 type Deps struct {
 	Bills        BillLister
 	Mailer       Mailer
 	Log          SentLog
 	Disk         DiskProbe
+	Backup       BackupProbe
 	Tax          TaxPending
 	Invoices     InvoiceLister
 	Owner        OwnerEmail
@@ -146,6 +153,7 @@ func (r *Runner) Tick(ctx context.Context) {
 	r.taxReminders(ctx, today)
 	r.salaryReminder(ctx, today)
 	r.diskAlert(ctx, now, today)
+	r.backupAlert(ctx, now, today)
 }
 
 // taxReminders emails about the periods still to file. A lister failure is
@@ -235,6 +243,35 @@ func (r *Runner) diskAlert(ctx context.Context, now time.Time, today string) {
 		return
 	}
 	r.sendOnce(ctx, domain.DiskKey(today), func() domain.Message { return domain.DiskMessage(used, r.DiskAlertPct) })
+}
+
+// backupAlert warns when the last successful backup is older than
+// domain.BackupStaleAfter or when none is recorded. A status file that cannot
+// be read counts as no record: the backup cannot be confirmed, so the owner is
+// told (once a day, through the key).
+func (r *Runner) backupAlert(ctx context.Context, now time.Time, today string) {
+	if r.Backup == nil || ctx.Err() != nil {
+		return
+	}
+	at, found, err := r.Backup.LastSuccess(ctx)
+	if err != nil {
+		r.Logger.Error("reminders: could not read the backup status", "error", err)
+		found = false
+	}
+	var last *time.Time
+	if found {
+		last = &at
+	}
+	if !domain.BackupAlertDue(last, now) {
+		return
+	}
+	r.sendOnce(ctx, domain.BackupKey(today), func() domain.Message {
+		if last != nil {
+			local := last.In(now.Location())
+			return domain.BackupMessage(&local)
+		}
+		return domain.BackupMessage(nil)
+	})
 }
 
 // sendOnce sends the message of key unless the key was already recorded, and

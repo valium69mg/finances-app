@@ -24,6 +24,13 @@ const (
 	// DiskKeyPrefix prefixes every disk alert key, so the log can be asked when
 	// the last one was sent.
 	DiskKeyPrefix = "disk:"
+	// BackupStaleAfter is how old the last successful database backup may be
+	// before the owner is warned. The nightly timer runs every 24 hours, so this
+	// tolerates one missed run plus the time the next one takes.
+	BackupStaleAfter = 36 * time.Hour
+	// BackupKeyPrefix prefixes every backup alert key. The key carries the day, so
+	// the alert goes out at most once per day while the backup stays stale.
+	BackupKeyPrefix = "backup:"
 
 	dateLayout = "2006-01-02"
 )
@@ -183,6 +190,16 @@ func WeeklyKey(monday string) string { return "weekly:" + monday }
 
 // DiskKey is the dedupe key of a disk alert sent on the given day.
 func DiskKey(today string) string { return DiskKeyPrefix + today }
+
+// BackupKey is the dedupe key of a backup alert sent on the given day.
+func BackupKey(today string) string { return BackupKeyPrefix + today }
+
+// BackupAlertDue reports whether the backup alert applies: there is no record
+// of a successful backup (last is nil) or the last one is older than
+// BackupStaleAfter.
+func BackupAlertDue(last *time.Time, now time.Time) bool {
+	return last == nil || now.Sub(*last) > BackupStaleAfter
+}
 
 // BillEmails returns the per-payment emails the items call for today: one
 // "coming due" email for an item inside its reminder window and one overdue

@@ -1,7 +1,10 @@
 // Package domain holds the server status figures and the pure math behind them.
 package domain
 
-import "math"
+import (
+	"math"
+	"time"
+)
 
 // CPUTimes are the cumulative jiffies of the aggregate "cpu" line of /proc/stat.
 // Busy and Total only make sense as a difference between two samples.
@@ -66,6 +69,40 @@ func NewDisk(total, used, available uint64) Disk {
 	return Disk{TotalBytes: total, UsedBytes: used, UsedPercent: Percent(used, used+available), PathMonitored: true}
 }
 
+// Backup states.
+const (
+	// BackupOK means the last backup is recent.
+	BackupOK = "ok"
+	// BackupStale means the last backup is older than the alert threshold.
+	BackupStale = "stale"
+	// BackupMissing means no backup was ever recorded.
+	BackupMissing = "missing"
+	// BackupUnknown means the record exists but cannot be read.
+	BackupUnknown = "unknown"
+)
+
+// Backup is the state of the nightly database backup.
+type Backup struct {
+	// LastSuccessAt is nil when there is no readable record.
+	LastSuccessAt *time.Time
+	Status        string
+	// StaleAfter is the age beyond which the backup counts as stale.
+	StaleAfter time.Duration
+}
+
+// NewBackup classifies the last success against the stale threshold. A nil
+// last is missing; a time in the future (clock skew) counts as recent.
+func NewBackup(last *time.Time, now time.Time, staleAfter time.Duration) Backup {
+	b := Backup{LastSuccessAt: last, StaleAfter: staleAfter, Status: BackupOK}
+	switch {
+	case last == nil:
+		b.Status = BackupMissing
+	case now.Sub(*last) > staleAfter:
+		b.Status = BackupStale
+	}
+	return b
+}
+
 // Load holds the 1, 5 and 15 minute load averages.
 type Load struct{ One, Five, Fifteen float64 }
 
@@ -77,6 +114,8 @@ type Status struct {
 	Disk          *Disk
 	UptimeSeconds int64
 	Load          Load
+	// Backup is nil when the backup status is not monitored (local development).
+	Backup *Backup
 }
 
 // Percent is part/total as a percentage with one decimal; 0 when total is 0.

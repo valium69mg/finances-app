@@ -99,10 +99,17 @@ services:
       TZ_NAME: ${TZ_NAME:-America/Mexico_City}
       DISK_ALERT_PCT: ${DISK_ALERT_PCT:-80}
       DISK_PROBE_PATH: /probe
+      # Backup alert: the nightly backup job writes its last success time here (see
+      # deploy/scripts/backup-postgres.sh). Empty = off. Set it to /backup/last-success in
+      # .env.prod once the first backup has succeeded, or the alert fires for "no record".
+      BACKUP_STATUS_PATH: ${BACKUP_STATUS_PATH:-}
     volumes:
       # An EMPTY directory on the data volume (create it once on the VM): statfs on it
       # reports that volume's usage without exposing any data.
       - /srv/finances/probe:/probe:ro
+      # The directory holding the backup status file (a directory, not the file, so the
+      # job's atomic replace is always seen). Created by install-postgres-backup.sh.
+      - /srv/finances/backup:/backup:ro
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]

@@ -66,16 +66,25 @@ type loadDTO struct {
 	Fifteen float64 `json:"fifteen"`
 }
 
+type backupDTO struct {
+	// LastSuccessAt is RFC 3339, null when there is no readable record.
+	LastSuccessAt *string `json:"last_success_at"`
+	// Status is ok, stale, missing or unknown.
+	Status          string `json:"status"`
+	StaleAfterHours int    `json:"stale_after_hours"`
+}
+
 type statusDTO struct {
-	CPUPercent       float64   `json:"cpu_percent"`
-	Memory           memoryDTO `json:"memory"`
-	Swap             *swapDTO  `json:"swap"`
-	Disk             *diskDTO  `json:"disk"`
-	UptimeSeconds    int64     `json:"uptime_seconds"`
-	LoadAverage      loadDTO   `json:"load_average"`
-	DiskAlertPercent int       `json:"disk_alert_percent"`
-	RemindersEnabled bool      `json:"reminders_enabled"`
-	SampledAt        string    `json:"sampled_at"`
+	CPUPercent       float64    `json:"cpu_percent"`
+	Memory           memoryDTO  `json:"memory"`
+	Swap             *swapDTO   `json:"swap"`
+	Disk             *diskDTO   `json:"disk"`
+	UptimeSeconds    int64      `json:"uptime_seconds"`
+	LoadAverage      loadDTO    `json:"load_average"`
+	Backup           *backupDTO `json:"backup"`
+	DiskAlertPercent int        `json:"disk_alert_percent"`
+	RemindersEnabled bool       `json:"reminders_enabled"`
+	SampledAt        string     `json:"sampled_at"`
 }
 
 func toDTO(r app.Report) statusDTO {
@@ -99,6 +108,14 @@ func toDTO(r app.Report) statusDTO {
 			TotalBytes: r.Disk.TotalBytes, UsedBytes: r.Disk.UsedBytes,
 			UsedPercent: r.Disk.UsedPercent, PathMonitored: r.Disk.PathMonitored,
 		}
+	}
+	if r.Backup != nil {
+		b := &backupDTO{Status: r.Backup.Status, StaleAfterHours: int(r.Backup.StaleAfter.Hours())}
+		if r.Backup.LastSuccessAt != nil {
+			at := r.Backup.LastSuccessAt.UTC().Format(time.RFC3339)
+			b.LastSuccessAt = &at
+		}
+		dto.Backup = b
 	}
 	return dto
 }

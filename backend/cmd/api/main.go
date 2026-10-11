@@ -46,9 +46,11 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/platform/health"
 	"github.com/valium69mg/finances-app/backend/internal/platform/httpmw"
 	"github.com/valium69mg/finances-app/backend/internal/platform/postgres"
+	remindersbackup "github.com/valium69mg/finances-app/backend/internal/reminders/adapters/backupstatus"
 	remindersdisk "github.com/valium69mg/finances-app/backend/internal/reminders/adapters/disk"
 	reminderspg "github.com/valium69mg/finances-app/backend/internal/reminders/adapters/postgres"
 	remindersapp "github.com/valium69mg/finances-app/backend/internal/reminders/app"
+	remindersdomain "github.com/valium69mg/finances-app/backend/internal/reminders/domain"
 	savingspg "github.com/valium69mg/finances-app/backend/internal/savings/adapters/postgres"
 	savingsapp "github.com/valium69mg/finances-app/backend/internal/savings/app"
 	settingspg "github.com/valium69mg/finances-app/backend/internal/settings/adapters/postgres"
@@ -131,6 +133,10 @@ func reminderRunner(cfg config.Config, pool *pgxpool.Pool, lister remindersapp.B
 		deps.Disk = probe
 		slog.Info("disk alert armed", "path", cfg.DiskProbePath, "used_percent", int(used), "threshold_percent", cfg.DiskAlertPct)
 	}
+	if cfg.BackupStatusPath != "" {
+		deps.Backup = remindersbackup.New(cfg.BackupStatusPath)
+		slog.Info("backup alert armed", "path", cfg.BackupStatusPath, "stale_after", remindersdomain.BackupStaleAfter.String())
+	}
 	slog.Info("email reminders enabled", "timezone", cfg.TZName, "interval", remindersapp.DefaultInterval.String())
 	return remindersapp.NewRunner(deps)
 }
@@ -212,9 +218,14 @@ func run() error {
 
 	// View-only server status. The disk comes from the same probe path as the
 	// e-mail alert (nil-safe: an unmeasurable path just yields disk: null).
-	systemSvc := systemapp.NewService(systemprocfs.New(""), remindersdisk.NewProbe(cfg.DiskProbePath), systemapp.Options{
+	systemOpts := systemapp.Options{
 		DiskAlertPercent: cfg.DiskAlertPct, RemindersEnabled: cfg.RemindersEnabled, Logger: slog.Default(),
-	})
+	}
+	if cfg.BackupStatusPath != "" {
+		systemOpts.Backup = remindersbackup.New(cfg.BackupStatusPath)
+		systemOpts.BackupStaleAfter = remindersdomain.BackupStaleAfter
+	}
+	systemSvc := systemapp.NewService(systemprocfs.New(""), remindersdisk.NewProbe(cfg.DiskProbePath), systemOpts)
 
 	// Owner-only user administration. Invitations reuse the verification token
 	// flow of the auth service; sharing the limiter keeps one in-memory budget

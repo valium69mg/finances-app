@@ -221,6 +221,43 @@ func TestDiskAlertDue(t *testing.T) {
 	}
 }
 
+func TestBackupAlertDue(t *testing.T) {
+	now := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
+	ago := func(d time.Duration) *time.Time { v := now.Add(-d); return &v }
+
+	tests := []struct {
+		name string
+		last *time.Time
+		want bool
+	}{
+		{"no record", nil, true},
+		{"just made", ago(time.Minute), false},
+		{"a missed night is tolerated", ago(30 * time.Hour), false},
+		{"exactly 36 hours", ago(36 * time.Hour), false},
+		{"just over 36 hours", ago(36*time.Hour + time.Second), true},
+		{"a week old", ago(7 * 24 * time.Hour), true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := domain.BackupAlertDue(tt.last, now); got != tt.want {
+				t.Errorf("BackupAlertDue = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBackupMessage(t *testing.T) {
+	last := time.Date(2026, 10, 8, 3, 0, 0, 0, time.UTC)
+	m := domain.BackupMessage(&last)
+	if !strings.Contains(m.Subject, "respaldo") || !strings.Contains(m.Text, "08/10/2026 03:00") || !strings.Contains(m.HTML, "08/10/2026 03:00") {
+		t.Errorf("message = %+v", m)
+	}
+	none := domain.BackupMessage(nil)
+	if !strings.Contains(none.Text, "No hay registro") || !strings.Contains(none.HTML, "No hay registro") {
+		t.Errorf("message without a record = %+v", none)
+	}
+}
+
 func TestComposeBill(t *testing.T) {
 	it := domain.Item{
 		OccurrenceID: 1, Name: `Luz <b>&"CFE"`, Amount: "550.00", Currency: "MXN", DueDate: "2026-10-05", DaysUntilDue: 3, DueSoon: true,

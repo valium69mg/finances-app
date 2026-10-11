@@ -162,3 +162,51 @@ func TestStatusHostFailureIsUnavailable(t *testing.T) {
 		})
 	}
 }
+
+type fakeBackup struct {
+	at    time.Time
+	found bool
+	err   error
+}
+
+func (f fakeBackup) LastSuccess(context.Context) (time.Time, bool, error) {
+	return f.at, f.found, f.err
+}
+
+func TestStatusBackup(t *testing.T) {
+	stale := 36 * time.Hour
+	tests := []struct {
+		name   string
+		source app.BackupSource
+		want   string
+		last   bool
+	}{
+		{"recent", fakeBackup{at: now.Add(-3 * time.Hour), found: true}, domain.BackupOK, true},
+		{"stale", fakeBackup{at: now.Add(-37 * time.Hour), found: true}, domain.BackupStale, true},
+		{"missing", fakeBackup{}, domain.BackupMissing, false},
+		{"unreadable", fakeBackup{err: errors.New("denied")}, domain.BackupUnknown, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			o := options()
+			o.Backup, o.BackupStaleAfter = tt.source, stale
+			r, err := app.NewService(proc(), nil, o).Status(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.Backup == nil || r.Backup.Status != tt.want || (r.Backup.LastSuccessAt != nil) != tt.last || r.Backup.StaleAfter != stale {
+				t.Errorf("backup = %+v, want status %s (last recorded: %v)", r.Backup, tt.want, tt.last)
+			}
+		})
+	}
+}
+
+func TestStatusWithoutBackupSourceHasNoBackup(t *testing.T) {
+	r, err := app.NewService(proc(), nil, options()).Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Backup != nil {
+		t.Errorf("backup = %+v, want nil when it is not monitored", r.Backup)
+	}
+}

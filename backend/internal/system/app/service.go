@@ -34,6 +34,13 @@ type DiskUsage interface {
 	Usage() (total, used, available uint64, err error)
 }
 
+// BackupSource reads when the last database backup succeeded. found is false
+// when none was ever recorded. It is optional: without one the page has no
+// backup line.
+type BackupSource interface {
+	LastSuccess(ctx context.Context) (at time.Time, found bool, err error)
+}
+
 // Options configure the service.
 type Options struct {
 	// DiskAlertPercent and RemindersEnabled echo the e-mail alert configuration
@@ -42,7 +49,11 @@ type Options struct {
 	RemindersEnabled bool
 	// SampleInterval is the gap between the CPU readings (default 250 ms).
 	SampleInterval time.Duration
-	Now            func() time.Time
+	// Backup and BackupStaleAfter report the last backup and when it counts as
+	// stale (the same threshold as the e-mail alert). Backup may be nil.
+	Backup           BackupSource
+	BackupStaleAfter time.Duration
+	Now              func() time.Time
 	// Wait blocks for d or until ctx is done; tests replace it.
 	Wait   func(ctx context.Context, d time.Duration) error
 	Logger *slog.Logger
@@ -123,6 +134,7 @@ func (s *Service) Status(ctx context.Context) (Report, error) {
 		Status: domain.Status{
 			CPUPercent: domain.CPUPercent(first, second), Memory: mem, Swap: swap,
 			Disk: s.diskStatus(), UptimeSeconds: uptime, Load: load,
+			Backup: s.backupStatus(ctx),
 		},
 		DiskAlertPercent: s.opts.DiskAlertPercent,
 		RemindersEnabled: s.opts.RemindersEnabled,
@@ -142,6 +154,25 @@ func (s *Service) diskStatus() *domain.Disk {
 	}
 	d := domain.NewDisk(total, used, available)
 	return &d
+}
+
+// backupStatus reads the last backup. A record that cannot be read is reported
+// as unknown rather than failing the page.
+func (s *Service) backupStatus(ctx context.Context) *domain.Backup {
+	if s.opts.Backup == nil {
+		return nil
+	}
+	at, found, err := s.opts.Backup.LastSuccess(ctx)
+	if err != nil {
+		s.opts.Logger.Warn("system status: the backup status cannot be read", "error", err)
+		return &domain.Backup{Status: domain.BackupUnknown, StaleAfter: s.opts.BackupStaleAfter}
+	}
+	var last *time.Time
+	if found {
+		last = &at
+	}
+	b := domain.NewBackup(last, s.opts.Now(), s.opts.BackupStaleAfter)
+	return &b
 }
 
 func (s *Service) unavailable(what string, err error) error {

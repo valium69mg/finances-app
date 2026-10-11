@@ -129,6 +129,11 @@ func TestLoad(t *testing.T) {
 			}),
 		},
 		{
+			name: "backup status file",
+			vars: base(map[string]string{"BACKUP_STATUS_PATH": "/backup/last-success"}),
+			want: want(func(c *config.Config) { c.BackupStatusPath = "/backup/last-success" }),
+		},
+		{
 			name:    "invalid timezone",
 			vars:    base(map[string]string{"TZ_NAME": "Mars/Olympus"}),
 			wantErr: []string{"TZ_NAME is invalid"},

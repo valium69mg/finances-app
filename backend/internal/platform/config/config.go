@@ -59,6 +59,10 @@ type Config struct {
 	DiskAlertPct int
 	// DiskProbePath is the directory whose filesystem is measured for the alert.
 	DiskProbePath string
+	// BackupStatusPath is the file where the nightly backup job writes the time
+	// of its last success (RFC 3339). Empty disables the backup alert and the
+	// "last backup" line of the system page, as in local development.
+	BackupStatusPath string
 }
 
 // S3 configures the object storage. Endpoint is host:port without a scheme.
@@ -204,6 +208,7 @@ func loadReminders(getenv func(string) string, cfg *Config) []error {
 		}
 	}
 
+	cfg.BackupStatusPath = get("BACKUP_STATUS_PATH")
 	cfg.DiskProbePath = get("DISK_PROBE_PATH")
 	if cfg.DiskProbePath == "" {
 		cfg.DiskProbePath = defaultDiskProbePath

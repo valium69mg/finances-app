@@ -102,6 +102,16 @@ type fakeDisk struct {
 
 func (f *fakeDisk) UsedPercent() (float64, error) { return f.used, f.err }
 
+type fakeBackup struct {
+	at    time.Time
+	found bool
+	err   error
+}
+
+func (f *fakeBackup) LastSuccess(context.Context) (time.Time, bool, error) {
+	return f.at, f.found, f.err
+}
+
 type fakeOwner struct {
 	email string
 	err   error
@@ -399,6 +409,91 @@ func TestDiskAlert(t *testing.T) {
 	r.tick()
 	if n := r.mailer.count(); n != 2 {
 		t.Fatalf("no re-alert after 7 days: %d", n)
+	}
+}
+
+// withBackup arms the backup alert on the rig.
+func (r *rig) withBackup(b *fakeBackup) {
+	r.runner = app.NewRunner(app.Deps{
+		Bills: r.bills, Mailer: r.mailer, Log: r.log, Backup: b, Owner: r.owner,
+		AppBaseURL: "https://app.example.com", DiskAlertPct: 80,
+		Now:    func() time.Time { return r.now },
+		Logger: slog.New(slog.NewTextHandler(r.logs, nil)),
+	})
+}
+
+func TestBackupAlert(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 6, 9, 0, 0, 0, mexico)
+	b := &fakeBackup{at: r.now.Add(-20 * time.Hour), found: true}
+	r.withBackup(b)
+
+	r.tick()
+	if n := r.mailer.count(); n != 0 {
+		t.Fatalf("alert with a recent backup: %d", n)
+	}
+
+	// 40 hours old: one alert, then quiet for the rest of the day.
+	b.at = r.now.Add(-40 * time.Hour)
+	r.tick()
+	r.tick()
+	if n := r.mailer.count(); n != 1 {
+		t.Fatalf("sent %d alerts for a stale backup, want 1", n)
+	}
+	if !strings.Contains(r.mailer.sent[0].subject, "respaldo") {
+		t.Errorf("subject = %q", r.mailer.sent[0].subject)
+	}
+	if !strings.Contains(r.mailer.sent[0].text, "04/10/2026 17:00") {
+		t.Errorf("the last backup must be shown in the reminders zone: %q", r.mailer.sent[0].text)
+	}
+	if _, ok := r.log.keys["backup:2026-10-06"]; !ok {
+		t.Errorf("backup key missing: %v", r.log.keys)
+	}
+
+	// Still stale the next day: alert again.
+	r.advance(24 * time.Hour)
+	r.tick()
+	if n := r.mailer.count(); n != 2 {
+		t.Fatalf("no alert the next day: %d", n)
+	}
+
+	// A fresh backup silences it.
+	b.at = r.now.Add(-time.Hour)
+	r.advance(24 * time.Hour)
+	r.tick()
+	if n := r.mailer.count(); n != 2 {
+		t.Fatalf("alert after a fresh backup: %d", n)
+	}
+}
+
+func TestBackupAlertWithoutARecordOrWithAnUnreadableStatus(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 6, 9, 0, 0, 0, mexico)
+	b := &fakeBackup{}
+	r.withBackup(b)
+
+	r.tick() // the file is missing
+	if n := r.mailer.count(); n != 1 || !strings.Contains(r.mailer.sent[0].text, "No hay registro") {
+		t.Fatalf("missing status: sent %+v", r.mailer.sent)
+	}
+
+	r.advance(24 * time.Hour)
+	b.err = errors.New("permission denied")
+	r.tick()
+	if n := r.mailer.count(); n != 2 {
+		t.Fatalf("an unreadable status must alert too: %d", n)
+	}
+	if !strings.Contains(r.logs.String(), "could not read the backup status") {
+		t.Errorf("read failure not logged: %s", r.logs.String())
+	}
+}
+
+func TestBackupAlertIsOffWithoutAProbe(t *testing.T) {
+	r := newRig(t) // the default rig has no Backup
+	r.now = time.Date(2026, 10, 6, 9, 0, 0, 0, mexico)
+	r.tick()
+	if n := r.mailer.count(); n != 0 {
+		t.Fatalf("sent %d emails without a backup probe", n)
 	}
 }
 
