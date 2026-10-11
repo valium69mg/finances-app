@@ -304,7 +304,8 @@ Nightly at 03:00 `America/Mexico_City` a systemd timer runs `scripts/backup-post
 2. `pg_restore --list` over the dump (a dump that cannot be read is not uploaded).
 3. Upload to `s3://<bucket>/backups/daily/YYYY-MM-DD.dump`, and on day 1 of the month also to
    `backups/monthly/YYYY-MM.dump`, with the instance role (no keys).
-4. Write the UTC timestamp to `/srv/finances/backup/last-success` (atomic rename).
+4. Write `/srv/finances/backup/last-success` (atomic rename): line 1 the UTC timestamp, line 2
+   `size_bytes=N` (the dump size; the API also accepts the old timestamp-only file).
 
 Any failure exits non-zero: the unit fails, the journal has the reason and `last-success` is
 not touched. Retention (bucket lifecycle, Terraform): daily dumps 30 days, monthly 365 days.
@@ -340,11 +341,17 @@ Set `BACKUP_STATUS_PATH=/backup/last-success` in `.env.prod` and `dcp up -d --wa
 
 - emails the owner (`reminder_log` key `backup:YYYY-MM-DD`, at most once per day, from 08:00
   local time) when the file is missing, unreadable or older than 36 hours;
+- emails the owner "Respaldo de la base de datos completado" (date/time in Mexico City and the
+  dump size) once per successful backup: `reminder_log` key `backup-done:<UTC timestamp>`, sent
+  at the first tick after 08:00 local time (the 03:00 backup is announced at 08:00). Only the
+  latest success is announced, and only if it is under 36 hours old, so enabling the setting
+  never sends a burst for old backups. The VM script never holds the Resend key;
 - shows "Último respaldo" (time in Mexico City and Al día / Atrasado / Sin registro) on the
   Sistema tab.
 
-Leave it empty in development (no file, no alert). Enabling it before the first backup sends
-a "no hay registro" email.
+Leave it empty in development (no file, no alert, no completion email). Enabling it before the
+first backup sends a "no hay registro" email; enabling it after the first backup sends one
+"completado" email for that backup.
 
 ### Restore (from the laptop)
 
