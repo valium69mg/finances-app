@@ -193,6 +193,3 @@ networks:
 
 volumes:
   postgres-data:
-  # No service uses it any more. Declared on purpose so `down -v` and compose never delete the old
-  # MinIO data: remove it by hand (docker volume rm finances-prod_minio-data) once the owner confirms.
-  minio-data:

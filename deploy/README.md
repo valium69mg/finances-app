@@ -15,7 +15,7 @@ browser --HTTPS--> Cloudflare --HTTPS (Full strict)--> VM:443 nginx --+--> stati
   network for outbound HTTPS to Resend).
 - The dev `docker-compose.yml` at the repo root is unrelated and untouched.
 - **Backups:** a nightly `pg_dump` goes to a private S3 bucket (section 11), and the CFDI
-  and acuse files move from MinIO to the same bucket in the cutover (section 12). Daily
+  and acuse files live in the same bucket (moved from MinIO in the 2026-10-10 cutover, section 12). Daily
   EBS snapshots of the data volume (Terraform, DLM) stay as a second net.
 
 Files:
@@ -119,7 +119,7 @@ refuses to start while a required variable is missing). Variables:
 | `APP_BASE_URL` | optional, defaults to `https://$DOMAIN` (email links, CORS origin) |
 | `POSTGRES_*`, `JWT_SECRET`, `RESEND_API_KEY`, `RESEND_FROM` | secrets and sender |
 | `REMINDERS_ENABLED`, `TZ_NAME`, `DISK_ALERT_PCT` | optional: email reminders on/off (default `true`), zone that defines "today" (default `America/Mexico_City`), used-disk percent that triggers the alert (default `80`); the disk is measured through the empty `/srv/finances/probe` directory mounted at `/probe` |
-| `S3_ENDPOINT`, `S3_USE_SSL`, `S3_REGION`, `S3_BUCKET`, `S3_USE_IAM` | object storage; MinIO inside the stack by default. At the cutover set `s3.us-east-2.amazonaws.com`, `true`, `us-east-2`, the bucket from `terraform output data_bucket_name` and `true` (instance role, no keys; section 12) |
+| `S3_ENDPOINT`, `S3_USE_SSL`, `S3_REGION`, `S3_BUCKET`, `S3_USE_IAM` | object storage, required: `s3.us-east-2.amazonaws.com`, `true`, `us-east-2`, the bucket from `terraform output data_bucket_name` and `true` (instance role, no keys) |
 | `BACKUP_STATUS_PATH` | optional: `/backup/last-success` arms the backup alert and the "Último respaldo" line of the Sistema tab (set it after the first backup succeeded); empty = off |
 | `TLS_CERT_DIR` | host directory holding `origin.pem` and `origin.key` |
 | `HTTP_PORT`, `HTTPS_PORT` | published ports, default 80 and 443 |
@@ -283,8 +283,7 @@ ignored, so the IP the API logs is the socket peer.
 - 521: the VM firewall blocks Cloudflare, or nginx is down.
 - Everyone shares one IP in the API log and hits `429` together: `TRUSTED_PROXIES` does not
   contain nginx's address (keep the default), or the Cloudflare list is stale.
-- Invoice files answer `503 storage_unavailable`: MinIO is unhealthy (`dcp ps`), or with S3
-  the instance role cannot reach the bucket (`dcp logs api`; check `S3_BUCKET`, that the
+- Invoice files answer `503 storage_unavailable`: the instance role cannot reach the bucket (`dcp logs api`; check `S3_BUCKET`, that the
   IMDS hop limit is 2 and that the bucket exists). It recovers on its own once it is back.
 - The nightly backup failed: `journalctl -u finances-postgres-backup.service -n 50`.
   Typical causes: the postgres container is down, `S3_BUCKET` in `.env.prod` is not the AWS
@@ -399,7 +398,7 @@ postgres container (`createdb`), run `docker exec -i <postgres> pg_restore --no-
 --clean --if-exists -U finances -d finances < dump`, then `dcp up -d --wait`. The API
 re-runs `migrate`, which is a no-op when the dump is current.
 
-## 12. MinIO to S3 cutover (runbook, do not run until the owner approves)
+## 12. MinIO to S3 cutover (done 2026-10-10, kept for reference)
 
 Order matters; each stage lists its rollback. Documents live under the prefixes
 `invoices/` and `tax-filings/`; the bucket also receives `backups/`. `<bucket>` is the
@@ -514,7 +513,7 @@ set `BACKUP_STATUS_PATH=/backup/last-success` in `.env.prod` and `dcp up -d --wa
 *Rollback:* `sudo systemctl disable --now finances-postgres-backup.timer`, empty
 `BACKUP_STATUS_PATH`.
 
-**8. Remove MinIO (separate, later, owner confirms).** Wait until the app has run on S3 for a
+**8. Remove MinIO (done 2026-10-10: service removed, `finances-prod_minio-data` and `/srv/finances/migration` deleted after re-verifying the bucket against the database).** Wait until the app has run on S3 for a
 while and you are sure nothing is missing. The change is prepared as one separate commit on
 the branch `remove-minio-after-cutover` (not merged into `main` on purpose, so a routine
 `git pull` cannot drop MinIO early): it removes the `minio` service and the API dependency on
