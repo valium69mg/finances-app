@@ -25,6 +25,8 @@ type Service interface {
 	Refresh(ctx context.Context, refreshToken, ip string) (*app.Session, error)
 	Logout(ctx context.Context, refreshToken string) error
 	CompleteVerification(ctx context.Context, token, newPassword, ip string) error
+	RequestPasswordReset(ctx context.Context, email, ip string) error
+	CompleteReset(ctx context.Context, token, newPassword, ip string) error
 	Authenticate(accessToken string) (session.Identity, error)
 	Me(ctx context.Context, userID string) (domain.User, error)
 }
@@ -50,6 +52,8 @@ func (h *Handler) Register(mux httpmw.Router) {
 	mux.HandleFunc("POST /auth/refresh", h.refresh)
 	mux.HandleFunc("POST /auth/logout", h.logout)
 	mux.HandleFunc("POST /auth/verify", h.verify)
+	mux.HandleFunc("POST /auth/forgot", h.forgot)
+	mux.HandleFunc("POST /auth/reset", h.reset)
 	mux.Handle("GET /auth/me", h.RequireAuth(http.HandlerFunc(h.me)))
 }
 
@@ -258,12 +262,42 @@ func (h *Handler) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) forgot(w http.ResponseWriter, r *http.Request) {
+	var req identifyRequest
+	if !decode(w, r, &req) {
+		return
+	}
+	err := h.svc.RequestPasswordReset(r.Context(), req.Email, clientIP(r))
+	switch {
+	case errors.Is(err, domain.ErrInvalidEmail):
+		writeError(w, http.StatusBadRequest, "invalid_email")
+	case errors.Is(err, domain.ErrRateLimited):
+		w.Header().Set("Retry-After", "900")
+		writeError(w, http.StatusTooManyRequests, "rate_limited")
+	case err != nil:
+		h.internalError(w, "forgot", err)
+	default:
+		// The same answer for unknown, inactive, unverified and verified accounts.
+		writeJSON(w, http.StatusOK, map[string]string{"status": "reset_requested"})
+	}
+}
+
 func (h *Handler) verify(w http.ResponseWriter, r *http.Request) {
+	h.completeToken(w, r, "verify", h.svc.CompleteVerification)
+}
+
+func (h *Handler) reset(w http.ResponseWriter, r *http.Request) {
+	h.completeToken(w, r, "reset", h.svc.CompleteReset)
+}
+
+// completeToken serves the two token-redeeming routes, which differ only in the
+// use case: verify (first password) and reset (a new password).
+func (h *Handler) completeToken(w http.ResponseWriter, r *http.Request, op string, complete func(ctx context.Context, token, password, ip string) error) {
 	var req verifyRequest
 	if !decode(w, r, &req) {
 		return
 	}
-	err := h.svc.CompleteVerification(r.Context(), req.Token, req.Password, clientIP(r))
+	err := complete(r.Context(), req.Token, req.Password, clientIP(r))
 	switch {
 	case errors.Is(err, domain.ErrRateLimited):
 		w.Header().Set("Retry-After", "900")
@@ -273,7 +307,7 @@ func (h *Handler) verify(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, domain.ErrInvalidToken):
 		writeError(w, http.StatusBadRequest, "invalid_token")
 	case err != nil:
-		h.internalError(w, "verify", err)
+		h.internalError(w, op, err)
 	default:
 		w.WriteHeader(http.StatusNoContent)
 	}

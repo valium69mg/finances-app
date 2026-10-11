@@ -49,6 +49,7 @@ type emailRequest struct {
 const (
 	subject           = "Verifica tu correo y define tu contraseña"
 	invitationSubject = "Te invitaron a Finanzas: define tu contraseña"
+	resetSubject      = "Restablece tu contraseña"
 )
 
 // SendVerification emails the verification link to the recipient.
@@ -60,6 +61,11 @@ func (m *Mailer) SendVerification(ctx context.Context, to, link string) error {
 // the same verification link; only the text differs.
 func (m *Mailer) SendInvitation(ctx context.Context, to, link string) error {
 	return m.Send(ctx, to, invitationSubject, invitationHTML(link), invitationText(link))
+}
+
+// SendPasswordReset emails the link that sets a new password on a verified account.
+func (m *Mailer) SendPasswordReset(ctx context.Context, to, link string) error {
+	return m.Send(ctx, to, resetSubject, resetHTML(link), resetText(link))
 }
 
 // Send emails one message with an HTML and a plain text body to the recipient.
@@ -130,4 +136,24 @@ func invitationHTML(link string) string {
 		`<p><a href="` + safe + `">Activar mi cuenta</a></p>` +
 		"<p>El enlace es válido durante 1 hora y solo puede usarse una vez. " +
 		"Si caduca, pide que te envíen otra invitación. Si no esperabas este correo, puedes ignorarlo.</p>"
+}
+
+func resetText(link string) string {
+	return "Hola,\n\n" +
+		"Recibimos una solicitud para restablecer la contraseña de tu cuenta. " +
+		"Para definir una nueva contraseña, abre el siguiente enlace:\n\n" + link + "\n\n" +
+		"El enlace es válido durante 1 hora y solo puede usarse una vez. " +
+		"Al cambiar la contraseña se cerrarán tus sesiones abiertas. " +
+		"Si no solicitaste este correo, puedes ignorarlo: tu contraseña actual sigue siendo la misma.\n"
+}
+
+func resetHTML(link string) string {
+	safe := html.EscapeString(link)
+	return "<p>Hola,</p>" +
+		"<p>Recibimos una solicitud para restablecer la contraseña de tu cuenta. " +
+		"Para definir una nueva contraseña, usa el siguiente enlace:</p>" +
+		`<p><a href="` + safe + `">Restablecer mi contraseña</a></p>` +
+		"<p>El enlace es válido durante 1 hora y solo puede usarse una vez. " +
+		"Al cambiar la contraseña se cerrarán tus sesiones abiertas. " +
+		"Si no solicitaste este correo, puedes ignorarlo: tu contraseña actual sigue siendo la misma.</p>"
 }
