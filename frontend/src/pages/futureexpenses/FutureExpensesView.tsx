@@ -3,8 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2, Target } from "lucide-react";
 import type { FutureExpenseItem } from "../../api/futureExpenses";
 import { EmptyNote } from "../../components/EmptyNote";
+import { DeepLinkNote } from "../../components/DeepLinkNote";
 import { InlineFormPanel } from "../../components/InlineFormPanel";
 import { PageTitle } from "../../components/PageTitle";
+import { useDeepLink } from "../../hooks/useDeepLink";
 import { moduleIcon } from "../../modules";
 import { formatMoney } from "../expenses/money";
 import { AmountDialog, type AmountMode } from "./AmountDialog";
@@ -26,6 +28,14 @@ interface Props {
   categories: PayCategory[];
   /** True when paying needs the category chosen (her ledger infers nothing). */
   categoryRequired?: boolean;
+  /** Opens the edit form of the item in `?editar=<id>` (the owner's Panel links to it). Her page leaves it off. */
+  deepLinkEdit?: boolean;
+}
+
+/** `?editar=<id>`: opens the edit form of that item, or says it is not among the pending ones. Rendered only where the URL is read. */
+function EditDeepLink({ items, open, onOpen }: { items: FutureExpenseItem[]; open: FutureExpenseItem | null; onOpen: (item: FutureExpenseItem) => void }) {
+  const { missing } = useDeepLink({ param: "editar", items, open, onOpen });
+  return missing ? <DeepLinkNote>No se encontró el gasto futuro del enlace entre los pendientes. Puedes buscarlo en la lista.</DeepLinkNote> : null;
 }
 
 /**
@@ -33,7 +43,7 @@ interface Props {
  * assigning the free balance and "Marcar pagado" all live on this page. The owner's page and "Mis gastos futuros"
  * render it over their own storage through the FutureBackend context.
  */
-export function FutureExpensesView({ path, title, categories, categoryRequired = false }: Props) {
+export function FutureExpensesView({ path, title, categories, categoryRequired = false, deepLinkEdit = false }: Props) {
   const backend = useFutureBackend();
   // The owner's view of a household user: nothing that writes is rendered, and the Hogar page owns the heading.
   const readOnly = backend.readOnly === true;
@@ -108,6 +118,8 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
                 />
               </InlineFormPanel>
             )}
+
+            {deepLinkEdit && !readOnly && <EditDeepLink items={list.data.active} open={editing} onOpen={setEditing} />}
 
             {notice && (
               <p role="status" className="flex items-start gap-2 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">

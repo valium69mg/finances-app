@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Loader2 } from "lucide-react";
-import type { Bill, PayResult } from "../api/bills";
+import { billsKeys, listBills, type Bill, type PayResult } from "../api/bills";
 import { getSettings, settingsKeys } from "../api/settings";
+import { DeepLinkNote } from "../components/DeepLinkNote";
 import { InlineFormPanel } from "../components/InlineFormPanel";
 import { BillForm } from "./bills/BillForm";
 import { BillList } from "./bills/BillList";
@@ -13,9 +14,13 @@ import { formatMoney } from "./expenses/money";
 import { dateLabel } from "./taxfiling/labels";
 import { Checkbox, ErrorBanner, secondaryButton } from "./settings/ui";
 import { PageTitle } from "../components/PageTitle";
+import { useDeepLink } from "../hooks/useDeepLink";
 import { moduleIcon } from "../modules";
 
-/** Pagos recurrentes: bills and subscriptions with their next due date, paid as expenses or skipped. */
+/**
+ * Pagos recurrentes: bills and subscriptions with their next due date, paid as expenses or skipped. `?pago=<id>` (the
+ * Panel's "Próximas cuentas" rows) opens that bill's "Pagar" dialog once the list is loaded.
+ */
 export function Bills() {
   const [editing, setEditing] = useState<Bill | null>(null);
   // The create form stays collapsed until asked for; editing a row opens it by itself.
@@ -25,6 +30,10 @@ export function Bills() {
   const [notice, setNotice] = useState<string | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
   const categories = expenseCategories(settings.data);
+  // Same query as the active bills list below (one request): the deep link needs the loaded rows to find its bill.
+  const loaded = useQuery({ queryKey: billsKeys.list(false), queryFn: () => listBills(false), retry: false });
+  // Only an active bill can be paid.
+  const deep = useDeepLink({ param: "pago", items: loaded.data, open: paying, onOpen: setPaying, canOpen: (b) => b.active });
 
   function onPaid(result: PayResult) {
     const { bill, expense } = result;
@@ -41,6 +50,8 @@ export function Bills() {
       <p className="mt-1 text-sm text-muted">
         Administra tus servicios y suscripciones: mira cuándo vence cada uno, regístralos como gasto al pagarlos u omite un vencimiento.
       </p>
+
+      {deep.missing && <DeepLinkNote>No se encontró el pago recurrente del enlace entre los activos. Puedes buscarlo en la lista.</DeepLinkNote>}
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
         {settings.isPending && (

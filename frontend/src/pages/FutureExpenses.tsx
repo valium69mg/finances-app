@@ -14,5 +14,5 @@ export function FutureExpenses() {
     () => (settings.data?.categories ?? []).filter((c) => c.kind === "Gasto").map((c) => ({ value: c.name, label: c.name })),
     [settings.data],
   );
-  return <FutureExpensesView path="/gastos-futuros" title="Gastos futuros" categories={categories} />;
+  return <FutureExpensesView path="/gastos-futuros" title="Gastos futuros" categories={categories} deepLinkEdit />;
 }
