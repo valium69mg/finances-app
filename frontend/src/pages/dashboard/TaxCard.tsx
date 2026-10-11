@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { DashboardTax } from "../../api/dashboard";
 import { CardTitle } from "../../components/CardTitle";
 import { EmptyNote } from "../../components/EmptyNote";
+import { cardClass } from "../../components/LinkCard";
 import { formatMoney, formatRatePercent } from "../expenses/money";
 import { FilingStatusBadge } from "../taxfiling/StatusBadge";
 import { periodLabel } from "../taxfiling/labels";
@@ -12,10 +13,10 @@ import { periodLabel } from "../taxfiling/labels";
  * the period: whether its declaration is unfiled, filed with the payment
  * pending or paid, and whether the previous period still needs action.
  */
-export function TaxCard({ tax }: { tax: DashboardTax | null }) {
+export function TaxCard({ tax, to }: { tax: DashboardTax | null; to?: string }) {
   return (
-    <section aria-labelledby="tax-title" className="rounded-lg border border-border p-4">
-      <CardTitle id="tax-title" icon={Landmark}>
+    <section aria-labelledby="tax-title" className={cardClass(tax ? to : undefined)}>
+      <CardTitle id="tax-title" icon={Landmark} to={tax ? to : undefined}>
         ISR RESICO estimado
       </CardTitle>
       {tax ? (
@@ -39,7 +40,7 @@ export function TaxCard({ tax }: { tax: DashboardTax | null }) {
           {tax.previous_period_pending && (
             <p className="mt-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
               La declaración o el pago de {periodLabel(tax.previous_period)} sigue pendiente.{" "}
-              <Link to="/declaraciones-presentadas" className="font-medium underline">
+              <Link to="/declaraciones-presentadas" className="relative z-10 font-medium underline">
                 Ver declaraciones
               </Link>
             </p>

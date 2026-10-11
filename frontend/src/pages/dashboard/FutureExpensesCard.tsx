@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { FutureExpenses } from "../../api/dashboard";
 import { CardTitle } from "../../components/CardTitle";
 import { EmptyNote } from "../../components/EmptyNote";
+import { Chevron, ROW_LINK, ROW_LINKED } from "../../components/LinkCard";
 import { formatMoney, percentOf } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
 
@@ -14,7 +15,7 @@ const isZero = (v: string) => /^0(\.0+)?$/.test(v);
  * far with a progress bar and the amount to put aside each cycle to have each one on time, a total row and the
  * free balance (savings in Gastos futuros not assigned to any item yet).
  */
-export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
+export function FutureExpensesCard({ future, linkFor }: { future: FutureExpenses; linkFor?: (f: FutureExpenses["items"][number]) => string | undefined }) {
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
@@ -30,11 +31,23 @@ export function FutureExpensesCard({ future }: { future: FutureExpenses }) {
           <ul className="mt-3 space-y-4">
             {future.items.map((f) => {
               const pct = percentOf(f.saved, f.target);
+              const to = linkFor?.(f);
               return (
-                <li key={f.id}>
+                <li key={f.id} className={to ? `${ROW_LINKED} -mx-2 rounded-lg px-2 py-1` : undefined}>
                   <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-                    <span className="min-w-0 break-words font-medium">{f.name}</span>
-                    <span className="text-sm text-muted">Vence el {dateLabel(f.due_date)}</span>
+                    <span className="min-w-0 break-words font-medium">
+                      {to ? (
+                        <Link to={to} className={`${ROW_LINK} after:rounded-lg`}>
+                          {f.name}
+                        </Link>
+                      ) : (
+                        f.name
+                      )}
+                    </span>
+                    <span className="flex items-center gap-1 text-sm text-muted">
+                      Vence el {dateLabel(f.due_date)}
+                      {to && <Chevron />}
+                    </span>
                   </div>
                   <div
                     role="progressbar"

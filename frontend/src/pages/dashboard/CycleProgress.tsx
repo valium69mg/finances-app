@@ -2,6 +2,7 @@ import { Gauge } from "lucide-react";
 import { useId } from "react";
 import type { Dashboard } from "../../api/dashboard";
 import { CardTitle } from "../../components/CardTitle";
+import { cardClass } from "../../components/LinkCard";
 import { formatMoney, percentOf } from "../expenses/money";
 
 /** Cents of a plain decimal string, or null when it is not one. Integer math only. */
@@ -30,7 +31,7 @@ export function paceOf(spent: string, budgetCents: bigint, day: number, days: nu
 }
 
 /** Day X of Y of the displayed pay cycle, with the spending pace against the month's budget. */
-export function CycleProgress({ dashboard }: { dashboard: Pick<Dashboard, "cycle" | "categories" | "expenses"> }) {
+export function CycleProgress({ dashboard, to }: { dashboard: Pick<Dashboard, "cycle" | "categories" | "expenses">; to?: string }) {
   const titleId = useId();
   const { cycle } = dashboard;
   const budgetCents = totalBudgetCents(dashboard.categories);
@@ -43,8 +44,8 @@ export function CycleProgress({ dashboard }: { dashboard: Pick<Dashboard, "cycle
   const dayText = cycle.day === 0 ? "El periodo aún no empieza" : `Día ${cycle.day} de ${cycle.days}`;
 
   return (
-    <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
-      <CardTitle id={titleId} icon={Gauge}>
+    <section aria-labelledby={titleId} className={cardClass(to)}>
+      <CardTitle id={titleId} icon={Gauge} to={to}>
         Progreso del ciclo
       </CardTitle>
       <p className="mt-3 text-sm tabular-nums">{dayText}</p>

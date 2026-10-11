@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Coins, Loader2, Wallet } from "lucide-react";
 import { Link } from "react-router-dom";
-import { dashboardKeys, getBudgetDashboard, getDashboard, isFullDashboard, type BudgetDashboard, type Dashboard as DashboardData } from "../api/dashboard";
+import { dashboardKeys, getBudgetDashboard, getDashboard, isFullDashboard, type BudgetDashboard, type Dashboard as DashboardData, type RecentMovement } from "../api/dashboard";
 import { ApiError } from "../api/client";
 import { getPersonalDashboard, personalKeys } from "../api/personal";
 import { useAuth } from "../auth/AuthContext";
@@ -21,8 +21,8 @@ import { describeDashboardError } from "./dashboard/errors";
 import { useMonthParam } from "../hooks/useUrlParams";
 import { linkWithMonth } from "../lib/monthParam";
 import { moduleIcon } from "../modules";
-import { rangeText } from "./cycle";
-import { useCyclePeriod } from "./useCycle";
+import { cycleOf, rangeText } from "./cycle";
+import { useCyclePeriod, useCycleStartDay } from "./useCycle";
 import { EmergencyCard } from "./savings/PortfolioPanel";
 import { describePersonalError } from "./personal/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
@@ -53,7 +53,26 @@ function BudgetSection({
 
 const OWNER_EMPTY_BUDGET = "Aún no hay categorías de gasto. Agrégalas en Configuración para ver tu presupuesto.";
 
-function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
+/** The owner's pages the Panel links to, by movement kind. */
+const MOVEMENT_PAGE: Record<RecentMovement["kind"], string> = { Gasto: "/gastos", Ingreso: "/ingresos", Ahorro: "/ahorros" };
+/** The savings category of the emergency fund (fixed by the backend), the target of its card. */
+const EMERGENCY_FUND_CATEGORY = "Fondo de emergencia";
+
+/**
+ * Interactive owner Panel: every link carries the month the figures are for (`dashboard.month`, the label the server
+ * answered) as `?mes=`. Targets: the three totals cards, Progreso del ciclo and a budget row go to Gastos (a row
+ * filtered by its category), Fondo de emergencia to Ahorros filtered by its category, ISR RESICO to Declaración
+ * (`?period=`, the page's own parameter), a recent movement to its page in that movement's cycle with `?editar=<id>`
+ * (its edit form), an upcoming bill to Pagos recurrentes with `?pago=<id>` (its "Pagar" dialog) and a future expense
+ * to Gastos futuros with `?editar=<id>` (its edit form). Disponible has no link.
+ */
+function DashboardBody({ dashboard, startDay }: { dashboard: DashboardData; startDay: number }) {
+  const month = dashboard.month;
+  // A recent movement is not always in the displayed cycle: its own cycle is the month its page must open on.
+  const movementLink = (m: RecentMovement) => {
+    const inPeriod = m.date >= dashboard.period_start && m.date <= dashboard.period_end;
+    return linkWithMonth(MOVEMENT_PAGE[m.kind], inPeriod ? month : cycleOf(m.date, startDay), { editar: m.id });
+  };
   return (
     <div className="space-y-6">
       {isEmptyMonth(dashboard) && (
@@ -67,24 +86,31 @@ function DashboardBody({ dashboard }: { dashboard: DashboardData }) {
           <IconChip icon={Coins} size="sm" />
           Resumen del mes
         </h2>
-        <TotalsCards dashboard={dashboard} />
+        <TotalsCards
+          dashboard={dashboard}
+          links={{ income: linkWithMonth("/ingresos", month), expenses: linkWithMonth("/gastos", month), savings: linkWithMonth("/ahorros", month) }}
+        />
       </section>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <CycleProgress dashboard={dashboard} />
-        <UpcomingBills bills={dashboard.upcoming_bills} />
+        <CycleProgress dashboard={dashboard} to={linkWithMonth("/gastos", month)} />
+        <UpcomingBills bills={dashboard.upcoming_bills} linkFor={(b) => linkWithMonth("/pagos-recurrentes", "", { pago: b.id })} />
       </div>
 
-      <BudgetSection categories={dashboard.categories} emptyText={OWNER_EMPTY_BUDGET} />
+      <BudgetSection
+        categories={dashboard.categories}
+        emptyText={OWNER_EMPTY_BUDGET}
+        rowLink={(c) => linkWithMonth("/gastos", month, { categoria: c.category })}
+      />
 
       <div className="grid gap-4 md:grid-cols-2">
-        <FutureExpensesCard future={dashboard.future_expenses} />
-        <RecentMovements movements={dashboard.recent_movements} />
+        <FutureExpensesCard future={dashboard.future_expenses} linkFor={(f) => linkWithMonth("/gastos-futuros", "", { editar: f.id })} />
+        <RecentMovements movements={dashboard.recent_movements} linkFor={movementLink} />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
-        <EmergencyCard emergency={dashboard.emergency} />
-        <TaxCard tax={dashboard.tax} />
+        <EmergencyCard emergency={dashboard.emergency} to={linkWithMonth("/ahorros", month, { categoria: EMERGENCY_FUND_CATEGORY })} />
+        <TaxCard tax={dashboard.tax} to={`/declaracion?period=${month}`} />
       </div>
     </div>
   );
@@ -201,6 +227,7 @@ function HouseholdDashboard() {
 /** Owner view: the month's budget versus actual, totals, emergency fund and estimated ISR. */
 function OwnerDashboard() {
   const { month, setMonth, rangeHint } = useCyclePeriod();
+  const { startDay } = useCycleStartDay();
   const query = useQuery({
     queryKey: dashboardKeys.month(month ?? ""),
     queryFn: () => getDashboard(month ?? ""),
@@ -248,7 +275,7 @@ function OwnerDashboard() {
         {query.data &&
           // The server decides what a session may see: a reduced payload (the role changed since the last
           // refresh) shows the budget only instead of breaking on figures that are not there.
-          (isFullDashboard(query.data) ? <DashboardBody dashboard={query.data} /> : <BudgetSection categories={query.data.categories} emptyText={OWNER_EMPTY_BUDGET} />)}
+          (isFullDashboard(query.data) ? <DashboardBody dashboard={query.data} startDay={startDay} /> : <BudgetSection categories={query.data.categories} emptyText={OWNER_EMPTY_BUDGET} />)}
       </div>
     </section>
   );

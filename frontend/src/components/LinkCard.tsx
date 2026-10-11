@@ -34,6 +34,13 @@ export const ROW_LINK = "focus-visible:outline-none after:absolute after:inset-0
 /** Classes of a container (li, tr, div) that holds a `ROW_LINK`: hover tint and the chevron nudge. */
 export const ROW_LINKED = "group relative transition-colors duration-200 hover:bg-primary/5";
 
+/**
+ * Classes of a dashboard card (`rounded-lg border p-4`): static without a target, with one a real link stretched over
+ * the whole card (see `CardTitle`'s `to`) with hover tint and chevron.
+ */
+export const cardClass = (to?: string) =>
+  `rounded-lg border border-border p-4${to ? ` ${ROW_LINKED} hover:border-foreground/30` : ""}`;
+
 interface StatCardProps {
   label: string;
   hint?: string;

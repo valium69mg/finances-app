@@ -3,6 +3,7 @@ import { Loader2, ShieldCheck } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { CardTitle } from "../../components/CardTitle";
 import { EmptyNote } from "../../components/EmptyNote";
+import { cardClass } from "../../components/LinkCard";
 import { getPortfolio, savingsKeys, type EmergencyProgress, type Portfolio } from "../../api/savings";
 import { formatMoney, formatPercent, percentOf } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
@@ -124,14 +125,14 @@ function Subtotals({ portfolio }: { portfolio: Portfolio }) {
 }
 
 /** Emergency fund progress: the accumulated balance against its goal (also used by the dashboard). */
-export function EmergencyCard({ emergency }: { emergency: EmergencyProgress }) {
+export function EmergencyCard({ emergency, to }: { emergency: EmergencyProgress; to?: string }) {
   const pct = percentOf(emergency.accumulated, emergency.goal);
   const hasGoal = /[1-9]/.test(emergency.goal);
   // Unique per instance: a close preview and a stored close can be on screen together.
   const titleId = useId();
   return (
-    <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
-      <CardTitle id={titleId} icon={ShieldCheck} tone="saving">
+    <section aria-labelledby={titleId} className={cardClass(to)}>
+      <CardTitle id={titleId} icon={ShieldCheck} tone="saving" to={to}>
         Fondo de emergencia
       </CardTitle>
       {hasGoal ? (

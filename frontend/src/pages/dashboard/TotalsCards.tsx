@@ -13,7 +13,7 @@ export interface TotalsLinks {
 
 /**
  * Month totals: income, expenses, savings contributed and the money left. Each kind has its own icon and tint.
- * `links` makes a card a link (the owner's Panel passes none for now).
+ * `links` makes a card a link (the household and the owner's Panels pass them).
  */
 export function TotalsCards({ dashboard, links = {} }: { dashboard: Pick<Dashboard, "income" | "expenses" | "savings" | "available">; links?: TotalsLinks }) {
   return (

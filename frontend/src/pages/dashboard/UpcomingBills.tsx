@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import type { UpcomingBill } from "../../api/dashboard";
 import { CardTitle } from "../../components/CardTitle";
 import { EmptyNote } from "../../components/EmptyNote";
+import { Chevron, ROW_LINK, ROW_LINKED } from "../../components/LinkCard";
 import { formatMoney } from "../expenses/money";
 import { dateLabel } from "../taxfiling/labels";
 
@@ -17,8 +18,11 @@ export function dueText(b: Pick<UpcomingBill, "days_until_due" | "overdue">): st
   return `Vence en ${plural(b.days_until_due)}`;
 }
 
-/** Bills due in the next 14 days (overdue ones included), from the bills module. */
-export function UpcomingBills({ bills }: { bills: UpcomingBill[] }) {
+/**
+ * Bills due in the next 14 days (overdue ones included), from the bills module. A row is a link when `linkFor` gives
+ * it a target (the owner's Panel opens the bill's "Pagar" dialog on Pagos recurrentes).
+ */
+export function UpcomingBills({ bills, linkFor }: { bills: UpcomingBill[]; linkFor?: (b: UpcomingBill) => string | undefined }) {
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="rounded-lg border border-border p-4">
@@ -29,19 +33,31 @@ export function UpcomingBills({ bills }: { bills: UpcomingBill[] }) {
         <EmptyNote icon={CalendarClock}>No tienes cuentas por vencer en los próximos 14 días.</EmptyNote>
       ) : (
         <ul className="mt-2 divide-y divide-border">
-          {bills.map((b) => (
-            <li key={b.id} className="flex items-start justify-between gap-3 py-2">
-              <div className="min-w-0">
-                <p className="break-words text-sm font-medium">{b.name}</p>
-                <p className={`text-xs ${b.overdue ? "font-medium text-destructive" : "text-muted"}`}>
-                  {dueText(b)} · {dateLabel(b.due_date)}
-                </p>
-              </div>
-              <span className="shrink-0 text-sm tabular-nums">
-                {b.amount === null ? <span className="text-muted">Monto variable</span> : `${formatMoney(b.amount)}${b.currency === "MXN" ? "" : ` ${b.currency}`}`}
-              </span>
-            </li>
-          ))}
+          {bills.map((b) => {
+            const to = linkFor?.(b);
+            return (
+              <li key={b.id} className={`flex items-start justify-between gap-3 py-2 ${to ? `${ROW_LINKED} -mx-2 rounded-lg px-2` : ""}`}>
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-medium">
+                    {to ? (
+                      <Link to={to} className={`${ROW_LINK} after:rounded-lg`}>
+                        {b.name}
+                      </Link>
+                    ) : (
+                      b.name
+                    )}
+                  </p>
+                  <p className={`text-xs ${b.overdue ? "font-medium text-destructive" : "text-muted"}`}>
+                    {dueText(b)} · {dateLabel(b.due_date)}
+                  </p>
+                </div>
+                <span className="flex shrink-0 items-center gap-1 text-sm tabular-nums">
+                  {b.amount === null ? <span className="text-muted">Monto variable</span> : `${formatMoney(b.amount)}${b.currency === "MXN" ? "" : ` ${b.currency}`}`}
+                  {to && <Chevron />}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
       <Link to="/pagos-recurrentes" className="mt-3 inline-block text-sm font-medium underline">
