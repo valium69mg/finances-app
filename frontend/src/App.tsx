@@ -7,6 +7,7 @@ import { Bills } from "./pages/Bills";
 import { Dashboard } from "./pages/Dashboard";
 import { ExpenseRequests } from "./pages/ExpenseRequests";
 import { Expenses } from "./pages/Expenses";
+import { Hogar } from "./pages/Hogar";
 import { FutureExpenses } from "./pages/FutureExpenses";
 import { FiledRecords } from "./pages/FiledRecords";
 import { Income } from "./pages/Income";
@@ -33,6 +34,7 @@ function pageFor(path: string) {
   if (path === "/mis-ahorros") return <MisAhorros />;
   if (path === "/mis-gastos-futuros") return <MisGastosFuturos />;
   if (path === "/lista-de-deseos") return <ListaDeDeseos />;
+  if (path === "/hogar") return <Hogar />;
   if (path === "/configuracion") return <Settings />;
   if (path === "/gastos") return <Expenses />;
   if (path === "/ingresos") return <Income />;

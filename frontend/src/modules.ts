@@ -7,6 +7,7 @@ import {
   FileText,
   Gift,
   HandCoins,
+  House,
   LayoutDashboard,
   PiggyBank,
   Receipt,
@@ -41,6 +42,7 @@ export const modules: ModuleTab[] = [
     icon: CalendarClock,
     description: "Aquí administrarás lo que quieres juntar para tus gastos futuros.",
   },
+  { path: "/hogar", label: "Hogar", icon: House, description: "Aquí consultarás las finanzas personales de tus familiares, solo de lectura." },
   { path: "/lista-de-deseos", label: "Lista de deseos", icon: Gift, description: "Aquí anotarás lo que te gustaría comprar y lo convertirás en gasto, gasto futuro o petición." },
   { path: "/ingresos", label: "Ingresos", icon: TrendingUp, description: "Aquí registrarás y consultarás tus ingresos." },
   { path: "/gastos", label: "Gastos", icon: Receipt, description: "Aquí registrarás y clasificarás tus gastos." },
@@ -65,13 +67,14 @@ const PERSONAL_PATHS: readonly string[] = ["/mis-ingresos", "/mis-gastos", "/mis
 
 /**
  * Tabs the household role may open. Everything else is owner-only (the backend answers 403 for it, so hiding
- * the tab and redirecting the route are only conveniences). A new module is owner-only until it is listed here.
+ * the tab and redirecting the route are only conveniences). A new module is owner-only until it is listed here (so Hogar,
+ * the owner's read-only view of the household, is never listed for her).
  */
 const HOUSEHOLD_PATHS: readonly string[] = ["/", "/peticiones", ...PERSONAL_PATHS];
 
 /**
  * True when a session with this role may open the module at `path`. The personal finances tabs belong to the household
- * user alone: the owner is kept out (not listed, route redirects to the dashboard) until the read-only view of step 7.
+ * user alone (the owner sees them read-only through Hogar instead: not listed, the route redirects to the dashboard).
  */
 export const canOpen = (role: "owner" | "household", path: string): boolean =>
   role === "owner" ? !PERSONAL_PATHS.includes(path) : HOUSEHOLD_PATHS.includes(path);
