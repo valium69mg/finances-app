@@ -42,6 +42,11 @@ export interface PaidResult {
  * one of her categories (the adapter converts it).
  */
 export interface FutureBackend {
+  /**
+   * True in the owner's read-only view of a household user: the page renders no create, edit, delete, saving,
+   * assign or pay control, and the write functions below are never called.
+   */
+  readOnly?: boolean;
   listKey: readonly unknown[];
   list: () => Promise<FutureExpensesList>;
   create: (input: FutureExpenseInput) => Promise<FutureExpenseItem>;
@@ -76,7 +81,7 @@ export const ownerFutureBackend: FutureBackend = {
 /** Her personal ledger: every query under ["personal"] (items, her savings and her expenses) is refreshed. */
 export const personalFutureBackend: FutureBackend = {
   listKey: personalKeys.futureExpenses,
-  list: listPersonalFutureExpenses,
+  list: () => listPersonalFutureExpenses(),
   create: createPersonalFutureExpense,
   update: updatePersonalFutureExpense,
   remove: deletePersonalFutureExpense,
@@ -90,6 +95,25 @@ export const personalFutureBackend: FutureBackend = {
     }),
   invalidate: (qc) => qc.invalidateQueries({ queryKey: personalKeys.all }),
 };
+
+const readOnlyError = () => Promise.reject(new Error("read-only view"));
+
+/**
+ * The owner's read-only view of one household user: the list is read with `user_id` and every write is refused
+ * (the page does not render the controls that would call them; the server answers 403 anyway).
+ */
+export const viewFutureBackend = (userId: string): FutureBackend => ({
+  readOnly: true,
+  listKey: personalKeys.futureExpensesOf(userId),
+  list: () => listPersonalFutureExpenses(userId),
+  create: readOnlyError,
+  update: readOnlyError,
+  remove: readOnlyError,
+  addSaving: readOnlyError,
+  assign: readOnlyError,
+  pay: readOnlyError,
+  invalidate: (qc) => qc.invalidateQueries({ queryKey: personalKeys.all }),
+});
 
 const FutureBackendContext = createContext<FutureBackend>(ownerFutureBackend);
 

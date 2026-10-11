@@ -7,7 +7,9 @@ import { formatMoney } from "../expenses/money";
 import { StateBadge } from "../expenserequests/labels";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import { describeWishError } from "./errors";
-import { CONVERSION_TARGET, PriorityBadge, returnedNote } from "./labels";
+import { hogarLink } from "../hogar/links";
+import { usePersonalScope } from "../personal/scope";
+import { CONVERSION_TARGET, CONVERSION_VIEW, PriorityBadge, returnedNote, returnedViewNote } from "./labels";
 
 interface Props {
   item: WishItem;
@@ -22,6 +24,7 @@ const safeUrl = (u: string | null): u is string => u !== null && /^https?:\/\//i
 /** One wishlist item: what it is, its priority, the store link and note, and (when converted) what it became. */
 export function WishCard({ item, onConvert, onEdit, onDeleted }: Props) {
   const qc = useQueryClient();
+  const { userId, readOnly } = usePersonalScope();
   const [confirming, setConfirming] = useState(false);
   const remove = useMutation({
     mutationFn: () => deleteWishItem(item.id),
@@ -33,8 +36,14 @@ export function WishCard({ item, onConvert, onEdit, onDeleted }: Props) {
     onError: () => void qc.invalidateQueries({ queryKey: wishlistKeys.all }),
   });
   const converted = item.status === "convertida";
-  const target = item.conversion ? CONVERSION_TARGET[item.conversion.type] : null;
-  const returned = returnedNote(item);
+  // Read-only (the owner looking at a household user): third-person wording and links inside the Hogar view.
+  const view = item.conversion ? CONVERSION_VIEW[item.conversion.type] : null;
+  const target = item.conversion
+    ? readOnly && view
+      ? { text: view.text, link: view.link, path: view.section && userId ? hogarLink(userId, view.section) : "" }
+      : CONVERSION_TARGET[item.conversion.type]
+    : null;
+  const returned = readOnly ? returnedViewNote(item) : returnedNote(item);
 
   return (
     <li data-testid="wish-card" data-status={item.status} className="space-y-3 p-4">
@@ -65,16 +74,18 @@ export function WishCard({ item, onConvert, onEdit, onDeleted }: Props) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <span>{target.text}</span>
           {item.conversion.type === "peticion" && item.conversion.request_state && <StateBadge status={item.conversion.request_state} />}
-          <Link to={target.path} className="focus-ring rounded text-primary underline underline-offset-2">
-            {target.link}
-          </Link>
+          {target.path && (
+            <Link to={target.path} className="focus-ring rounded text-primary underline underline-offset-2">
+              {target.link}
+            </Link>
+          )}
         </div>
       )}
       {returned && <p className="text-sm text-muted">{returned}</p>}
 
       {remove.isError && <ErrorBanner>{describeWishError(remove.error)}</ErrorBanner>}
 
-      {confirming ? (
+      {readOnly ? null : confirming ? (
         <div role="group" aria-label={`Confirmar eliminación de ${item.name}`} className="flex flex-wrap items-center gap-2">
           <span className="text-sm">{converted ? "¿Eliminar este deseo? Lo que se creó con él no cambia." : "¿Eliminar este deseo?"}</span>
           <button type="button" disabled={remove.isPending} onClick={() => remove.mutate()} className={dangerButton}>

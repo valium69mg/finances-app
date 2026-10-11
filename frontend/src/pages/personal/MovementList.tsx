@@ -8,6 +8,7 @@ import { formatMoney } from "../expenses/money";
 import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
 import type { PersonalPageConfig } from "./config";
 import { describePersonalError } from "./errors";
+import { usePersonalScope } from "./scope";
 import { isNegative, sumMoney } from "./totals";
 
 interface Props {
@@ -24,10 +25,11 @@ interface Props {
 
 export function MovementList({ config, month, category, ready = true, onEdit, onDeleted }: Props) {
   const qc = useQueryClient();
+  const { userId, readOnly } = usePersonalScope();
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const list = useQuery({
-    queryKey: personalKeys.movements(config.kind, month, category?.id ?? 0),
-    queryFn: () => listPersonalMovements({ month, kind: config.kind, categoryId: category?.id }),
+    queryKey: personalKeys.movements(config.kind, month, category?.id ?? 0, userId ?? undefined),
+    queryFn: () => listPersonalMovements({ month, kind: config.kind, categoryId: category?.id, userId: userId ?? undefined }),
     enabled: ready,
     retry: false,
   });
@@ -86,7 +88,7 @@ export function MovementList({ config, month, category, ready = true, onEdit, on
                 </p>
               </div>
               <p className={`shrink-0 text-left font-semibold tabular-nums sm:text-right ${withdrawal ? "text-destructive" : ""}`}>{formatMoney(m.amount)} MXN</p>
-              {confirming ? (
+              {readOnly ? null : confirming ? (
                 <div role="group" aria-label={`Confirmar eliminación de ${label}`} className="flex shrink-0 flex-wrap items-center gap-2">
                   <span className="text-sm">{config.deleteQuestion}</span>
                   <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(m.id)} className={dangerButton}>

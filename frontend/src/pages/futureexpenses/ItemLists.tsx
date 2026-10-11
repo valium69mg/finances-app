@@ -26,6 +26,7 @@ interface Props {
 /** Active future expenses with their progress, the suggested monthly amount and the day-to-day actions. */
 export function ActiveList({ items, freeBalance, editingId, onSaving, onAssign, onPay, onEdit, onDeleted }: Props) {
   const backend = useFutureBackend();
+  const readOnly = backend.readOnly === true;
   const invalidate = useInvalidateFuture();
   const [confirming, setConfirming] = useState<number | null>(null);
   const remove = useMutation({
@@ -70,7 +71,7 @@ export function ActiveList({ items, freeBalance, editingId, onSaving, onAssign, 
                   </p>
                 </div>
 
-                {confirming === f.id ? (
+                {readOnly ? null : confirming === f.id ? (
                   <div role="group" aria-label={`Confirmar eliminar ${f.name}`} className="flex flex-wrap items-center gap-2">
                     <span className="text-sm">¿Eliminar este gasto futuro? Su ahorro no se borra: vuelve al saldo libre.</span>
                     <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(f)} className={dangerButton}>
@@ -127,6 +128,7 @@ export function ActiveList({ items, freeBalance, editingId, onSaving, onAssign, 
 /** Paid items, most recent first: what was paid and when. Deleting one never touches its registered expense. */
 export function PaidList({ items, onDeleted }: { items: FutureExpenseItem[]; onDeleted: (item: FutureExpenseItem) => void }) {
   const backend = useFutureBackend();
+  const readOnly = backend.readOnly === true;
   const invalidate = useInvalidateFuture();
   const [confirming, setConfirming] = useState<number | null>(null);
   const remove = useMutation({
@@ -149,7 +151,7 @@ export function PaidList({ items, onDeleted }: { items: FutureExpenseItem[]; onD
                 Pagado el {f.paid_at ? dateLabel(f.paid_at) : "—"} · {f.amount_paid ? formatMoney(f.amount_paid) : "—"} de {formatMoney(f.target_amount)} de meta
               </p>
             </div>
-            {confirming === f.id ? (
+            {readOnly ? null : confirming === f.id ? (
               <div role="group" aria-label={`Confirmar eliminar ${f.name}`} className="flex flex-wrap items-center gap-2">
                 <span className="text-sm">¿Quitarlo del historial? El gasto registrado se conserva.</span>
                 <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(f)} className={dangerButton}>

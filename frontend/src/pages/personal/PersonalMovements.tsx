@@ -13,6 +13,7 @@ import type { PersonalPageConfig } from "./config";
 import { describePersonalError } from "./errors";
 import { MovementDialog } from "./MovementDialog";
 import { MovementList } from "./MovementList";
+import { usePersonalScope } from "./scope";
 
 /**
  * Page shared by Mis ingresos, Mis gastos and Mis ahorros: period picker, total, list, and a dialog to create or edit.
@@ -20,62 +21,79 @@ import { MovementList } from "./MovementList";
  * for the current cycle until she does. The month lives in the URL (`?mes=`, the Panel's links open on it) and the
  * range hint comes from /personal/period. `?categoria=<id>` filters the list by one of the page's categories and shows
  * as a clearable chip; an id that is not one of them is ignored.
+ *
+ * Inside the owner's "Hogar" view (see PersonalScope) the same page is read-only: every read carries the household
+ * user's id and nothing that writes is rendered (no new, edit, delete or category management), and the Hogar page owns
+ * the heading.
  */
 export function PersonalMovements({ config, manageCategories = false }: { config: PersonalPageConfig; manageCategories?: boolean }) {
   const { icon, tone } = KIND[config.kind];
+  const { userId, readOnly } = usePersonalScope();
   const [month, setMonth] = useMonthParam();
   const [rawCategory, setCategory] = useCategoryParam();
   const [dialog, setDialog] = useState<{ editing: PersonalMovement | null } | null>(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const categories = useQuery({
-    queryKey: personalKeys.categories(config.kind),
-    queryFn: () => listPersonalCategories(config.kind),
+    queryKey: personalKeys.categories(config.kind, userId ?? undefined),
+    queryFn: () => listPersonalCategories(config.kind, userId ?? undefined),
     retry: false,
   });
 
-  const period = useQuery({ queryKey: personalKeys.period(month), queryFn: () => getPersonalPeriod(month), retry: false });
+  const period = useQuery({
+    queryKey: personalKeys.period(month, userId ?? undefined),
+    queryFn: () => getPersonalPeriod(month, userId ?? undefined),
+    retry: false,
+  });
+  // Read-only, the categories card only shows while they load or fail; her own page always has it (the new buttons).
+  const showTop = !readOnly || categories.isPending || categories.isError;
   const hint = period.data ? rangeText(period.data.period_start, period.data.period_end) : undefined;
   const filter = categories.data?.find((c) => c.id === rawCategory);
 
   return (
-    <section aria-labelledby="page-title">
-      <PageTitle icon={icon} tone={tone}>
-        {config.title}
-      </PageTitle>
-      <p className="mt-1 text-sm text-muted">{config.intro}</p>
+    <section aria-labelledby={readOnly ? undefined : "page-title"} aria-label={readOnly ? config.listTitle : undefined}>
+      {!readOnly && (
+        <>
+          <PageTitle icon={icon} tone={tone}>
+            {config.title}
+          </PageTitle>
+          <p className="mt-1 text-sm text-muted">{config.intro}</p>
+        </>
+      )}
 
-      <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
-        {categories.isPending && (
-          <p role="status" className="flex items-center gap-2 text-sm text-muted">
-            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            Cargando categorías…
-          </p>
-        )}
-        {categories.isError && (
-          <div className="space-y-3">
-            <ErrorBanner>{describePersonalError(categories.error)}</ErrorBanner>
-            <button type="button" onClick={() => void categories.refetch()} className={secondaryButton}>
-              Reintentar
-            </button>
-          </div>
-        )}
-        {categories.data && (
-          <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => setDialog({ editing: null })} className={primaryButton}>
-              <Plus className="h-4 w-4" aria-hidden="true" />
-              {config.newLabel}
-            </button>
-            {manageCategories && (
-              <button type="button" onClick={() => setCategoriesOpen(true)} className={secondaryButton}>
-                <ListPlus className="h-4 w-4" aria-hidden="true" />
-                Administrar categorías
+      {showTop && (
+        <div className={`${readOnly ? "" : "mt-6 "}rounded-xl border border-border bg-surface p-4 sm:p-6`}>
+          {categories.isPending && (
+            <p role="status" className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              Cargando categorías…
+            </p>
+          )}
+          {categories.isError && (
+            <div className="space-y-3">
+              <ErrorBanner>{describePersonalError(categories.error)}</ErrorBanner>
+              <button type="button" onClick={() => void categories.refetch()} className={secondaryButton}>
+                Reintentar
               </button>
-            )}
-          </div>
-        )}
-      </div>
+            </div>
+          )}
+          {categories.data && !readOnly && (
+            <div className="flex flex-wrap gap-3">
+              <button type="button" onClick={() => setDialog({ editing: null })} className={primaryButton}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                {config.newLabel}
+              </button>
+              {manageCategories && (
+                <button type="button" onClick={() => setCategoriesOpen(true)} className={secondaryButton}>
+                  <ListPlus className="h-4 w-4" aria-hidden="true" />
+                  Administrar categorías
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
-      <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
+      <div className={`${showTop ? "mt-6 " : ""}rounded-xl border border-border bg-surface p-4 sm:p-6`}>
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">{config.listTitle}</h2>
           <div className="w-full min-w-0 max-w-full sm:w-56">
@@ -113,7 +131,7 @@ export function PersonalMovements({ config, manageCategories = false }: { config
         />
       </div>
 
-      {dialog && categories.data && (
+      {!readOnly && dialog && categories.data && (
         <MovementDialog
           key={dialog.editing?.id ?? "new"}
           config={config}
@@ -122,7 +140,7 @@ export function PersonalMovements({ config, manageCategories = false }: { config
           onClose={() => setDialog(null)}
         />
       )}
-      {categoriesOpen && categories.data && <CategoriesDialog categories={categories.data} onClose={() => setCategoriesOpen(false)} />}
+      {!readOnly && categoriesOpen && categories.data && <CategoriesDialog categories={categories.data} onClose={() => setCategoriesOpen(false)} />}
     </section>
   );
 }

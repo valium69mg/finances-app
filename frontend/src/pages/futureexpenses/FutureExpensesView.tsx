@@ -35,12 +35,14 @@ interface Props {
  */
 export function FutureExpensesView({ path, title, categories, categoryRequired = false }: Props) {
   const backend = useFutureBackend();
+  // The owner's view of a household user: nothing that writes is rendered, and the Hogar page owns the heading.
+  const readOnly = backend.readOnly === true;
   const [editing, setEditing] = useState<FutureExpenseItem | null>(null);
   // The create form stays collapsed until asked for; editing a row opens it by itself.
   const [formOpen, setFormOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const list = useQuery({ queryKey: backend.listKey, queryFn: backend.list, retry: false });
+  const list = useQuery({ queryKey: backend.listKey, queryFn: () => backend.list(), retry: false });
 
   function onPaid({ item, expense }: PaidResult) {
     setDialog(null);
@@ -49,14 +51,18 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
   }
 
   return (
-    <section aria-labelledby="page-title">
-      <PageTitle icon={moduleIcon(path)}>{title}</PageTitle>
-      <p className="mt-1 text-sm text-muted">
-        Registra lo que quieres ir juntando (un seguro, un viaje, una compra grande) con su monto y fecha. Cada ahorro que agregas aquí queda ligado a ese gasto, y te
-        sugerimos cuánto apartar en cada ciclo de pago para llegar a tiempo.
-      </p>
+    <section aria-labelledby={readOnly ? undefined : "page-title"} aria-label={readOnly ? title : undefined}>
+      {!readOnly && (
+        <>
+          <PageTitle icon={moduleIcon(path)}>{title}</PageTitle>
+          <p className="mt-1 text-sm text-muted">
+            Registra lo que quieres ir juntando (un seguro, un viaje, una compra grande) con su monto y fecha. Cada ahorro que agregas aquí queda ligado a ese gasto, y te
+            sugerimos cuánto apartar en cada ciclo de pago para llegar a tiempo.
+          </p>
+        </>
+      )}
 
-      <div className="mt-6 space-y-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
+      <div className={`${readOnly ? "" : "mt-6 "}space-y-6 rounded-xl border border-border bg-surface p-4 sm:p-6`}>
 
         {list.isPending && (
           <p role="status" className="flex items-center gap-2 text-sm text-muted">
@@ -79,25 +85,29 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
               <p className="text-sm text-muted">Saldo libre</p>
               <p className="text-xl font-semibold tabular-nums">{formatMoney(list.data.free_balance)}</p>
               <p className="mt-1 text-sm text-muted">
-                Ahorro en la categoría Gastos futuros que aún no está asignado a ningún gasto. No se reparte solo: tú decides cuánto asignar a cada uno.
+                {readOnly
+                  ? "Ahorro en la categoría Gastos futuros que aún no está asignado a ningún gasto."
+                  : "Ahorro en la categoría Gastos futuros que aún no está asignado a ningún gasto. No se reparte solo: tú decides cuánto asignar a cada uno."}
               </p>
             </section>
 
-            <InlineFormPanel id="future-form-panel" label="+ Nuevo gasto futuro" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
-              <ItemForm
-                key={editing?.id ?? "new"}
-                editing={editing}
-                onSaved={(item, wasEdit) => {
-                  setEditing(null);
-                  setFormOpen(false);
-                  setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} agregado. Aparta ${formatMoney(item.suggested_monthly)} al mes para llegar a tiempo.`);
-                }}
-                onCancelEdit={() => {
-                  setEditing(null);
-                  setFormOpen(false);
-                }}
-              />
-            </InlineFormPanel>
+            {!readOnly && (
+              <InlineFormPanel id="future-form-panel" label="+ Nuevo gasto futuro" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+                <ItemForm
+                  key={editing?.id ?? "new"}
+                  editing={editing}
+                  onSaved={(item, wasEdit) => {
+                    setEditing(null);
+                    setFormOpen(false);
+                    setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} agregado. Aparta ${formatMoney(item.suggested_monthly)} al mes para llegar a tiempo.`);
+                  }}
+                  onCancelEdit={() => {
+                    setEditing(null);
+                    setFormOpen(false);
+                  }}
+                />
+              </InlineFormPanel>
+            )}
 
             {notice && (
               <p role="status" className="flex items-start gap-2 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">
@@ -109,7 +119,9 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
             <div className="space-y-3">
               <h3 className="text-base font-semibold tracking-tight">Por juntar</h3>
               {list.data.active.length === 0 ? (
-                <EmptyNote icon={Target}>Aún no tienes gastos futuros. Agrega el primero con el botón de arriba.</EmptyNote>
+                <EmptyNote icon={Target}>
+                  {readOnly ? "Aún no hay gastos futuros registrados." : "Aún no tienes gastos futuros. Agrega el primero con el botón de arriba."}
+                </EmptyNote>
               ) : (
                 <>
                   <ActiveList

@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Minus, type LucideIcon } from "lucide-react";
 import type { WishConversion, WishItem, WishPriority } from "../../api/wishlist";
 import { TONES } from "../../lib/tones";
+import type { HogarSection } from "../hogar/links";
 
 interface PriorityMeta {
   label: string;
@@ -41,5 +42,22 @@ export function returnedNote(item: WishItem): string | null {
   if (item.status !== "activa" || !c || c.type !== "peticion") return null;
   if (c.request_state === "rechazada") return "El titular rechazó tu petición: puedes convertirlo de nuevo.";
   if (c.request_state === "cancelada") return "Cancelaste tu petición: puedes convertirlo de nuevo.";
+  return null;
+}
+
+/** Read-only wording of the owner's view: what the item became, in the third person, and the Hogar section behind it. */
+export const CONVERSION_VIEW: Record<WishConversion["type"], { text: string; section: HogarSection | null; link: string }> = {
+  gasto_futuro: { text: "Se convirtió en un gasto futuro.", section: "gastos-futuros", link: "Ver en Gastos futuros" },
+  gasto: { text: "Se registró como gasto.", section: "gastos", link: "Ver en Gastos" },
+  // The request lives in the family Peticiones, which this view does not reproduce.
+  peticion: { text: "Se pidió al titular.", section: null, link: "" },
+};
+
+/** Read-only wording of {@link returnedNote}. */
+export function returnedViewNote(item: WishItem): string | null {
+  const c = item.conversion;
+  if (item.status !== "activa" || !c || c.type !== "peticion") return null;
+  if (c.request_state === "rechazada") return "El titular rechazó la petición: el deseo volvió a pendientes.";
+  if (c.request_state === "cancelada") return "La petición se canceló: el deseo volvió a pendientes.";
   return null;
 }

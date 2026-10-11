@@ -15,6 +15,7 @@ import type { ConvertChoice } from "./wishlist/form";
 import { CONVERSION_TARGET } from "./wishlist/labels";
 import { WishCard } from "./wishlist/WishCard";
 import { WishForm } from "./wishlist/WishForm";
+import { usePersonalScope } from "./personal/scope";
 
 const CONVERTED_NOTICE: Record<ConvertChoice, string> = {
   gasto_futuro: "se convirtió en un gasto futuro.",
@@ -27,42 +28,55 @@ const CONVERTED_NOTICE: Record<ConvertChoice, string> = {
  * link, a priority and a note. An active item converts into her future expense, her Gasto or a request to the owner;
  * it then moves to the converted section and comes back when the request is rejected or cancelled or its target is
  * deleted (the server derives the status).
+ *
+ * Inside the owner's "Hogar" view the same page is read-only (see PersonalScope): the list is read with the household
+ * user's id and no form, convert, edit or delete control is rendered. The Hogar page owns the heading.
  */
 export function ListaDeDeseos() {
+  const { userId, readOnly } = usePersonalScope();
   const [editing, setEditing] = useState<WishItem | null>(null);
   // The create form stays collapsed until asked for; editing a row opens it by itself.
   const [formOpen, setFormOpen] = useState(false);
   const [converting, setConverting] = useState<WishItem | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const list = useQuery({ queryKey: wishlistKeys.all, queryFn: listWishlist, retry: false });
-  const categories = useQuery({ queryKey: personalKeys.categories("Gasto"), queryFn: () => listPersonalCategories("Gasto"), retry: false });
+  const list = useQuery({ queryKey: userId ? wishlistKeys.of(userId) : wishlistKeys.all, queryFn: () => listWishlist(userId ?? undefined), retry: false });
+  const categories = useQuery({ queryKey: personalKeys.categories("Gasto", userId ?? undefined), queryFn: () => listPersonalCategories("Gasto", userId ?? undefined), retry: false, enabled: !readOnly });
+
+  // Read-only, the categories are not needed (they only feed the form), so they are neither waited for nor requested.
+  const categoriesPending = !readOnly && categories.isPending;
+  const categoriesFailed = !readOnly && categories.isError;
+  const ready = list.data !== undefined && (readOnly || categories.data !== undefined);
 
   const active = list.data?.filter((i) => i.status === "activa") ?? [];
   const converted = list.data?.filter((i) => i.status === "convertida") ?? [];
 
   return (
-    <section aria-labelledby="page-title">
-      <PageTitle icon={moduleIcon("/lista-de-deseos")}>Lista de deseos</PageTitle>
-      <p className="mt-1 text-sm text-muted">
-        Anota lo que te gustaría comprar, con su precio estimado y qué tan pronto lo quieres. Cuando llegue el momento, conviértelo en un gasto futuro, regístralo
-        como comprado o pídelo al titular.
-      </p>
+    <section aria-labelledby={readOnly ? undefined : "page-title"} aria-label={readOnly ? "Lista de deseos" : undefined}>
+      {!readOnly && (
+        <>
+          <PageTitle icon={moduleIcon("/lista-de-deseos")}>Lista de deseos</PageTitle>
+          <p className="mt-1 text-sm text-muted">
+            Anota lo que te gustaría comprar, con su precio estimado y qué tan pronto lo quieres. Cuando llegue el momento, conviértelo en un gasto futuro, regístralo
+            como comprado o pídelo al titular.
+          </p>
+        </>
+      )}
 
-      <div className="mt-6 space-y-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
-        {(list.isPending || categories.isPending) && (
+      <div className={`${readOnly ? "" : "mt-6 "}space-y-6 rounded-xl border border-border bg-surface p-4 sm:p-6`}>
+        {(list.isPending || categoriesPending) && (
           <p role="status" className="flex items-center gap-2 text-sm text-muted">
             <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            Cargando tu lista de deseos…
+            {readOnly ? "Cargando la lista de deseos…" : "Cargando tu lista de deseos…"}
           </p>
         )}
-        {(list.isError || categories.isError) && (
+        {(list.isError || categoriesFailed) && (
           <div className="space-y-3">
             <ErrorBanner>{describeWishError(list.error ?? categories.error)}</ErrorBanner>
             <button
               type="button"
               onClick={() => {
                 void list.refetch();
-                void categories.refetch();
+                if (!readOnly) void categories.refetch();
               }}
               className={secondaryButton}
             >
@@ -71,24 +85,26 @@ export function ListaDeDeseos() {
           </div>
         )}
 
-        {list.data && categories.data && (
+        {list.data && ready && (
           <>
-            <InlineFormPanel id="wish-form-panel" label="+ Nuevo deseo" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
-              <WishForm
-                key={editing?.id ?? "new"}
-                categories={categories.data}
-                editing={editing}
-                onSaved={(item, wasEdit) => {
-                  setEditing(null);
-                  setFormOpen(false);
-                  setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} se agregó a tu lista.`);
-                }}
-                onCancelEdit={() => {
-                  setEditing(null);
-                  setFormOpen(false);
-                }}
-              />
-            </InlineFormPanel>
+            {!readOnly && categories.data && (
+              <InlineFormPanel id="wish-form-panel" label="+ Nuevo deseo" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+                <WishForm
+                  key={editing?.id ?? "new"}
+                  categories={categories.data}
+                  editing={editing}
+                  onSaved={(item, wasEdit) => {
+                    setEditing(null);
+                    setFormOpen(false);
+                    setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} se agregó a tu lista.`);
+                  }}
+                  onCancelEdit={() => {
+                    setEditing(null);
+                    setFormOpen(false);
+                  }}
+                />
+              </InlineFormPanel>
+            )}
 
             {notice && (
               <p role="status" className="flex items-start gap-2 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">
@@ -100,7 +116,9 @@ export function ListaDeDeseos() {
             <div className="space-y-3">
               <h2 className="text-base font-semibold tracking-tight">Por comprar</h2>
               {active.length === 0 ? (
-                <EmptyNote icon={Gift}>Aún no tienes deseos pendientes. Agrega el primero con el botón de arriba.</EmptyNote>
+                <EmptyNote icon={Gift}>
+                  {readOnly ? "Aún no hay deseos pendientes." : "Aún no tienes deseos pendientes. Agrega el primero con el botón de arriba."}
+                </EmptyNote>
               ) : (
                 <>
                   <ul aria-label="Deseos activos" className="divide-y divide-border rounded-xl border border-border">
@@ -156,7 +174,7 @@ export function ListaDeDeseos() {
         )}
       </div>
 
-      {converting && (
+      {!readOnly && converting && (
         <ConvertDialog
           key={converting.id}
           item={converting}

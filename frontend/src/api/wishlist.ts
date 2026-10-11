@@ -78,6 +78,8 @@ export interface ConvertRequestInput {
 
 export const wishlistKeys = {
   all: [...personalKeys.all, "wishlist"] as const,
+  /** The owner's read-only view of one household user's list. */
+  of: (userId: string) => [...personalKeys.all, "wishlist", userId] as const,
 };
 
 type Client = Pick<typeof api, "request">;
@@ -85,7 +87,7 @@ type Client = Pick<typeof api, "request">;
 export function createWishlistApi(client: Client = api) {
   return {
     /** Active items first (priority alta to baja, newest first), then the converted ones. */
-    list: () => client.request<WishItem[]>("/personal/wishlist"),
+    list: (userId?: string) => client.request<WishItem[]>(userId ? `/personal/wishlist?user_id=${encodeURIComponent(userId)}` : "/personal/wishlist"),
     create: (input: WishInput) => client.request<WishItem>("/personal/wishlist", { method: "POST", body: input }),
     update: (id: number, input: WishInput) => client.request<WishItem>(`/personal/wishlist/${id}`, { method: "PUT", body: input }),
     /** Only the item goes: what it became is never touched. */
