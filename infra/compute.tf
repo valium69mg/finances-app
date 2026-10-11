@@ -36,9 +36,11 @@ resource "aws_instance" "app" {
   })
 
   metadata_options {
-    http_endpoint               = "enabled"
-    http_tokens                 = "required"
-    http_put_response_hop_limit = 1
+    http_endpoint = "enabled"
+    http_tokens   = "required"
+    # 2 so containers (one extra network hop) can reach IMDSv2 and use the instance role
+    # for S3. Tokens stay required. In-place change, no restart.
+    http_put_response_hop_limit = 2
   }
 
   root_block_device {

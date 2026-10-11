@@ -49,6 +49,77 @@ resource "aws_iam_role_policy" "read_origin_cert" {
   policy = data.aws_iam_policy_document.read_origin_cert.json
 }
 
+# Access to the data bucket without keys (instance profile, reached by the containers
+# through IMDSv2 with hop limit 2).
+#  - documents (invoices/, tax-filings/): read, write, delete (delete only adds a delete
+#    marker: DeleteObjectVersion is not granted, so the previous version stays).
+#  - backups/: PutObject only. The role can neither read nor delete backups, so a
+#    compromised VM cannot destroy them; the explicit Deny below survives any later
+#    broader Allow. Restores use the owner's admin credentials from a laptop.
+data "aws_iam_policy_document" "data_bucket_access" {
+  statement {
+    sid     = "DocumentObjects"
+    actions = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = [
+      "${aws_s3_bucket.data.arn}/invoices/*",
+      "${aws_s3_bucket.data.arn}/tax-filings/*",
+    ]
+  }
+
+  statement {
+    sid       = "ListDocumentPrefixes"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.data.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["invoices/*", "tax-filings/*"]
+    }
+  }
+
+  # HeadBucket (the API's startup check) carries no prefix, so the statement above
+  # cannot match it. A prefix-less list would only reveal object key names.
+  statement {
+    sid       = "HeadBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.data.arn]
+
+    condition {
+      test     = "Null"
+      variable = "s3:prefix"
+      values   = ["true"]
+    }
+  }
+
+  statement {
+    sid = "WriteBackupsOnly"
+    actions = [
+      "s3:PutObject",
+      "s3:AbortMultipartUpload",
+    ]
+    resources = ["${aws_s3_bucket.data.arn}/backups/*"]
+  }
+
+  statement {
+    sid    = "DenyReadAndDeleteBackups"
+    effect = "Deny"
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:DeleteObject",
+      "s3:DeleteObjectVersion",
+    ]
+    resources = ["${aws_s3_bucket.data.arn}/backups/*"]
+  }
+}
+
+resource "aws_iam_role_policy" "data_bucket_access" {
+  name   = "data-bucket-access"
+  role   = aws_iam_role.app.id
+  policy = data.aws_iam_policy_document.data_bucket_access.json
+}
+
 resource "aws_iam_instance_profile" "app" {
   name = "finances-prod-instance"
   role = aws_iam_role.app.name

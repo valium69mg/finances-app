@@ -27,3 +27,8 @@ output "ssh_allowed_cidr" {
   description = "CIDR allowed on port 22 (empty when closed)."
   value       = local.admin_cidr
 }
+
+output "data_bucket_name" {
+  description = "Generated name of the S3 bucket for documents and backups (S3_BUCKET in deploy/.env.prod)."
+  value       = aws_s3_bucket.data.id
+}

@@ -9,10 +9,12 @@ does **not** start the stack.
 | Piece | Details |
 | --- | --- |
 | Network | default VPC and subnet; security group: 443 only from Cloudflare ranges (one rule per CIDR), 22 only from `admin_cidr`, port 80 closed, egress open |
-| Compute | `t4g.small`, root gp3 12 GB encrypted, IMDSv2 required, Elastic IP; a new Canonical AMI never replaces the instance (`ignore_changes = [ami]`) |
+| Compute | `t4g.small`, root gp3 12 GB encrypted, IMDSv2 required with hop limit 2 (containers use the instance role), Elastic IP; a new Canonical AMI never replaces the instance (`ignore_changes = [ami]`) |
 | Data | gp3 50 GB encrypted EBS (`prevent_destroy`), mounted at `/srv/finances`, Docker `data-root` = `/srv/finances/docker` and containerd `root` = `/srv/finances/containerd` (Docker 29 keeps images and build cache in containerd's store, not in `data-root`, so without the second setting they fill the 12 GB root disk) |
 | Certificate | Cloudflare Origin CA (RSA 2048, 15 years) stored as SSM SecureString; the VM downloads it at first boot to `/etc/finances/certs` |
-| IAM | instance role can only `ssm:GetParameter` on the two certificate parameters; DLM role for snapshots |
+| Bucket | `storage.tf`: private S3 bucket (name generated with `bucket_prefix`, read it with `terraform output data_bucket_name`), `us-east-2`, public access blocked, SSE-S3, versioning on, TLS-only policy, `prevent_destroy`. Holds `invoices/`, `tax-filings/` (documents) and `backups/daily/`, `backups/monthly/` (Postgres dumps) |
+| Bucket lifecycle | incomplete multipart uploads aborted after 7 days; `backups/daily/` expires after 30 days, `backups/monthly/` after 365; noncurrent versions under `backups/` expire after 1 day; noncurrent versions of `invoices/` and `tax-filings/` expire after 365 days (a deleted or replaced CFDI/acuse is recoverable for a year) |
+| IAM | instance role: `ssm:GetParameter` on the two certificate parameters; documents prefixes Get/Put/Delete (+ ListBucket limited to them and HeadBucket); `backups/*` **PutObject only** with an explicit Deny for read and delete (the VM cannot destroy backups); DLM role for snapshots |
 | Snapshots | DLM, daily at `snapshot_time_utc`, keeps 7, volumes tagged `Backup=daily` |
 | Cloudflare | proxied `A` record, SSL `strict`, Always Use HTTPS, minimum TLS 1.2 |
 | Budget | monthly cost budget, alert at 80% actual and 100% forecast |
@@ -102,12 +104,14 @@ snapshot before destroying anything.
 - The Cloudflare token is read from `CLOUDFLARE_API_TOKEN` only.
 - `infra/.keys/` holds the SSH private key inside the working tree: it is ignored, but a
   forced add would leak it. Keeping it in `~/.ssh` is safer (change `ssh_public_key_path`).
-- IMDSv2 is required with hop limit 1, so containers cannot reach the instance credentials.
-- Backups: snapshots are a minimal safety net, not a backup strategy.
+- IMDSv2 is required with hop limit 2 so the API and the backup container can use the instance role. The cost: any container on the VM can read the role's credentials, which allow the documents prefixes, put-only on `backups/` and reading the two certificate parameters. Nothing else runs on the VM.
+- The VM role cannot read or delete backups (explicit Deny on `backups/*`). Restores and any deletion use the owner's admin credentials from a laptop (`deploy/README.md`, "Restore").
+- Backups: the nightly `pg_dump` to the bucket is the backup strategy; EBS snapshots stay as a second net for the whole data volume.
+- The bucket name is not in the repository: it is generated and printed by `terraform output data_bucket_name`.
 
 ## Cost (approximate, verify in the AWS calculator)
 
-About 22 USD/month: t4g.small ~12, root ~1, data 50 GB ~4, public IPv4 ~3.6, snapshots ~1-2 (approximate; check the AWS calculator).
+About 22 USD/month: t4g.small ~12, root ~1, data 50 GB ~4, public IPv4 ~3.6, snapshots ~1-2, S3 under 1 (documents plus about 30 daily and 12 monthly dumps; approximate, check the AWS calculator).
 
 ## Growing the data disk
 
