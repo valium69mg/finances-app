@@ -355,8 +355,11 @@ first backup sends a "no hay registro" email; enabling it after the first backup
 
 ### Restore (from the laptop)
 
-You need the AWS CLI with admin credentials, and `pg_restore` (or docker: the script falls
-back to a `postgres:18.6` container on the host network).
+You need the AWS CLI with admin credentials, and `pg_restore` 18 or newer (or docker: the
+script falls back to a `postgres:18.6` container on the host network when the local client
+is missing or older, since an older `pg_restore` cannot read the server's dumps).
+First drill (2026-10-10): the restored copy matched production row for row (movements,
+invoices, documents, users) at migration 26.
 
 ```sh
 BUCKET=<terraform output -raw data_bucket_name>      # from infra/
@@ -441,10 +444,13 @@ volume, then synced to the bucket with the role. The first pass can run while th
 use; the second one (step 5) catches whatever was uploaded in between.
 
 ```sh
-set -a; . deploy/.env.prod; set +a
-export AWS_ACCESS_KEY_ID="$MINIO_ROOT_USER" AWS_SECRET_ACCESS_KEY="$MINIO_ROOT_PASSWORD"
-MINIO_BUCKET="${S3_BUCKET:-finances-invoices}"   # still the MinIO bucket at this point
-sudo install -d -m 700 /srv/finances/migration
+# .env.prod is read by Compose, not by the shell (a value like "Name <addr>" breaks
+# sourcing it), so read only the three values needed
+envval() { grep -m1 "^$1=" deploy/.env.prod | cut -d= -f2- | sed -e "s/^[\"']//" -e "s/[\"']$//"; }
+export AWS_ACCESS_KEY_ID="$(envval MINIO_ROOT_USER)" AWS_SECRET_ACCESS_KEY="$(envval MINIO_ROOT_PASSWORD)"
+MINIO_BUCKET="$(envval S3_BUCKET)"; MINIO_BUCKET="${MINIO_BUCKET:-finances-invoices}"   # still the MinIO bucket here
+# run docker without sudo (ubuntu is in the docker group): sudo drops the -e variables
+sudo install -d -m 700 -o ubuntu -g ubuntu /srv/finances/migration
 
 # a) MinIO -> directory (keys are passed through the environment, not the command line)
 docker run --rm --network finances-prod_backend \

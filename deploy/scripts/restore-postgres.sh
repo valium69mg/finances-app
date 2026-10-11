@@ -15,8 +15,8 @@
 #   AWS_REGION           default us-east-2.
 #   RESTORE_YES=1        skip the confirmation prompt.
 #
-# pg_restore runs locally when installed, otherwise in a postgres container on the host
-# network (needs docker). Use a client at least as new as the server that made the dump.
+# pg_restore runs locally when its major version is at least the server's (taken from
+# RESTORE_PG_IMAGE), otherwise in that postgres container on the host network (needs docker).
 set -euo pipefail
 umask 077
 
@@ -46,11 +46,19 @@ file="$work/restore.dump"
 aws s3 cp --region "$region" --only-show-errors "s3://$BUCKET/$key" "$file"
 echo "downloaded $(stat -c %s "$file") bytes"
 
+# A local pg_restore older than the server cannot read its dumps ("unsupported version
+# in file header"), so it is used only when its major version is at least the image's.
+need_major="${PG_IMAGE#*:}"
+need_major="${need_major%%.*}"
+local_major=""
 if command -v pg_restore > /dev/null; then
+    local_major="$(pg_restore --version | sed -E 's/[^0-9]*([0-9]+).*/\1/')"
+fi
+if [ -n "$local_major" ] && [ "$local_major" -ge "$need_major" ] 2>/dev/null; then
     run_restore() { pg_restore --clean --if-exists --no-owner --no-privileges -d "$TARGET_DATABASE_URL" "$file"; }
     pg_restore --list "$file" > /dev/null
 else
-    echo "pg_restore not found: using $PG_IMAGE in docker"
+    echo "no local pg_restore ${need_major} or newer (found: ${local_major:-none}): using $PG_IMAGE in docker"
     run_restore() {
         docker run --rm --network host -v "$work:/work:ro" "$PG_IMAGE" \
             pg_restore --clean --if-exists --no-owner --no-privileges \
