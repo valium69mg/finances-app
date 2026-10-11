@@ -67,7 +67,8 @@ test.describe("layout", () => {
     if (!isDesktop(page.viewportSize()?.width)) {
       await page.getByRole("button", { name: "Abrir menú" }).click();
     }
-    await page.getByRole("link", { name: "Ingresos" }).click();
+    // The Panel's own Ingresos card is a link too: pick the one of the module menu.
+    await page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Ingresos" }).click();
     await expect(page).toHaveURL(/\/ingresos$/);
     await expect(page.locator("main")).toBeFocused();
   });

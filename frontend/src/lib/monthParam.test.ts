@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkWithMonth, parseCategoryParam, parseMonthParam } from "./monthParam";
+import { linkWithMonth, parseCategoryNameParam, parseCategoryParam, parseIdParam, parseMonthParam } from "./monthParam";
 
 describe("parseMonthParam", () => {
   it("accepts a YYYY-MM label", () => {
@@ -32,5 +32,33 @@ describe("linkWithMonth", () => {
   it("leaves out what is empty", () => {
     expect(linkWithMonth("/peticiones", "")).toBe("/peticiones");
     expect(linkWithMonth("/mis-gastos", "", { categoria: 5 })).toBe("/mis-gastos?categoria=5");
+  });
+});
+
+describe("parseIdParam", () => {
+  it("is the id rule of the deep links", () => {
+    expect(parseIdParam("42")).toBe(42);
+    expect(parseIdParam("0")).toBe(0);
+    expect(parseIdParam("abc")).toBe(0);
+    expect(parseIdParam(null)).toBe(0);
+  });
+});
+
+describe("parseCategoryNameParam", () => {
+  it("keeps a trimmed name", () => {
+    expect(parseCategoryNameParam("Fondo de emergencia")).toBe("Fondo de emergencia");
+    expect(parseCategoryNameParam("  Servicios ")).toBe("Servicios");
+  });
+
+  it.each([null, undefined, "", "   ", "x".repeat(101)])("ignores %j", (raw) => {
+    expect(parseCategoryNameParam(raw)).toBe("");
+  });
+});
+
+describe("linkWithMonth for the owner", () => {
+  it("encodes a category name and carries the deep link ids", () => {
+    expect(linkWithMonth("/ahorros", "2026-10", { categoria: "Fondo de emergencia" })).toBe("/ahorros?mes=2026-10&categoria=Fondo+de+emergencia");
+    expect(linkWithMonth("/gastos", "2026-09", { editar: 7 })).toBe("/gastos?mes=2026-09&editar=7");
+    expect(linkWithMonth("/pagos-recurrentes", "", { pago: 3 })).toBe("/pagos-recurrentes?pago=3");
   });
 });

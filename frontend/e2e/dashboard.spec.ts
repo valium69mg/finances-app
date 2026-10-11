@@ -85,11 +85,11 @@ test.describe("dashboard page", () => {
     expect(api.dashboardMonths).toEqual([today().slice(0, 7)]);
 
     const totals = page.getByRole("region", { name: "Resumen del mes" });
-    await expect(totals.getByText("Ingresos").locator("xpath=following-sibling::dd")).toHaveText("$60,000.00");
-    await expect(totals.getByText("Gastos").locator("xpath=following-sibling::dd")).toHaveText("$16,000.00");
-    await expect(totals.getByText("Ahorros").locator("xpath=following-sibling::dd")).toHaveText("$20,000.00");
+    await expect(totals.locator("dt", { hasText: "Ingresos" }).locator("xpath=following-sibling::dd")).toHaveText("$60,000.00");
+    await expect(totals.locator("dt", { hasText: "Gastos" }).locator("xpath=following-sibling::dd")).toHaveText("$16,000.00");
+    await expect(totals.locator("dt", { hasText: "Ahorros" }).locator("xpath=following-sibling::dd")).toHaveText("$20,000.00");
     // Available = income - expenses - savings.
-    await expect(totals.getByText("Disponible").locator("xpath=following-sibling::dd")).toHaveText("$24,000.00");
+    await expect(totals.locator("dt", { hasText: "Disponible" }).locator("xpath=following-sibling::dd")).toHaveText("$24,000.00");
 
     const renta = budgetRow(page, /Renta/);
     await expect(renta).toContainText("$15,000.00");
@@ -134,7 +134,7 @@ test.describe("dashboard page", () => {
     await open(page);
     await expect(page.getByText("Aún no hay movimientos en este periodo.")).toBeVisible();
     await expect(budgetRow(page, /Renta/)).toContainText("$12,000.50");
-    await expect(page.getByRole("region", { name: "Resumen del mes" }).getByText("Disponible").locator("xpath=following-sibling::dd")).toHaveText("$0.00");
+    await expect(page.getByRole("region", { name: "Resumen del mes" }).locator("dt", { hasText: "Disponible" }).locator("xpath=following-sibling::dd")).toHaveText("$0.00");
   });
 
   test("changing the month reloads the dashboard for that month", async ({ page }) => {

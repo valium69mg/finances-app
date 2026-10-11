@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Dashboard, DashboardCategory, DashboardTax, FutureExpenses, RecentMovement, UpcomingBill } from "../../api/dashboard";
+import { EmergencyCard } from "../savings/PortfolioPanel";
 import { BudgetTable } from "./BudgetTable";
 import { CycleProgress, paceOf } from "./CycleProgress";
 import { FutureExpensesCard } from "./FutureExpensesCard";
@@ -369,6 +370,68 @@ describe("linked budget rows and totals cards", () => {
 
   it("TotalsCards without links renders no link (the owner's Panel for now)", () => {
     wrap(<TotalsCards dashboard={{ income: "1", expenses: "2", savings: "3", available: "-4" }} />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+});
+
+describe("owner Panel cards and rows as links", () => {
+  const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
+  const progress = { cycle: { today: "2026-10-10", day: 10, days: 30 }, expenses: "1000", categories: [cat({ budget: "2000" })] };
+  const tax: DashboardTax = { rate: "0.015", estimated_isr: "900", filing_status: "ninguna", previous_period: "2026-09", previous_period_pending: true };
+
+  it("Progreso del ciclo links its title over the whole card only when given a target", () => {
+    const { unmount } = wrap(<CycleProgress dashboard={progress} to="/gastos?mes=2026-10" />);
+    expect(screen.getByRole("link", { name: "Progreso del ciclo" })).toHaveAttribute("href", "/gastos?mes=2026-10");
+    unmount();
+    wrap(<CycleProgress dashboard={progress} />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("the emergency fund card links to its target and stays static elsewhere", () => {
+    const { unmount } = wrap(<EmergencyCard emergency={{ accumulated: "100", goal: "1000" }} to="/ahorros?mes=2026-10" />);
+    expect(screen.getByRole("link", { name: "Fondo de emergencia" })).toHaveAttribute("href", "/ahorros?mes=2026-10");
+    unmount();
+    wrap(<EmergencyCard emergency={{ accumulated: "100", goal: "1000" }} />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("the tax card links to Declaración and keeps the warning's own link", () => {
+    wrap(<TaxCard tax={tax} to="/declaracion?period=2026-10" />);
+    expect(screen.getByRole("link", { name: "ISR RESICO estimado" })).toHaveAttribute("href", "/declaracion?period=2026-10");
+    expect(screen.getByRole("link", { name: "Ver declaraciones" })).toHaveAttribute("href", "/declaraciones-presentadas");
+  });
+
+  it("the tax card without an estimation has nothing to link to", () => {
+    wrap(<TaxCard tax={null} to="/declaracion?period=2026-10" />);
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
+  it("upcoming bill rows link to their target; the footer link stays", () => {
+    wrap(<UpcomingBills bills={[{ id: 4, name: "Luz", category: "Servicios", amount: "200", currency: "MXN", due_date: "2026-10-17", days_until_due: 2, overdue: false }]} linkFor={(b) => `/pagos-recurrentes?pago=${b.id}`} />);
+    expect(screen.getByRole("link", { name: "Luz" })).toHaveAttribute("href", "/pagos-recurrentes?pago=4");
+    expect(screen.getByRole("link", { name: "Ver pagos recurrentes" })).toHaveAttribute("href", "/pagos-recurrentes");
+  });
+
+  it("future expense rows link to their target; the manage link stays", () => {
+    const future: FutureExpenses = {
+      items: [{ id: 9, name: "Laptop", due_date: "2027-01-10", target: "8000", saved: "2000", remaining: "6000", suggested_monthly: "1500", cycles_left: 4 }],
+      target: "8000",
+      saved: "2000",
+      remaining: "6000",
+      suggested_monthly: "1500",
+      free_balance: "0",
+    };
+    wrap(<FutureExpensesCard future={future} linkFor={(f) => `/gastos-futuros?editar=${f.id}`} />);
+    expect(screen.getByRole("link", { name: "Laptop" })).toHaveAttribute("href", "/gastos-futuros?editar=9");
+    expect(screen.getByRole("link", { name: "Administrar gastos futuros" })).toHaveAttribute("href", "/gastos-futuros");
+  });
+
+  it("recent movement rows link to their target, and none are links without linkFor", () => {
+    const movement: RecentMovement = { id: 5, date: "2026-10-02", kind: "Gasto", description: "Súper", category: "Comida", amount_mxn: "300" };
+    const { unmount } = wrap(<RecentMovements movements={[movement]} linkFor={(m) => `/gastos?editar=${m.id}`} />);
+    expect(screen.getByRole("link", { name: "Súper" })).toHaveAttribute("href", "/gastos?editar=5");
+    unmount();
+    wrap(<RecentMovements movements={[movement]} />);
     expect(screen.queryByRole("link")).toBeNull();
   });
 });
