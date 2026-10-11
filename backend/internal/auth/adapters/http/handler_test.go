@@ -28,6 +28,8 @@ type fakeService struct {
 	refreshErr     error
 	logoutErr      error
 	verifyErr      error
+	forgotErr      error
+	resetErr       error
 	me             domain.User
 	meErr          error
 
@@ -61,6 +63,16 @@ func (f *fakeService) Logout(_ context.Context, tok string) error {
 func (f *fakeService) CompleteVerification(_ context.Context, tok, pw, ip string) error {
 	f.gotVerifyToken, f.gotPassword, f.gotIP = tok, pw, ip
 	return f.verifyErr
+}
+
+func (f *fakeService) RequestPasswordReset(_ context.Context, email, ip string) error {
+	f.gotEmail, f.gotIP = email, ip
+	return f.forgotErr
+}
+
+func (f *fakeService) CompleteReset(_ context.Context, tok, pw, ip string) error {
+	f.gotVerifyToken, f.gotPassword, f.gotIP = tok, pw, ip
+	return f.resetErr
 }
 
 // Authenticate knows three tokens: "good" and "owner" are the owner, "household"
@@ -274,8 +286,11 @@ func TestRefreshAndVerifyRateLimitedSetRetryAfter(t *testing.T) {
 	for path, body := range map[string]string{
 		"/auth/refresh": `{"refresh_token":"r1"}`,
 		"/auth/verify":  `{"token":"t","password":"pw"}`,
+		"/auth/reset":   `{"token":"t","password":"pw"}`,
+		"/auth/forgot":  `{"email":"a@b.co"}`,
 	} {
-		rec := do(t, newServer(&fakeService{refreshErr: domain.ErrRateLimited, verifyErr: domain.ErrRateLimited}), "POST", path, body, "")
+		svc := &fakeService{refreshErr: domain.ErrRateLimited, verifyErr: domain.ErrRateLimited, resetErr: domain.ErrRateLimited, forgotErr: domain.ErrRateLimited}
+		rec := do(t, newServer(svc), "POST", path, body, "")
 		if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") != "900" || decodeMap(t, rec)["error"] != "rate_limited" {
 			t.Errorf("%s: status=%d Retry-After=%q body=%s", path, rec.Code, rec.Header().Get("Retry-After"), rec.Body)
 		}
@@ -405,6 +420,84 @@ func TestVerify(t *testing.T) {
 				t.Errorf("args = %q %q", svc.gotVerifyToken, svc.gotPassword)
 			}
 		})
+	}
+}
+
+func TestReset(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantError  string
+	}{
+		{"ok", nil, 204, ""},
+		{"invalid token", domain.ErrInvalidToken, 400, "invalid_token"},
+		{"weak password", domain.ErrWeakPassword, 400, "weak_password"},
+		{"rate limited", domain.ErrRateLimited, 429, "rate_limited"},
+		{"internal", errors.New("boom"), 500, "internal_error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &fakeService{resetErr: tt.err}
+			rec := do(t, newServer(svc), "POST", "/auth/reset", `{"token":"t","password":"pw"}`, "")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rec.Code, tt.wantStatus)
+			}
+			if tt.wantError != "" && decodeMap(t, rec)["error"] != tt.wantError {
+				t.Fatalf("body = %s", rec.Body)
+			}
+			if svc.gotVerifyToken != "t" || svc.gotPassword != "pw" {
+				t.Errorf("args = %q %q", svc.gotVerifyToken, svc.gotPassword)
+			}
+		})
+	}
+}
+
+func TestResetDoesNotCallVerify(t *testing.T) {
+	svc := &fakeService{verifyErr: errors.New("verify must not run"), resetErr: nil}
+	if rec := do(t, newServer(svc), "POST", "/auth/reset", `{"token":"t","password":"pw"}`, ""); rec.Code != 204 {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body)
+	}
+}
+
+func TestForgot(t *testing.T) {
+	tests := []struct {
+		name       string
+		svc        fakeService
+		body       string
+		wantStatus int
+		wantKey    string
+		wantValue  string
+	}{
+		{"any account looks the same", fakeService{}, `{"email":"a@b.co"}`, 200, "status", "reset_requested"},
+		{"invalid email", fakeService{forgotErr: domain.ErrInvalidEmail}, `{"email":"nope"}`, 400, "error", "invalid_email"},
+		{"rate limited", fakeService{forgotErr: domain.ErrRateLimited}, `{"email":"a@b.co"}`, 429, "error", "rate_limited"},
+		{"internal error hides details", fakeService{forgotErr: errors.New("db password=hunter2")}, `{"email":"a@b.co"}`, 500, "error", "internal_error"},
+		{"malformed json", fakeService{}, `{`, 400, "error", "invalid_request"},
+		{"unknown field", fakeService{}, `{"email":"a@b.co","extra":1}`, 400, "error", "invalid_request"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := tt.svc
+			rec := do(t, newServer(&svc), "POST", "/auth/forgot", tt.body, "")
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, tt.wantStatus, rec.Body)
+			}
+			if got := decodeMap(t, rec)[tt.wantKey]; got != tt.wantValue {
+				t.Fatalf("%s = %v, want %q", tt.wantKey, got, tt.wantValue)
+			}
+			if strings.Contains(rec.Body.String(), "hunter2") {
+				t.Error("internal details leaked")
+			}
+		})
+	}
+}
+
+func TestForgotPassesEmailAndPeerIP(t *testing.T) {
+	svc := &fakeService{}
+	do(t, newServer(svc), "POST", "/auth/forgot", `{"email":"A@b.co"}`, "")
+	if svc.gotEmail != "A@b.co" || svc.gotIP != "203.0.113.9" {
+		t.Errorf("got email %q ip %q", svc.gotEmail, svc.gotIP)
 	}
 }
 

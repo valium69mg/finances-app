@@ -107,13 +107,21 @@ type fakeVerification struct {
 }
 
 func (f *fakeVerification) Create(_ context.Context, t domain.VerificationToken) error {
+	if t.Purpose == domain.PurposeReset {
+		for _, old := range f.tokens {
+			if old.UserID == t.UserID && old.Purpose == domain.PurposeReset && old.UsedAt == nil {
+				used := t.ExpiresAt
+				old.UsedAt = &used
+			}
+		}
+	}
 	f.tokens[t.Hash] = &t
 	return nil
 }
 
-func (f *fakeVerification) Consume(_ context.Context, hash string, now time.Time) (string, error) {
+func (f *fakeVerification) Consume(_ context.Context, hash string, purpose domain.TokenPurpose, now time.Time) (string, error) {
 	t, ok := f.tokens[hash]
-	if !ok || t.UsedAt != nil || !now.Before(t.ExpiresAt) {
+	if !ok || t.Purpose != purpose || t.UsedAt != nil || !now.Before(t.ExpiresAt) {
 		return "", domain.ErrNotFound
 	}
 	t.UsedAt = &now
@@ -124,6 +132,8 @@ type sentMail struct{ to, link string }
 
 type fakeMailer struct {
 	sent []sentMail
+	// resets records the password reset variant separately.
+	resets []sentMail
 	// invited records the invitation variant separately from the verification one.
 	invited []sentMail
 	err     error
@@ -134,6 +144,14 @@ func (f *fakeMailer) SendInvitation(_ context.Context, to, link string) error {
 		return f.err
 	}
 	f.invited = append(f.invited, sentMail{to, link})
+	return nil
+}
+
+func (f *fakeMailer) SendPasswordReset(_ context.Context, to, link string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.resets = append(f.resets, sentMail{to, link})
 	return nil
 }
 
@@ -1192,4 +1210,299 @@ func mustToken(t *testing.T, link string) string {
 		t.Fatalf("link %q has no token (%v)", link, err)
 	}
 	return u.Query().Get("token")
+}
+
+// resetToken asks for a reset for email and returns the raw token of the last reset mail.
+func resetToken(t *testing.T, e *env, email, ip string) string {
+	t.Helper()
+	if err := e.svc.RequestPasswordReset(ctx, email, ip); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.mailer.resets) == 0 {
+		t.Fatal("no reset email sent")
+	}
+	u, err := url.Parse(e.mailer.resets[len(e.mailer.resets)-1].link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u.Query().Get("token")
+}
+
+func TestRequestPasswordReset(t *testing.T) {
+	tests := []struct {
+		name       string
+		email      string
+		wantErr    error
+		wantReset  bool
+		wantVerify bool
+	}{
+		{"verified account gets a reset email", verifiedEmail, nil, true, false},
+		{"email is normalized", "  OK@Example.com ", nil, true, false},
+		{"unverified account gets the verification email, like identify", unverifiedEmail, nil, false, true},
+		{"unknown email sends nothing", "ghost@example.com", nil, false, false},
+		{"malformed", "not-an-email", domain.ErrInvalidEmail, false, false},
+		{"empty", "", domain.ErrInvalidEmail, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			err := e.svc.RequestPasswordReset(ctx, tt.email, "1.2.3.4")
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			if got := len(e.mailer.resets) == 1; got != tt.wantReset {
+				t.Errorf("reset mail sent = %v, want %v", got, tt.wantReset)
+			}
+			if got := len(e.mailer.sent) == 1; got != tt.wantVerify {
+				t.Errorf("verification mail sent = %v, want %v", got, tt.wantVerify)
+			}
+		})
+	}
+}
+
+func TestRequestPasswordResetInactiveSendsNothing(t *testing.T) {
+	e := newEnv(t)
+	u := e.users.byID["u1"]
+	u.Active = false
+	e.users.byID["u1"] = u
+	if err := e.svc.RequestPasswordReset(ctx, verifiedEmail, "ip"); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.mailer.resets)+len(e.mailer.sent) != 0 || len(e.verif.tokens) != 0 {
+		t.Fatalf("mails=%d tokens=%d, want none", len(e.mailer.resets)+len(e.mailer.sent), len(e.verif.tokens))
+	}
+}
+
+func TestRequestPasswordResetMailFailureStaysGeneric(t *testing.T) {
+	e := newEnv(t)
+	e.mailer.err = errors.New("resend down")
+	if err := e.svc.RequestPasswordReset(ctx, verifiedEmail, "ip"); err != nil {
+		t.Fatalf("err = %v, want nil (the answer must not reveal the failure)", err)
+	}
+}
+
+func TestResetEmailContent(t *testing.T) {
+	e := newEnv(t)
+	raw := resetToken(t, e, verifiedEmail, "ip")
+	m := e.mailer.resets[0]
+	u, err := url.Parse(m.link)
+	if err != nil || m.to != verifiedEmail || u.Host != "app.example.com" || u.Path != "/restablecer" {
+		t.Fatalf("mail = %+v (%v)", m, err)
+	}
+	stored, ok := e.verif.tokens[domain.HashToken(raw)]
+	if !ok {
+		t.Fatal("token hash not stored")
+	}
+	if _, plain := e.verif.tokens[raw]; plain {
+		t.Error("raw token must not be stored")
+	}
+	if stored.Purpose != domain.PurposeReset || !stored.ExpiresAt.Equal(t0.Add(time.Hour)) {
+		t.Errorf("stored = %+v, want a reset token expiring in 1 hour", stored)
+	}
+}
+
+func TestRequestPasswordResetIPLimit(t *testing.T) {
+	e := newEnv(t)
+	for i := range app.ForgotIPLimit {
+		if err := e.svc.RequestPasswordReset(ctx, "ghost@example.com", "ip"); err != nil {
+			t.Fatalf("call %d: %v", i, err)
+		}
+	}
+	if err := e.svc.RequestPasswordReset(ctx, verifiedEmail, "ip"); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("over the limit: %v, want ErrRateLimited", err)
+	}
+	if len(e.mailer.resets) != 0 {
+		t.Error("a rate limited request must send nothing")
+	}
+	if err := e.svc.RequestPasswordReset(ctx, verifiedEmail, "other-ip"); err != nil {
+		t.Fatalf("other IP: %v", err)
+	}
+	e.clock.now = t0.Add(app.ForgotIPWindow)
+	if err := e.svc.RequestPasswordReset(ctx, verifiedEmail, "ip"); err != nil {
+		t.Fatalf("after the window: %v", err)
+	}
+}
+
+func TestRequestPasswordResetDoesNotConsumeIdentifyBudget(t *testing.T) {
+	e := newEnv(t)
+	for range app.ForgotIPLimit {
+		_ = e.svc.RequestPasswordReset(ctx, "ghost@example.com", "ip")
+	}
+	if _, err := e.svc.Identify(ctx, verifiedEmail, "ip"); err != nil {
+		t.Fatalf("identify after exhausting the forgot budget: %v", err)
+	}
+}
+
+func TestResetEmailFollowsTheVerificationEmailBudget(t *testing.T) {
+	e := newEnv(t)
+	// Cooldown: one per 60 s per address.
+	_ = e.svc.RequestPasswordReset(ctx, verifiedEmail, "ip-1")
+	_ = e.svc.RequestPasswordReset(ctx, verifiedEmail, "ip-2")
+	if len(e.mailer.resets) != 1 {
+		t.Fatalf("resets = %d, want 1 (second inside the cooldown is suppressed)", len(e.mailer.resets))
+	}
+	// Hourly cap: five per hour, shared with the verification email.
+	for i := 1; i < app.VerifyMailHourlyLimit; i++ {
+		e.clock.now = e.clock.now.Add(app.VerifyMailCooldown)
+		_ = e.svc.RequestPasswordReset(ctx, verifiedEmail, ipN(i))
+	}
+	if len(e.mailer.resets) != app.VerifyMailHourlyLimit {
+		t.Fatalf("resets = %d, want %d", len(e.mailer.resets), app.VerifyMailHourlyLimit)
+	}
+	e.clock.now = e.clock.now.Add(app.VerifyMailCooldown)
+	_ = e.svc.RequestPasswordReset(ctx, verifiedEmail, "ip-x")
+	if len(e.mailer.resets) != app.VerifyMailHourlyLimit {
+		t.Fatalf("resets = %d after the cap, want %d", len(e.mailer.resets), app.VerifyMailHourlyLimit)
+	}
+}
+
+func TestResetSuppressedRequestStaysNeutral(t *testing.T) {
+	e := newEnv(t)
+	for i := range 3 {
+		if err := e.svc.RequestPasswordReset(ctx, verifiedEmail, ipN(i)); err != nil {
+			t.Fatalf("request %d: %v (suppressed requests must look identical)", i, err)
+		}
+	}
+}
+
+func TestNewerResetInvalidatesOlderOnes(t *testing.T) {
+	e := newEnv(t)
+	first := resetToken(t, e, verifiedEmail, "ip-1")
+	e.clock.now = t0.Add(app.VerifyMailCooldown)
+	second := resetToken(t, e, verifiedEmail, "ip-2")
+	if first == second {
+		t.Fatal("tokens must be distinct")
+	}
+	if err := e.svc.CompleteReset(ctx, first, "brand new passphrase", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("older token: %v, want ErrInvalidToken", err)
+	}
+	if err := e.svc.CompleteReset(ctx, second, "brand new passphrase", testIP); err != nil {
+		t.Fatalf("newer token: %v", err)
+	}
+}
+
+func TestCompleteReset(t *testing.T) {
+	const newPassword = "brand new passphrase"
+	tests := []struct {
+		name     string
+		password string
+		advance  time.Duration
+		token    func(real string) string
+		wantErr  error
+	}{
+		{"valid", newPassword, 0, func(r string) string { return r }, nil},
+		{"weak password", "short", 0, func(r string) string { return r }, domain.ErrWeakPassword},
+		{"unknown token", newPassword, 0, func(string) string { return "bogus" }, domain.ErrInvalidToken},
+		{"expired", newPassword, domain.VerificationTokenTTL, func(r string) string { return r }, domain.ErrInvalidToken},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			raw := resetToken(t, e, verifiedEmail, "ip")
+			e.clock.now = t0.Add(tt.advance)
+			err := e.svc.CompleteReset(ctx, tt.token(raw), tt.password, testIP)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tt.wantErr)
+			}
+			u := e.users.byID["u1"]
+			if !u.Verified {
+				t.Error("the account must stay verified")
+			}
+			if changed := domain.CheckPassword(u.PasswordHash, tt.password); changed != (tt.wantErr == nil) {
+				t.Errorf("new password stored = %v, want %v", changed, tt.wantErr == nil)
+			}
+			if tt.wantErr != nil && !domain.CheckPassword(u.PasswordHash, password) {
+				t.Error("a failed reset must keep the old password")
+			}
+		})
+	}
+}
+
+func TestCompleteResetSingleUse(t *testing.T) {
+	e := newEnv(t)
+	raw := resetToken(t, e, verifiedEmail, "ip")
+	if err := e.svc.CompleteReset(ctx, raw, "brand new passphrase", testIP); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.CompleteReset(ctx, raw, "another passphrase!", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("second use: %v, want ErrInvalidToken", err)
+	}
+	if !domain.CheckPassword(e.users.byID["u1"].PasswordHash, "brand new passphrase") {
+		t.Error("second use must not change the password")
+	}
+}
+
+func TestWeakPasswordDoesNotBurnResetToken(t *testing.T) {
+	e := newEnv(t)
+	raw := resetToken(t, e, verifiedEmail, "ip")
+	if err := e.svc.CompleteReset(ctx, raw, "short", testIP); !errors.Is(err, domain.ErrWeakPassword) {
+		t.Fatal(err)
+	}
+	if err := e.svc.CompleteReset(ctx, raw, "a valid passphrase", testIP); err != nil {
+		t.Fatalf("token must still be usable: %v", err)
+	}
+}
+
+func TestCompleteResetRevokesRefreshTokens(t *testing.T) {
+	e := newEnv(t)
+	e.refresh.tokens["h1"] = &domain.RefreshToken{Hash: "h1", UserID: "u1", ExpiresAt: t0.Add(time.Hour)}
+	e.refresh.tokens["h2"] = &domain.RefreshToken{Hash: "h2", UserID: "u1", ExpiresAt: t0.Add(time.Hour)}
+	e.refresh.tokens["other"] = &domain.RefreshToken{Hash: "other", UserID: "u2", ExpiresAt: t0.Add(time.Hour)}
+	raw := resetToken(t, e, verifiedEmail, "ip")
+	if err := e.svc.CompleteReset(ctx, raw, "brand new passphrase", testIP); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.refresh.liveCount("u1"); n != 0 {
+		t.Fatalf("live refresh tokens = %d, want 0", n)
+	}
+	if n := e.refresh.liveCount("u2"); n != 1 {
+		t.Fatalf("another user's tokens = %d, want untouched", n)
+	}
+}
+
+func TestResetThenLogin(t *testing.T) {
+	e := newEnv(t)
+	raw := resetToken(t, e, verifiedEmail, "ip")
+	if err := e.svc.CompleteReset(ctx, raw, "brand new passphrase", testIP); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, password, "ip"); !errors.Is(err, domain.ErrInvalidCredentials) {
+		t.Errorf("old password: %v, want ErrInvalidCredentials", err)
+	}
+	if _, err := e.svc.Login(ctx, verifiedEmail, "brand new passphrase", "ip"); err != nil {
+		t.Errorf("new password: %v", err)
+	}
+}
+
+func TestTokensOnlyWorkForTheirOwnPurpose(t *testing.T) {
+	e := newEnv(t)
+	reset := resetToken(t, e, verifiedEmail, "ip")
+	if err := e.svc.CompleteVerification(ctx, reset, "brand new passphrase", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("reset token on verify: %v, want ErrInvalidToken", err)
+	}
+	verification := requestToken(t, e)
+	if err := e.svc.CompleteReset(ctx, verification, "brand new passphrase", testIP); !errors.Is(err, domain.ErrInvalidToken) {
+		t.Fatalf("verification token on reset: %v, want ErrInvalidToken", err)
+	}
+	// Neither failed attempt burned the other flow's token.
+	if err := e.svc.CompleteReset(ctx, reset, "brand new passphrase", testIP); err != nil {
+		t.Fatalf("reset token after the wrong-purpose attempt: %v", err)
+	}
+	if err := e.svc.CompleteVerification(ctx, verification, "brand new passphrase", testIP); err != nil {
+		t.Fatalf("verification token after the wrong-purpose attempt: %v", err)
+	}
+}
+
+func TestResetSharesTheVerifyIPBudget(t *testing.T) {
+	e := newEnv(t)
+	for range app.VerifyIPLimit / 2 {
+		_ = e.svc.CompleteVerification(ctx, "bogus", "a valid passphrase", testIP)
+		_ = e.svc.CompleteReset(ctx, "bogus", "a valid passphrase", testIP)
+	}
+	if err := e.svc.CompleteReset(ctx, "bogus", "a valid passphrase", testIP); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("reset over the shared budget: %v, want ErrRateLimited", err)
+	}
+	if err := e.svc.CompleteVerification(ctx, "bogus", "a valid passphrase", testIP); !errors.Is(err, domain.ErrRateLimited) {
+		t.Fatalf("verify over the shared budget: %v, want ErrRateLimited", err)
+	}
 }

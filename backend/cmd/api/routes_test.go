@@ -29,6 +29,8 @@ var publicRoutes = []string{
 	"POST /auth/refresh",
 	"POST /auth/logout",
 	"POST /auth/verify",
+	"POST /auth/forgot",
+	"POST /auth/reset",
 }
 
 // fakeAuth is the auth use case behind the real auth handler: only
@@ -46,6 +48,8 @@ func (fakeAuth) Refresh(context.Context, string, string) (*authapp.Session, erro
 }
 func (fakeAuth) Logout(context.Context, string) error                               { return nil }
 func (fakeAuth) CompleteVerification(context.Context, string, string, string) error { return nil }
+func (fakeAuth) RequestPasswordReset(context.Context, string, string) error         { return nil }
+func (fakeAuth) CompleteReset(context.Context, string, string, string) error        { return nil }
 func (fakeAuth) Authenticate(token string) (session.Identity, error) {
 	switch token {
 	case "owner":

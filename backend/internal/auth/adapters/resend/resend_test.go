@@ -168,3 +168,30 @@ func TestSendInvitation(t *testing.T) {
 		t.Errorf("html body must contain the escaped link: %q", htmlBody)
 	}
 }
+
+func TestSendPasswordReset(t *testing.T) {
+	const link = "https://app.example.com/restablecer?token=abc&x=1"
+
+	var got map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	m := resend.New("re_test_key", "avisos@example.com", srv.URL, srv.Client())
+	if err := m.SendPasswordReset(context.Background(), "me@example.com", link); err != nil {
+		t.Fatal(err)
+	}
+	if s, _ := got["subject"].(string); !strings.Contains(s, "Restablece") {
+		t.Errorf("subject = %q, want the reset copy", s)
+	}
+	text, _ := got["text"].(string)
+	if !strings.Contains(text, link) || !strings.Contains(text, "1 hora") || !strings.Contains(text, "puedes ignorarlo") {
+		t.Errorf("text body = %q", text)
+	}
+	htmlBody, _ := got["html"].(string)
+	if !strings.Contains(htmlBody, "token=abc&amp;x=1") {
+		t.Errorf("html body must contain the escaped link: %q", htmlBody)
+	}
+}
