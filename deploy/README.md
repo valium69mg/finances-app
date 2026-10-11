@@ -7,11 +7,10 @@ certificate, serves the frontend and proxies `/api/*` to the backend on the same
 ```
 browser --HTTPS--> Cloudflare --HTTPS (Full strict)--> VM:443 nginx --+--> static SPA
                                                                       +--> /api/* -> api -> postgres
-                                                                                        \-> minio (until the S3 cutover)
-                                                                                        \-> AWS S3 (after it; instance role)
+                                                                                        \-> AWS S3 (instance role)
 ```
 
-- Only **nginx** publishes ports (80 and 443). `api`, `postgres` and `minio` live on an
+- Only **nginx** publishes ports (80 and 443). `api` and `postgres` live on an
   internal Docker network with no route to the internet (the API also joins a second
   network for outbound HTTPS to Resend).
 - The dev `docker-compose.yml` at the repo root is unrelated and untouched.
@@ -23,7 +22,7 @@ Files:
 
 | Path | Purpose |
 | --- | --- |
-| `docker-compose.prod.yml` | the stack: nginx, api, migrate (one-shot), postgres, minio |
+| `docker-compose.prod.yml` | the stack: nginx, api, migrate (one-shot), postgres |
 | `prod.env.example` | environment template (placeholders only) |
 | `backend.Dockerfile`, `frontend.Dockerfile` | multi-stage, non-root images |
 | `nginx/` | nginx.conf, site template, snippets (headers, CSP, proxy), Cloudflare ranges |
@@ -35,8 +34,7 @@ Files:
 ## 1. Prerequisites
 
 - A VM with 2 GB RAM (Linux), Docker Engine and the Compose plugin, `git`, `openssl`, `curl`.
-  The stack is capped at about 1.1 GB (nginx 128 MB, api 192 MB, postgres 512 MB,
-  minio 256 MB).
+  The stack is capped at about 1.1 GB (nginx 128 MB, api 192 MB, postgres 512 MB).
 - A domain on Cloudflare (this README says `finances.example.com`; nothing in the repo
   hardcodes your real one, it comes from `DOMAIN` in the env file).
 - A Resend API key (email verification). `onboarding@resend.dev` only delivers to the Resend
@@ -119,7 +117,7 @@ refuses to start while a required variable is missing). Variables:
 | --- | --- |
 | `DOMAIN` | public host name, no scheme (nginx `server_name`, redirects) |
 | `APP_BASE_URL` | optional, defaults to `https://$DOMAIN` (email links, CORS origin) |
-| `POSTGRES_*`, `MINIO_ROOT_*`, `JWT_SECRET`, `RESEND_API_KEY`, `RESEND_FROM` | secrets and sender |
+| `POSTGRES_*`, `JWT_SECRET`, `RESEND_API_KEY`, `RESEND_FROM` | secrets and sender |
 | `REMINDERS_ENABLED`, `TZ_NAME`, `DISK_ALERT_PCT` | optional: email reminders on/off (default `true`), zone that defines "today" (default `America/Mexico_City`), used-disk percent that triggers the alert (default `80`); the disk is measured through the empty `/srv/finances/probe` directory mounted at `/probe` |
 | `S3_ENDPOINT`, `S3_USE_SSL`, `S3_REGION`, `S3_BUCKET`, `S3_USE_IAM` | object storage; MinIO inside the stack by default. At the cutover set `s3.us-east-2.amazonaws.com`, `true`, `us-east-2`, the bucket from `terraform output data_bucket_name` and `true` (instance role, no keys; section 12) |
 | `BACKUP_STATUS_PATH` | optional: `/backup/last-success` arms the backup alert and the "Último respaldo" line of the Sistema tab (set it after the first backup succeeded); empty = off |

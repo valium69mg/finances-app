@@ -1,10 +1,10 @@
-# Production stack for a single 2 GB VM: nginx (edge) + api + postgres + minio, plus a
-# one-shot migration job. Separate from the development ../docker-compose.yml, which is
+# Production stack for a single 2 GB VM: nginx (edge) + api + postgres, plus a
+# one-shot migration job. Documents live in AWS S3 (instance role). Separate from the development ../docker-compose.yml, which is
 # untouched. Runbook: deploy/README.md.
 #
 #   docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml up -d --build
 #
-# Only nginx publishes ports (80 and 443). Postgres, MinIO and the API are reachable only
+# Only nginx publishes ports (80 and 443). Postgres and the API are reachable only
 # from inside the `backend` network, which has no route to the internet.
 
 name: ${COMPOSE_PROJECT_NAME:-finances-prod}
@@ -68,8 +68,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      minio:
-        condition: service_healthy
     environment:
       APP_ENV: production
       LOG_FORMAT: json
@@ -82,16 +80,12 @@ services:
       # Trust X-Real-IP only from the nginx container (fixed address below). Empty would
       # make every client share nginx's IP in the per-IP login limiter.
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.29.42.10}
-      # Object storage: MinIO inside the stack by default; AWS S3 with the instance role
-      # when .env.prod sets S3_ENDPOINT, S3_USE_SSL, S3_REGION, S3_BUCKET and S3_USE_IAM
-      # (cutover runbook in deploy/README.md). The MinIO keys below are ignored with IAM.
-      S3_ENDPOINT: ${S3_ENDPOINT:-minio:9000}
-      S3_USE_SSL: ${S3_USE_SSL:-false}
-      S3_REGION: ${S3_REGION:-us-east-1}
-      S3_BUCKET: ${S3_BUCKET:-finances-invoices}
-      S3_USE_IAM: ${S3_USE_IAM:-false}
-      S3_ACCESS_KEY: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
-      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      # Object storage: AWS S3 with the instance role (no keys). All five are set in .env.prod.
+      S3_ENDPOINT: ${S3_ENDPOINT:?set S3_ENDPOINT (s3.us-east-2.amazonaws.com)}
+      S3_USE_SSL: ${S3_USE_SSL:-true}
+      S3_REGION: ${S3_REGION:?set S3_REGION (us-east-2)}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET (terraform output data_bucket_name)}
+      S3_USE_IAM: ${S3_USE_IAM:-true}
       GOMEMLIMIT: 150MiB
       # Reminders: the zone defines "today" for due dates; the disk alert measures the
       # filesystem under /probe (see the volume below).
@@ -186,43 +180,8 @@ services:
       start_period: 15s
     logging: *logging
 
-  minio:
-    # Same pinned Chainguard build as the development compose (MinIO no longer publishes
-    # pullable official images).
-    image: cgr.dev/chainguard/minio:latest@sha256:71674988a1c7ddd5724928633199152b11e4ddefd6c6ce2d60772ff4a8f22ca9
-    restart: unless-stopped
-    command: ["server", "/data"]
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
-      MINIO_BROWSER: "off"            # no web console: nothing to expose or attack
-      MINIO_API_REQUESTS_MAX: "32"    # bound concurrent S3 requests (memory)
-      GOMEMLIMIT: 192MiB
-    volumes:
-      - minio-data:/data
-    mem_limit: 256m
-    pids_limit: 200
-    networks:
-      - backend
-    healthcheck:
-      # The image has bash but no curl/wget: probe the liveness endpoint over /dev/tcp.
-      test:
-        - CMD
-        - bash
-        - -c
-        - >-
-          exec 3<>/dev/tcp/127.0.0.1/9000 &&
-          printf 'GET /minio/health/live HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
-          read -r status <&3 &&
-          [[ $$status == *200* ]]
-      interval: 10s
-      timeout: 3s
-      retries: 10
-      start_period: 10s
-    logging: *logging
-
 networks:
-  # No route to the internet: postgres and minio can neither be reached from outside nor
+  # No route to the internet: postgres can neither be reached from outside nor
   # call out.
   backend:
     internal: true
@@ -234,4 +193,6 @@ networks:
 
 volumes:
   postgres-data:
+  # No service uses it any more. Declared on purpose so `down -v` and compose never delete the old
+  # MinIO data: remove it by hand (docker volume rm finances-prod_minio-data) once the owner confirms.
   minio-data:
