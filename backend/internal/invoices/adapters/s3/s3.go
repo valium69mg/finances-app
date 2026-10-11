@@ -15,7 +15,8 @@ import (
 )
 
 // Config selects the S3 endpoint and credentials. Endpoint is host:port
-// without a scheme; UseSSL selects https.
+// without a scheme; UseSSL selects https. With UseIAM the credentials come from
+// the instance role (IMDS) and AccessKey and SecretKey are ignored.
 type Config struct {
 	Endpoint  string
 	AccessKey string
@@ -23,6 +24,7 @@ type Config struct {
 	Bucket    string
 	Region    string
 	UseSSL    bool
+	UseIAM    bool
 }
 
 // Store is an app.ObjectStore on one bucket.
@@ -30,25 +32,35 @@ type Store struct {
 	client *minio.Client
 	bucket string
 	region string
+	// createBucket lets EnsureBucket create a missing bucket. It is off with the
+	// instance role, which has no CreateBucket permission: there the bucket is
+	// provisioned by Terraform and a missing one is an error.
+	createBucket bool
 }
 
 var _ app.ObjectStore = (*Store)(nil)
 
 // New builds a Store. It does not contact the server; call EnsureBucket at startup.
 func New(cfg Config) (*Store, error) {
+	creds := credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, "")
+	if cfg.UseIAM {
+		creds = credentials.NewIAM("")
+	}
 	client, err := minio.New(cfg.Endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""),
+		Creds:  creds,
 		Secure: cfg.UseSSL,
 		Region: cfg.Region,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("s3 client: %w", err)
 	}
-	return &Store{client: client, bucket: cfg.Bucket, region: cfg.Region}, nil
+	return &Store{client: client, bucket: cfg.Bucket, region: cfg.Region, createBucket: !cfg.UseIAM}, nil
 }
 
-// EnsureBucket creates the bucket when it does not exist. New buckets are
-// private (no policy is attached).
+// EnsureBucket checks that the bucket exists and, for a store that may create
+// it (static keys, MinIO in development), creates it when missing. New buckets
+// are private (no policy is attached). With the instance role a missing bucket
+// is an error, so the lazy store keeps retrying until it exists.
 func (s *Store) EnsureBucket(ctx context.Context) error {
 	exists, err := s.client.BucketExists(ctx, s.bucket)
 	if err != nil {
@@ -56,6 +68,9 @@ func (s *Store) EnsureBucket(ctx context.Context) error {
 	}
 	if exists {
 		return nil
+	}
+	if !s.createBucket {
+		return fmt.Errorf("bucket %q does not exist and this store is not allowed to create it", s.bucket)
 	}
 	if err := s.client.MakeBucket(ctx, s.bucket, minio.MakeBucketOptions{Region: s.region}); err != nil {
 		// Another process may have created it in the meantime.

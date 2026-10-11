@@ -92,13 +92,13 @@ func main() {
 // without a restart.
 func invoiceStore(ctx context.Context, cfg config.S3) invoicesapp.ObjectStore {
 	if !cfg.Configured() {
-		slog.Warn("object storage is not configured (set S3_ACCESS_KEY and S3_SECRET_KEY, or MINIO_ROOT_USER and MINIO_ROOT_PASSWORD): " +
+		slog.Warn("object storage is not configured (set S3_USE_IAM=true, or S3_ACCESS_KEY and S3_SECRET_KEY, or MINIO_ROOT_USER and MINIO_ROOT_PASSWORD): " +
 			"invoice file routes answer 503 storage_unavailable, every other route works")
-		return invoicess3.NewDisabled("S3_ACCESS_KEY and S3_SECRET_KEY (or MINIO_ROOT_USER and MINIO_ROOT_PASSWORD) are not set")
+		return invoicess3.NewDisabled("S3_USE_IAM, S3_ACCESS_KEY and S3_SECRET_KEY (or MINIO_ROOT_USER and MINIO_ROOT_PASSWORD) are not set")
 	}
 	store, err := invoicess3.New(invoicess3.Config{
 		Endpoint: cfg.Endpoint, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey,
-		Bucket: cfg.Bucket, Region: cfg.Region, UseSSL: cfg.UseSSL,
+		Bucket: cfg.Bucket, Region: cfg.Region, UseSSL: cfg.UseSSL, UseIAM: cfg.UseIAM,
 	})
 	if err != nil {
 		slog.Warn("object storage client could not be built: invoice file routes answer 503 storage_unavailable", "error", err)
@@ -110,7 +110,7 @@ func invoiceStore(ctx context.Context, cfg config.S3) invoicesapp.ObjectStore {
 	checkCtx, cancel := context.WithTimeout(ctx, storageStartupTimeout)
 	defer cancel()
 	if err := lazy.Prepare(checkCtx); err != nil {
-		slog.Warn("object storage is not reachable yet: the API starts anyway and retries on demand (is MinIO up? run make db-up)")
+		slog.Warn("object storage is not reachable yet: the API starts anyway and retries on demand (is the storage up? in development run make db-up)")
 	}
 	return lazy
 }

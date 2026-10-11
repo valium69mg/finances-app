@@ -69,6 +69,9 @@ type S3 struct {
 	Bucket    string
 	Region    string
 	UseSSL    bool
+	// UseIAM selects the instance role (IMDS) credentials, as on the production
+	// VM with AWS S3. The access and secret keys are then ignored.
+	UseIAM bool
 }
 
 // Load reads the configuration using getenv (typically os.Getenv) and fails fast
@@ -213,6 +216,8 @@ func loadReminders(getenv func(string) string, cfg *Config) []error {
 // local .env needs no extra keys; a real deployment sets S3_ACCESS_KEY and
 // S3_SECRET_KEY for a dedicated identity. When neither pair is set the storage
 // is left unconfigured (S3.Configured is false) instead of failing the load.
+// S3_USE_IAM=true switches to the instance role credentials: no keys are needed
+// (any that are set are ignored) and TLS is required.
 func loadS3(getenv func(string) string) (S3, []error) {
 	var errs []error
 	get := func(key string) string { return strings.TrimSpace(getenv(key)) }
@@ -249,7 +254,20 @@ func loadS3(getenv func(string) string) (S3, []error) {
 		}
 		s3.UseSSL = ssl
 	}
-	if isPlaceholder(s3.AccessKey) || isPlaceholder(s3.SecretKey) {
+	if raw := get("S3_USE_IAM"); raw != "" {
+		iam, err := strconv.ParseBool(raw)
+		if err != nil {
+			errs = append(errs, errors.New("S3_USE_IAM is invalid: use true or false"))
+		}
+		s3.UseIAM = iam
+	}
+	if s3.UseIAM {
+		if !s3.UseSSL {
+			errs = append(errs, errors.New("S3_USE_IAM requires S3_USE_SSL=true"))
+		}
+		// The keys are not used: dropping them keeps them out of the client.
+		s3.AccessKey, s3.SecretKey = "", ""
+	} else if isPlaceholder(s3.AccessKey) || isPlaceholder(s3.SecretKey) {
 		errs = append(errs, errors.New("S3_ACCESS_KEY/S3_SECRET_KEY (or the MinIO root credentials) still hold a placeholder value"))
 	}
 	// Missing credentials are not an error: the object storage is optional at
@@ -259,9 +277,10 @@ func loadS3(getenv func(string) string) (S3, []error) {
 }
 
 // Configured reports whether the credentials needed to talk to the object
-// storage are set. Without them the API still starts and the file routes
-// answer 503 storage_unavailable.
-func (s S3) Configured() bool { return s.AccessKey != "" && s.SecretKey != "" }
+// storage are set: the instance role (UseIAM) or an access and secret key.
+// Without them the API still starts and the file routes answer 503
+// storage_unavailable.
+func (s S3) Configured() bool { return s.UseIAM || (s.AccessKey != "" && s.SecretKey != "") }
 
 // placeholderMarker is what .env.prod.example puts in every secret. A value that
 // still contains it was copied without being filled in, so the API refuses to

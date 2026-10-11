@@ -74,6 +74,47 @@ func TestLoad(t *testing.T) {
 			want: want(func(c *config.Config) { c.S3.AccessKey, c.S3.SecretKey = "app-key", "app-secret" }),
 		},
 		{
+			name: "instance role needs no keys and drops the ones set",
+			vars: base(map[string]string{
+				"S3_USE_IAM": "true", "S3_USE_SSL": "true", "S3_ENDPOINT": "s3.us-east-2.amazonaws.com",
+				"S3_REGION": "us-east-2", "S3_BUCKET": "docs",
+			}),
+			want: want(func(c *config.Config) {
+				c.S3 = config.S3{
+					Endpoint: "s3.us-east-2.amazonaws.com", Bucket: "docs", Region: "us-east-2",
+					UseSSL: true, UseIAM: true,
+				}
+			}),
+		},
+		{
+			name: "instance role without any MinIO credentials is still configured",
+			vars: base(map[string]string{
+				"MINIO_ROOT_USER": "", "MINIO_ROOT_PASSWORD": "", "S3_USE_IAM": "true", "S3_USE_SSL": "true",
+			}),
+			want: want(func(c *config.Config) {
+				c.S3.AccessKey, c.S3.SecretKey, c.S3.UseSSL, c.S3.UseIAM = "", "", true, true
+			}),
+		},
+		{
+			name:    "instance role requires TLS",
+			vars:    base(map[string]string{"S3_USE_IAM": "true"}),
+			wantErr: []string{"S3_USE_IAM requires S3_USE_SSL=true"},
+		},
+		{
+			name:    "invalid instance role flag",
+			vars:    base(map[string]string{"S3_USE_IAM": "yes please"}),
+			wantErr: []string{"S3_USE_IAM is invalid"},
+		},
+		{
+			name: "placeholder keys are ignored with the instance role",
+			vars: base(map[string]string{
+				"MINIO_ROOT_USER": "CHANGE_ME_user", "S3_USE_IAM": "true", "S3_USE_SSL": "true",
+			}),
+			want: want(func(c *config.Config) {
+				c.S3.AccessKey, c.S3.SecretKey, c.S3.UseSSL, c.S3.UseIAM = "", "", true, true
+			}),
+		},
+		{
 			name:    "malformed storage endpoint is still an error",
 			vars:    base(map[string]string{"S3_ENDPOINT": "http://localhost:9100"}),
 			wantErr: []string{"S3_ENDPOINT is invalid"},
@@ -249,6 +290,7 @@ func TestS3Configured(t *testing.T) {
 		{config.S3{AccessKey: "a"}, false},
 		{config.S3{SecretKey: "b"}, false},
 		{config.S3{}, false},
+		{config.S3{UseIAM: true}, true},
 	} {
 		if got := tc.s3.Configured(); got != tc.want {
 			t.Errorf("%+v Configured() = %v, want %v", tc.s3, got, tc.want)
