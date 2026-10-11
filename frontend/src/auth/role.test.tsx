@@ -145,6 +145,21 @@ describe("route guards", () => {
     expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).not.toContain("Lista de deseos");
   });
 
+  it("owner: Hogar is listed right after Peticiones; household neither lists nor reaches it", () => {
+    expect(canOpen("owner", "/hogar")).toBe(true);
+    expect(canOpen("household", "/hogar")).toBe(false);
+    signIn("owner");
+    renderApp("/sistema");
+    const nav = screen.getAllByRole("navigation", { name: "Módulos" })[0];
+    expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent).slice(0, 3)).toEqual(["Panel", "Peticiones", "Hogar"]);
+    cleanup();
+    signIn("household");
+    renderApp("/hogar");
+    expect(screen.getByText("dashboard page")).toBeInTheDocument();
+    const hers = screen.getAllByRole("navigation", { name: "Módulos" })[0];
+    expect(Array.from(hers.querySelectorAll("a")).map((a) => a.textContent)).not.toContain("Hogar");
+  });
+
   it("owner: modules and the navigation are unchanged", () => {
     signIn("owner");
     renderApp("/sistema");

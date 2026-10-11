@@ -63,6 +63,8 @@ export interface PersonalDeps {
   rangeOf: (month: string) => { from: string; to: string };
   json: Json;
   requests: RequestsPort;
+  /** Ids of the household users that exist (the owner's read-only view validates its target against them). */
+  householdIds: () => string[];
 }
 
 interface Category {
@@ -113,6 +115,8 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
   /** Months asked of GET /personal/dashboard and GET /personal/period, in order (empty when none was sent). */
   const dashboardMonths: string[] = [];
   const periodMonths: string[] = [];
+  /** Path and query of every GET the owner's read-only view sent, in order. */
+  const ownerReads: string[] = [];
 
   const categoryDto = (c: Category) => ({ id: c.id, kind: c.kind, name: c.name, fixed: c.kind !== "Gasto" });
   const movementDto = (m: Stored) => ({
@@ -497,11 +501,27 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
   async function handle(route: Route, request: Request, pathname: string, searchParams: URLSearchParams): Promise<boolean> {
     if (!pathname.startsWith("/personal/")) return false;
     const { json } = deps;
-    if (deps.role !== "household") {
+    const method = request.method();
+    if (deps.role === "owner") {
+      // Read-only: only GETs, each for an existing household user given as ?user_id=.
+      if (method !== "GET") {
+        await json(route, 403, { error: "forbidden" });
+        return true;
+      }
+      ownerReads.push(`${pathname}?${searchParams.toString()}`);
+      const target = searchParams.get("user_id") ?? "";
+      if (!target) {
+        await json(route, 400, { error: "invalid_personal", message: "user_id must be a user id" });
+        return true;
+      }
+      if (!deps.householdIds().includes(target)) {
+        await json(route, 404, { error: "not_found" });
+        return true;
+      }
+    } else if (deps.role !== "household") {
       await json(route, 403, { error: "forbidden" });
       return true;
     }
-    const method = request.method();
 
     if (pathname.startsWith("/personal/future-expenses")) return handleFuture(route, request, pathname);
     if (pathname.startsWith("/personal/wishlist")) return handleWishlist(route, request, pathname);
@@ -633,5 +653,5 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     return false;
   }
 
-  return { handle, writes, months, movementQueries, dashboardMonths, periodMonths, futureWrites, wishWrites };
+  return { handle, ownerReads, writes, months, movementQueries, dashboardMonths, periodMonths, futureWrites, wishWrites };
 }

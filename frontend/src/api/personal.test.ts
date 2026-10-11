@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError, createApiClient } from "./client";
-import { createPersonalApi } from "./personal";
+import { createPersonalApi, personalKeys } from "./personal";
 
 const json = (status: number, body?: unknown) =>
   new Response(body === undefined ? null : JSON.stringify(body), {
@@ -52,6 +52,27 @@ describe("personal api", () => {
     await expect(personal.categories("Gasto")).resolves.toEqual(cats);
     expect(call().url).toBe("http://x/personal/categories?kind=Gasto");
     expect((call().init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
+  });
+
+  it("adds the user_id of the owner's read-only view to every read and keys the cache by it", async () => {
+    const { personal, call } = setup(() => json(200, []));
+    await personal.dashboard("2026-10", "u1");
+    await personal.dashboard("", "u1");
+    await personal.period("2026-10", "u1");
+    await personal.categories("Gasto", "u1");
+    await personal.movements({ month: "2026-10", kind: "Gasto", categoryId: 4, userId: "u1" });
+    await personal.futureList("u1");
+    expect([0, 1, 2, 3, 4, 5].map((i) => call(i).url)).toEqual([
+      "http://x/personal/dashboard?month=2026-10&user_id=u1",
+      "http://x/personal/dashboard?user_id=u1",
+      "http://x/personal/period?month=2026-10&user_id=u1",
+      "http://x/personal/categories?kind=Gasto&user_id=u1",
+      "http://x/personal/movements?month=2026-10&kind=Gasto&category_id=4&user_id=u1",
+      "http://x/personal/future-expenses?user_id=u1",
+    ]);
+    expect(personalKeys.movements("Gasto", "2026-10", 4)).toEqual(["personal", "movements", "Gasto", "2026-10", 4]);
+    expect(personalKeys.movements("Gasto", "2026-10", 4, "u1")).toEqual(["personal", "movements", "Gasto", "2026-10", 4, "u1"]);
+    expect(personalKeys.dashboard("", "u1")).not.toEqual(personalKeys.dashboard("", "u2"));
   });
 
   it("creates and renames a category through the name body", async () => {

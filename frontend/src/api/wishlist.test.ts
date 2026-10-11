@@ -29,6 +29,13 @@ describe("wishlist api", () => {
     expect((call().init.headers as Record<string, string>).Authorization).toBe("Bearer tok");
   });
 
+  it("lists a household user's items for the owner's read-only view", async () => {
+    const { wishlist, call } = setup(() => json(200, []));
+    await wishlist.list("u1");
+    expect(call().url).toBe("http://x/personal/wishlist?user_id=u1");
+    expect(wishlistKeys.of("u1")).toEqual([...wishlistKeys.all, "u1"]);
+  });
+
   it("creates and updates through the item body", async () => {
     const { wishlist, call } = setup(() => json(200, { id: 1 }));
     const input = { name: "Bolsa", price: "499.90", category_id: 5, priority: "alta" as const, store_url: "https://tienda.example/b" };
