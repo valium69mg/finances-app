@@ -30,6 +30,33 @@ func TestLastSuccess(t *testing.T) {
 	}
 }
 
+func TestLastBackupReadsTheSize(t *testing.T) {
+	for name, tt := range map[string]struct {
+		content string
+		size    int64
+	}{
+		"timestamp only (old format)": {"2026-10-10T09:00:12Z\n", 0},
+		"with size":                   {"2026-10-10T09:00:12Z\nsize_bytes=1234567\n", 1234567},
+		"malformed size is ignored":   {"2026-10-10T09:00:12Z\nsize_bytes=lots\n", 0},
+		"unknown line is ignored":     {"2026-10-10T09:00:12Z\nfoo=bar\nsize_bytes=42\n", 42},
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := backupstatus.New(write(t, tt.content))
+			b, found, err := r.LastBackup(context.Background())
+			if err != nil || !found {
+				t.Fatalf("found = %v, err = %v", found, err)
+			}
+			if want := time.Date(2026, 10, 10, 9, 0, 12, 0, time.UTC); !b.At.Equal(want) || b.SizeBytes != tt.size {
+				t.Errorf("got %+v, want %v / %d", b, want, tt.size)
+			}
+			// The Sistema line keeps reading the same file through LastSuccess.
+			if at, found, err := r.LastSuccess(context.Background()); err != nil || !found || !at.Equal(b.At) {
+				t.Errorf("LastSuccess = %v, %v, %v", at, found, err)
+			}
+		})
+	}
+}
+
 func TestMissingFileIsNotAnError(t *testing.T) {
 	_, found, err := backupstatus.New(filepath.Join(t.TempDir(), "absent")).LastSuccess(context.Background())
 	if err != nil || found {

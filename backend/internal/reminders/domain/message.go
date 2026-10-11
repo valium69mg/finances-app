@@ -63,6 +63,37 @@ func BackupMessage(last *time.Time) Message {
 	}
 }
 
+// BackupDoneMessage builds the "backup completed" email. at is shown in the time
+// zone it carries (the caller converts it to the reminders zone). sizeBytes is
+// the dump size, or 0 when unknown (then it is left out).
+func BackupDoneMessage(at time.Time, sizeBytes int64) Message {
+	text := fmt.Sprintf("El respaldo de la base de datos se completó el %s.", at.Format("02/01/2006 15:04"))
+	if sizeBytes > 0 {
+		text += " Tamaño del respaldo: " + sizeText(sizeBytes) + "."
+	}
+	return Message{
+		Subject: "Respaldo de la base de datos completado",
+		Text:    "Hola,\n\n" + text + "\n",
+		HTML:    "<p>Hola,</p><p>" + html.EscapeString(text) + "</p>",
+	}
+}
+
+// sizeText renders a byte count as KB, MB or GB (1024-based) with one decimal.
+func sizeText(n int64) string {
+	const kb = 1024.0
+	v := float64(n)
+	switch {
+	case v >= kb*kb*kb:
+		return fmt.Sprintf("%.1f GB", v/(kb*kb*kb))
+	case v >= kb*kb:
+		return fmt.Sprintf("%.1f MB", v/(kb*kb))
+	case v >= kb:
+		return fmt.Sprintf("%.1f KB", v/kb)
+	default:
+		return fmt.Sprintf("%d bytes", n)
+	}
+}
+
 var monthNames = [...]string{
 	"Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
 	"Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",

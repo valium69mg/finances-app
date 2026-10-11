@@ -258,6 +258,67 @@ func TestBackupMessage(t *testing.T) {
 	}
 }
 
+func TestBackupDoneKey(t *testing.T) {
+	at := time.Date(2026, 10, 10, 9, 0, 12, 0, time.UTC)
+	if got, want := domain.BackupDoneKey(at), "backup-done:20261010T090012Z"; got != want {
+		t.Errorf("BackupDoneKey = %q, want %q", got, want)
+	}
+	// The same instant in another zone is the same key.
+	if domain.BackupDoneKey(at.In(time.FixedZone("x", -6*3600))) != domain.BackupDoneKey(at) {
+		t.Error("the key must not depend on the zone")
+	}
+	if domain.BackupDoneKey(at.Add(time.Second)) == domain.BackupDoneKey(at) {
+		t.Error("two backups must not share a key")
+	}
+	if strings.HasPrefix(domain.BackupDoneKey(at), domain.BackupKeyPrefix) {
+		t.Error("the done key must not collide with the stale alert keys")
+	}
+}
+
+func TestBackupDoneDue(t *testing.T) {
+	now := time.Date(2026, 10, 10, 9, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name string
+		at   time.Time
+		want bool
+	}{
+		{"zero time", time.Time{}, false},
+		{"this morning", now.Add(-6 * time.Hour), true},
+		{"exactly 36 hours", now.Add(-36 * time.Hour), true},
+		{"older than 36 hours is not announced", now.Add(-36*time.Hour - time.Second), false},
+		{"a week old", now.Add(-7 * 24 * time.Hour), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := domain.BackupDoneDue(tt.at, now); got != tt.want {
+				t.Errorf("BackupDoneDue = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBackupDoneMessage(t *testing.T) {
+	at := time.Date(2026, 10, 10, 3, 0, 5, 0, time.UTC)
+	m := domain.BackupDoneMessage(at, 5*1024*1024+512*1024)
+	if m.Subject != "Respaldo de la base de datos completado" {
+		t.Errorf("subject = %q", m.Subject)
+	}
+	for _, body := range []string{m.Text, m.HTML} {
+		if !strings.Contains(body, "10/10/2026 03:00") || !strings.Contains(body, "5.5 MB") {
+			t.Errorf("body = %q", body)
+		}
+	}
+	noSize := domain.BackupDoneMessage(at, 0)
+	if strings.Contains(noSize.Text, "Tamaño") || strings.Contains(noSize.HTML, "Tamaño") {
+		t.Errorf("an unknown size must be left out: %+v", noSize)
+	}
+	for n, want := range map[int64]string{500: "500 bytes", 2048: "2.0 KB", 3 << 30: "3.0 GB"} {
+		if got := domain.BackupDoneMessage(at, n).Text; !strings.Contains(got, want) {
+			t.Errorf("size %d: %q lacks %q", n, got, want)
+		}
+	}
+}
+
 func TestComposeBill(t *testing.T) {
 	it := domain.Item{
 		OccurrenceID: 1, Name: `Luz <b>&"CFE"`, Amount: "550.00", Currency: "MXN", DueDate: "2026-10-05", DaysUntilDue: 3, DueSoon: true,

@@ -31,6 +31,9 @@ const (
 	// BackupKeyPrefix prefixes every backup alert key. The key carries the day, so
 	// the alert goes out at most once per day while the backup stays stale.
 	BackupKeyPrefix = "backup:"
+	// BackupDoneKeyPrefix prefixes every "backup completed" key. The key carries
+	// the success timestamp, so each backup is announced exactly once.
+	BackupDoneKeyPrefix = "backup-done:"
 
 	dateLayout = "2006-01-02"
 )
@@ -199,6 +202,20 @@ func BackupKey(today string) string { return BackupKeyPrefix + today }
 // BackupStaleAfter.
 func BackupAlertDue(last *time.Time, now time.Time) bool {
 	return last == nil || now.Sub(*last) > BackupStaleAfter
+}
+
+// BackupDoneKey is the dedupe key of the "backup completed" email of the backup
+// that succeeded at the given instant (second resolution, UTC).
+func BackupDoneKey(at time.Time) string {
+	return BackupDoneKeyPrefix + at.UTC().Format("20060102T150405Z")
+}
+
+// BackupDoneDue reports whether the "backup completed" email applies to the
+// latest success: it is not older than BackupStaleAfter. An older success is
+// not announced (after a long outage or on the first deploy the stale alert
+// speaks for it), so only a recent backup is ever notified.
+func BackupDoneDue(at, now time.Time) bool {
+	return !at.IsZero() && now.Sub(at) <= BackupStaleAfter
 }
 
 // BillEmails returns the per-payment emails the items call for today: one

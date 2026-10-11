@@ -104,12 +104,13 @@ func (f *fakeDisk) UsedPercent() (float64, error) { return f.used, f.err }
 
 type fakeBackup struct {
 	at    time.Time
+	size  int64
 	found bool
 	err   error
 }
 
-func (f *fakeBackup) LastSuccess(context.Context) (time.Time, bool, error) {
-	return f.at, f.found, f.err
+func (f *fakeBackup) LastBackup(context.Context) (app.BackupInfo, bool, error) {
+	return app.BackupInfo{At: f.at, SizeBytes: f.size}, f.found, f.err
 }
 
 type fakeOwner struct {
@@ -429,9 +430,11 @@ func TestBackupAlert(t *testing.T) {
 	r.withBackup(b)
 
 	r.tick()
-	if n := r.mailer.count(); n != 0 {
-		t.Fatalf("alert with a recent backup: %d", n)
+	if n := r.mailer.count(); n != 1 || !strings.Contains(r.mailer.sent[0].subject, "completado") {
+		t.Fatalf("a recent backup must be announced, not alerted: %+v", r.mailer.sent)
 	}
+
+	r.mailer.sent = nil // the recent backup was announced; this test is about the stale alert
 
 	// 40 hours old: one alert, then quiet for the rest of the day.
 	b.at = r.now.Add(-40 * time.Hour)
@@ -461,8 +464,83 @@ func TestBackupAlert(t *testing.T) {
 	b.at = r.now.Add(-time.Hour)
 	r.advance(24 * time.Hour)
 	r.tick()
+	// The fresh backup is announced as completed, not alerted as stale.
+	if n := r.mailer.count(); n != 3 || !strings.Contains(r.mailer.sent[2].subject, "completado") {
+		t.Fatalf("a fresh backup must only send the completed email: %+v", r.mailer.sent)
+	}
+}
+
+func TestBackupDoneEmail(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 10, 8, 30, 0, 0, mexico)
+	b := &fakeBackup{at: time.Date(2026, 10, 10, 9, 0, 5, 0, time.UTC), size: 3 * 1024 * 1024, found: true} // 03:00 local
+	r.withBackup(b)
+
+	// One email, in the reminders zone, with the size; ticks and restarts do not resend.
+	r.tick()
+	r.tick()
+	r.withBackup(b) // a restart: new runner, same log
+	r.tick()
+	if n := r.mailer.count(); n != 1 {
+		t.Fatalf("sent %d emails for one backup, want 1", n)
+	}
+	m := r.mailer.sent[0]
+	if m.subject != "Respaldo de la base de datos completado" || !strings.Contains(m.text, "10/10/2026 03:00") || !strings.Contains(m.text, "3.0 MB") {
+		t.Errorf("email = %+v", m)
+	}
+	if _, ok := r.log.keys["backup-done:20261010T090005Z"]; !ok {
+		t.Errorf("done key missing: %v", r.log.keys)
+	}
+
+	// The next night's backup is announced once more.
+	r.advance(24 * time.Hour)
+	b.at = b.at.Add(24 * time.Hour)
+	r.tick()
+	r.tick()
 	if n := r.mailer.count(); n != 2 {
-		t.Fatalf("alert after a fresh backup: %d", n)
+		t.Fatalf("sent %d emails after the second backup, want 2", n)
+	}
+}
+
+func TestBackupDoneEmailWaitsForEightAndSurvivesAFailedSend(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 10, 3, 5, 0, 0, mexico)
+	b := &fakeBackup{at: time.Date(2026, 10, 10, 9, 0, 5, 0, time.UTC), found: true} // no size
+	r.withBackup(b)
+
+	r.tick() // 03:05 local: nothing before 08:00
+	if n := r.mailer.count(); n != 0 {
+		t.Fatalf("sent %d emails before 08:00", n)
+	}
+
+	r.advance(5 * time.Hour) // 08:05, the mailer is down
+	r.mailer.failOn = func(string) bool { return true }
+	r.tick()
+	if _, ok := r.log.keys["backup-done:20261010T090005Z"]; ok {
+		t.Fatal("a failed send must not record the key")
+	}
+	r.mailer.failOn = nil
+	r.advance(30 * time.Minute)
+	r.tick() // a later tick still sends it
+	if n := r.mailer.count(); n != 1 {
+		t.Fatalf("sent %d emails, want 1", n)
+	}
+	if strings.Contains(r.mailer.sent[0].text, "Tamaño") {
+		t.Errorf("no size was recorded, none must be shown: %q", r.mailer.sent[0].text)
+	}
+}
+
+func TestBackupDoneEmailIgnoresOldBackups(t *testing.T) {
+	r := newRig(t)
+	r.now = time.Date(2026, 10, 10, 9, 0, 0, 0, mexico)
+	// First deploy with a status file left from three days ago: no "completed"
+	// email for it (the stale alert covers it).
+	r.withBackup(&fakeBackup{at: r.now.Add(-72 * time.Hour), found: true})
+	r.tick()
+	for _, m := range r.mailer.sent {
+		if strings.Contains(m.subject, "completado") {
+			t.Fatalf("an old backup was announced: %+v", m)
+		}
 	}
 }
 

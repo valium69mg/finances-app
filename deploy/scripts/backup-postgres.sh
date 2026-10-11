@@ -9,8 +9,9 @@
 # 3. Upload to s3://<bucket>/backups/daily/YYYY-MM-DD.dump, and on day 1 of the month
 #    also to backups/monthly/YYYY-MM.dump, with the instance role (no keys) through a
 #    pinned amazon/aws-cli container.
-# 4. Write the success timestamp to $BACKUP_DIR/last-success (the API reads it read-only
-#    and emails the owner when it is older than 36 hours).
+# 4. Write the success to $BACKUP_DIR/last-success: line 1 the UTC timestamp, line 2
+#    "size_bytes=N" (the dump size). The API reads it read-only: it emails the owner
+#    "backup completed" for each new success and warns when it is older than 36 hours.
 #
 # Any failure exits non-zero (the systemd unit fails and the journal has the reason) and
 # leaves last-success untouched. The temp dump is always removed.
@@ -95,7 +96,7 @@ fi
 
 # Atomic replace (write + rename on the same directory): the API never reads half a file.
 status="$BACKUP_DIR/last-success"
-date -u +%FT%TZ > "$status.tmp"
+printf '%s\nsize_bytes=%s\n' "$(date -u +%FT%TZ)" "$size" > "$status.tmp"
 chmod 644 "$status.tmp"
 mv -f "$status.tmp" "$status"
 log "OK: backups/daily/$today.dump ($size bytes), status written to $status"
