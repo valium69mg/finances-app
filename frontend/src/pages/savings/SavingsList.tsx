@@ -11,6 +11,10 @@ import { KIND } from "../../lib/tones";
 
 interface Props {
   month: string;
+  /** Category the list is narrowed to (client side: the list endpoint has no category filter). */
+  category?: string;
+  /** A category filter from the URL is still being validated: show the loading state instead of every row. */
+  waiting?: boolean;
   instruments: Instrument[];
   editingId: number | null;
   onEdit: (saving: Saving) => void;
@@ -18,7 +22,7 @@ interface Props {
   onDeleted: (id: number) => void;
 }
 
-export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }: Props) {
+export function SavingsList({ month, category = "", waiting = false, instruments, editingId, onEdit, onDeleted }: Props) {
   const qc = useQueryClient();
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const list = useQuery({ queryKey: savingsKeys.list(month), queryFn: () => listSavings(month), retry: false });
@@ -31,7 +35,7 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
     },
   });
 
-  if (list.isPending) {
+  if (list.isPending || waiting) {
     return (
       <p role="status" className="flex items-center gap-2 text-sm text-muted">
         <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -49,8 +53,13 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
       </div>
     );
   }
-  if (list.data.length === 0) {
-    return <EmptyNote icon={KIND.Ahorro.icon}>No hay ahorros registrados en este periodo.</EmptyNote>;
+  const rows = category ? list.data.filter((s) => s.category === category) : list.data;
+  if (rows.length === 0) {
+    return (
+      <EmptyNote icon={KIND.Ahorro.icon}>
+        {category ? `No hay ahorros de ${category} en este periodo.` : "No hay ahorros registrados en este periodo."}
+      </EmptyNote>
+    );
   }
 
   return (
@@ -62,7 +71,7 @@ export function SavingsList({ month, instruments, editingId, onEdit, onDeleted }
         </p>
       )}
       <ul className="divide-y divide-border rounded-xl border border-border">
-        {list.data.map((s) => {
+        {rows.map((s) => {
           const label = s.description || "Sin descripción";
           const instrument = instruments.find((i) => i.id === s.instrument)?.name ?? s.instrument;
           const confirming = confirmId === s.id;

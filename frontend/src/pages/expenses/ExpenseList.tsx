@@ -10,13 +10,17 @@ import { KIND } from "../../lib/tones";
 
 interface Props {
   month: string;
+  /** Category the list is narrowed to (client side: the list endpoint has no category filter). */
+  category?: string;
+  /** A category filter from the URL is still being validated: show the loading state instead of every row. */
+  waiting?: boolean;
   editingId: number | null;
   onEdit: (expense: Expense) => void;
   /** Called after an expense was deleted so the page can drop a stale edit. */
   onDeleted: (id: number) => void;
 }
 
-export function ExpenseList({ month, editingId, onEdit, onDeleted }: Props) {
+export function ExpenseList({ month, category = "", waiting = false, editingId, onEdit, onDeleted }: Props) {
   const qc = useQueryClient();
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const list = useQuery({ queryKey: expensesKeys.list(month), queryFn: () => listExpenses(month), retry: false });
@@ -29,7 +33,7 @@ export function ExpenseList({ month, editingId, onEdit, onDeleted }: Props) {
     },
   });
 
-  if (list.isPending) {
+  if (list.isPending || waiting) {
     return (
       <p role="status" className="flex items-center gap-2 text-sm text-muted">
         <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -47,15 +51,20 @@ export function ExpenseList({ month, editingId, onEdit, onDeleted }: Props) {
       </div>
     );
   }
-  if (list.data.length === 0) {
-    return <EmptyNote icon={KIND.Gasto.icon}>No hay gastos registrados en este periodo.</EmptyNote>;
+  const rows = category ? list.data.filter((e) => e.category === category) : list.data;
+  if (rows.length === 0) {
+    return (
+      <EmptyNote icon={KIND.Gasto.icon}>
+        {category ? `No hay gastos de ${category} en este periodo.` : "No hay gastos registrados en este periodo."}
+      </EmptyNote>
+    );
   }
 
   return (
     <div className="space-y-3">
       {remove.isError && <ErrorBanner>{describeExpenseError(remove.error)}</ErrorBanner>}
       <ul className="divide-y divide-border rounded-xl border border-border">
-        {list.data.map((e) => {
+        {rows.map((e) => {
           const label = e.description || "Sin descripción";
           const confirming = confirmId === e.id;
           return (

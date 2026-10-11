@@ -1,26 +1,32 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import type { Income as IncomeRow, SaveIncomeResult } from "../api/income";
+import { incomeKeys, listIncome, type Income as IncomeRow, type SaveIncomeResult } from "../api/income";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
+import { DeepLinkNote } from "../components/DeepLinkNote";
 import { InlineFormPanel } from "../components/InlineFormPanel";
 import { IncomeForm } from "./income/IncomeForm";
 import { IncomeList } from "./income/IncomeList";
 import { SaveSummary } from "./income/SaveSummary";
 import { describeIncomeError } from "./income/errors";
 import { ErrorBanner, secondaryButton } from "./settings/ui";
-import { useCyclePeriod } from "./useCycle";
+import { useDeepLink } from "../hooks/useDeepLink";
+import { useUrlCyclePeriod } from "./useCycle";
 import { PageTitle } from "../components/PageTitle";
 import { KIND } from "../lib/tones";
 
+/** The month lives in the URL (`?mes=`) and `?editar=<id>` opens one income's edit form: the Panel's links use both. */
 export function Income() {
-  const { month, setMonth, rangeHint } = useCyclePeriod();
+  const { month, setMonth, rangeHint } = useUrlCyclePeriod();
   const [editing, setEditing] = useState<IncomeRow | null>(null);
   // The create form stays collapsed until asked for; editing a row opens it by itself.
   const [formOpen, setFormOpen] = useState(false);
   const [result, setResult] = useState<SaveIncomeResult | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
+  // Same query as the list below (one request): the deep link needs the loaded rows to find its income.
+  const loaded = useQuery({ queryKey: incomeKeys.list(month ?? ""), queryFn: () => listIncome(month ?? ""), enabled: month !== null, retry: false });
+  const deep = useDeepLink({ param: "editar", items: loaded.data, open: editing, onOpen: setEditing });
 
   return (
     <section aria-labelledby="page-title">
@@ -64,6 +70,8 @@ export function Income() {
           </div>
         )}
       </div>
+
+      {deep.missing && <DeepLinkNote>No se encontró el ingreso del enlace en este periodo. Puedes buscarlo en la lista o cambiar el mes.</DeepLinkNote>}
 
       <div className="mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
