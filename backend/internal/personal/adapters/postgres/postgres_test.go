@@ -58,7 +58,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000018_expense_requests.up.sql", "000022_personal_finances.up.sql", "000023_personal_future_expenses.up.sql", "000024_personal_wishlist.up.sql"} {
+	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000018_expense_requests.up.sql", "000023_personal_finances.up.sql", "000024_personal_future_expenses.up.sql", "000025_personal_wishlist.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)

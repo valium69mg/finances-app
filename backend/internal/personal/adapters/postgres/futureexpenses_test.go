@@ -71,7 +71,7 @@ func count(t *testing.T, f fixture, query string, args ...any) int {
 func TestSeedAddsTheNewFixedCategoryToAnAlreadySeededUser(t *testing.T) {
 	repo, pool := newRepo(t)
 	her := addUser(t, pool, "her@example.com")
-	// The state of a user seeded before migration 000023's data step: 13 categories.
+	// The state of a user seeded before migration 000024's data step: 13 categories.
 	if err := repo.SeedDefaults(ctx, her); err != nil {
 		t.Fatal(err)
 	}
