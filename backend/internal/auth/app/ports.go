@@ -32,16 +32,21 @@ type RefreshTokenRepo interface {
 	RevokeAllForUser(ctx context.Context, userID string, now time.Time) error
 }
 
-// VerificationTokenRepo persists hashed verification tokens.
+// VerificationTokenRepo persists hashed verification and reset tokens.
 type VerificationTokenRepo interface {
+	// Create stores the token. Creating a reset token invalidates the user's older
+	// unused reset tokens (a newer request wins); verification tokens are untouched.
 	Create(ctx context.Context, token domain.VerificationToken) error
-	// Consume atomically marks an unused, unexpired token as used and returns its
-	// user id. It returns domain.ErrNotFound when the token is unknown, expired or used.
-	Consume(ctx context.Context, hash string, now time.Time) (userID string, err error)
+	// Consume atomically marks an unused, unexpired token of the given purpose as
+	// used and returns its user id. It returns domain.ErrNotFound when the token is
+	// unknown, expired, used or issued for another purpose.
+	Consume(ctx context.Context, hash string, purpose domain.TokenPurpose, now time.Time) (userID string, err error)
 }
 
-// Mailer sends the verification and invitation emails.
+// Mailer sends the verification, invitation and password reset emails.
 type Mailer interface {
+	// SendPasswordReset sends the link that sets a new password on a verified account.
+	SendPasswordReset(ctx context.Context, to, link string) error
 	SendVerification(ctx context.Context, to, link string) error
 	// SendInvitation sends the same link with the invitation text.
 	SendInvitation(ctx context.Context, to, link string) error

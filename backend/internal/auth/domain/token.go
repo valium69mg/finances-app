@@ -31,10 +31,24 @@ type RefreshToken struct {
 // Expired reports whether the token is past its lifetime at now.
 func (t RefreshToken) Expired(now time.Time) bool { return !now.Before(t.ExpiresAt) }
 
-// VerificationToken is the stored (hashed) form of an email verification token.
+// TokenPurpose says what a single-use email token may be redeemed for. Verification
+// and reset tokens share the table, the format, the lifetime and the hashing, but a
+// token only ever works for the purpose it was issued for.
+type TokenPurpose string
+
+const (
+	// PurposeVerification verifies the address and sets the first password (also used by invitations).
+	PurposeVerification TokenPurpose = "verification"
+	// PurposeReset sets a new password on an already verified account.
+	PurposeReset TokenPurpose = "reset"
+)
+
+// VerificationToken is the stored (hashed) form of an email verification or
+// password reset token.
 type VerificationToken struct {
 	Hash      string
 	UserID    string
+	Purpose   TokenPurpose
 	ExpiresAt time.Time
 	UsedAt    *time.Time
 }

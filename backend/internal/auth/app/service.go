@@ -46,6 +46,14 @@ const (
 	// user needs one or two (a weak password is rejected without burning the token).
 	VerifyIPLimit  = 10
 	VerifyIPWindow = 15 * time.Minute
+
+	// ForgotIPLimit is the number of password reset requests one client IP may make
+	// per ForgotIPWindow, like identify. There is deliberately no per-email limit on
+	// the endpoint itself (it would let anyone lock the owner out); the reset email
+	// follows the verification email budget per address. Completing a reset shares
+	// the verify per-IP budget.
+	ForgotIPLimit  = 10
+	ForgotIPWindow = 15 * time.Minute
 )
 
 const (
@@ -56,10 +64,12 @@ const (
 	keyLoginFailIP    = "login:fail:ip:"
 	keyRefreshIP      = "refresh:ip:"
 	keyVerifyIP       = "verify:ip:"
+	keyForgotIP       = "forgot:ip:"
 
 	mailSendTimeout  = 15 * time.Second
 	verifyLinkParam  = "token"
 	verifyLinkSuffix = "/verify"
+	resetLinkSuffix  = "/restablecer"
 )
 
 // IdentifyStatus is the outcome of the email-first identification step.
@@ -151,15 +161,56 @@ func (s *Service) Identify(ctx context.Context, rawEmail, ip string) (IdentifySt
 	return IdentifyVerificationSent, nil
 }
 
+// RequestPasswordReset is the "forgot my password" step. It always succeeds for a
+// well-formed email, whatever the account is, so the answer never discloses it:
+//   - verified and active: a reset link is emailed in the background;
+//   - unverified and active: the verification email is sent, exactly as identify
+//     does (the account has no password to reset, and that link sets one);
+//   - unknown or deactivated: nothing is sent.
+//
+// The email follows the same per-address budget as the verification email
+// (1 per 60 s, 5 per hour, silently suppressed); the call has a per-IP budget.
+func (s *Service) RequestPasswordReset(ctx context.Context, rawEmail, ip string) error {
+	if !s.Limiter.Allow(keyForgotIP+ip, ForgotIPLimit, ForgotIPWindow) {
+		return domain.ErrRateLimited
+	}
+	email, err := domain.NormalizeEmail(rawEmail)
+	if err != nil {
+		return err
+	}
+	user, err := s.Users.FindByEmail(ctx, email)
+	if errors.Is(err, domain.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find user: %w", err)
+	}
+	if !user.Active {
+		return nil
+	}
+	if user.Verified {
+		s.sendInBackground(ctx, user, "password reset", s.RequestReset)
+		return nil
+	}
+	s.sendVerificationInBackground(ctx, user)
+	return nil
+}
+
 // sendVerificationInBackground emails a verification link unless the address
 // hit its cooldown or hourly cap, in which case it silently does nothing.
 // Sending in the background keeps response timing independent of the account state.
 func (s *Service) sendVerificationInBackground(ctx context.Context, user domain.User) {
+	s.sendInBackground(ctx, user, "verification", s.RequestVerification)
+}
+
+// sendInBackground applies the per-address email budget shared by the verification
+// and reset emails and runs send in the background; kind only names the log lines.
+func (s *Service) sendInBackground(ctx context.Context, user domain.User, kind string, send func(context.Context, domain.User) error) {
 	// A request suppressed by one limit must not consume the other: the hourly
 	// budget is only peeked first and recorded once the cooldown lets it through.
 	if !s.Limiter.Peek(keyVerifyHourly+user.Email, VerifyMailHourlyLimit, VerifyMailHourWindow) ||
 		!s.Limiter.Allow(keyVerifyCooldown+user.Email, 1, VerifyMailCooldown) {
-		s.Logger.Info("verification email suppressed by rate limit", "user_id", user.ID)
+		s.Logger.Info(kind+" email suppressed by rate limit", "user_id", user.ID)
 		return
 	}
 	s.Limiter.Record(keyVerifyHourly+user.Email, VerifyMailHourWindow)
@@ -167,8 +218,8 @@ func (s *Service) sendVerificationInBackground(ctx context.Context, user domain.
 	s.Spawn(func() {
 		bg, cancel := context.WithTimeout(bg, mailSendTimeout)
 		defer cancel()
-		if err := s.RequestVerification(bg, user); err != nil {
-			s.Logger.Error("send verification email", "error", err)
+		if err := send(bg, user); err != nil {
+			s.Logger.Error("send "+kind+" email", "error", err)
 		}
 	})
 }
@@ -210,7 +261,13 @@ func (s *Service) Login(ctx context.Context, rawEmail, password, ip string) (*Se
 
 // RequestVerification creates a verification token for user and emails the link.
 func (s *Service) RequestVerification(ctx context.Context, user domain.User) error {
-	return s.sendLink(ctx, user, s.Mailer.SendVerification)
+	return s.sendLink(ctx, user, domain.PurposeVerification, verifyLinkSuffix, s.Mailer.SendVerification)
+}
+
+// RequestReset creates a password reset token for user (invalidating older unused
+// reset tokens) and emails the link.
+func (s *Service) RequestReset(ctx context.Context, user domain.User) error {
+	return s.sendLink(ctx, user, domain.PurposeReset, resetLinkSuffix, s.Mailer.SendPasswordReset)
 }
 
 // SendInvitation emails the invitation to the user with the given id. It reuses
@@ -222,7 +279,7 @@ func (s *Service) SendInvitation(ctx context.Context, userID string) error {
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
 	}
-	return s.sendLink(ctx, user, s.Mailer.SendInvitation)
+	return s.sendLink(ctx, user, domain.PurposeVerification, verifyLinkSuffix, s.Mailer.SendInvitation)
 }
 
 // RevokeSessions revokes every live refresh token of the user.
@@ -233,7 +290,7 @@ func (s *Service) RevokeSessions(ctx context.Context, userID string) error {
 	return nil
 }
 
-func (s *Service) sendLink(ctx context.Context, user domain.User, send func(ctx context.Context, to, link string) error) error {
+func (s *Service) sendLink(ctx context.Context, user domain.User, purpose domain.TokenPurpose, suffix string, send func(ctx context.Context, to, link string) error) error {
 	raw, hash, err := domain.GenerateToken()
 	if err != nil {
 		return fmt.Errorf("generate token: %w", err)
@@ -241,12 +298,13 @@ func (s *Service) sendLink(ctx context.Context, user domain.User, send func(ctx 
 	err = s.VerificationTokens.Create(ctx, domain.VerificationToken{
 		Hash:      hash,
 		UserID:    user.ID,
+		Purpose:   purpose,
 		ExpiresAt: s.Clock.Now().Add(domain.VerificationTokenTTL),
 	})
 	if err != nil {
 		return fmt.Errorf("store verification token: %w", err)
 	}
-	link := s.AppBaseURL + verifyLinkSuffix + "?" + verifyLinkParam + "=" + url.QueryEscape(raw)
+	link := s.AppBaseURL + suffix + "?" + verifyLinkParam + "=" + url.QueryEscape(raw)
 	if err := send(ctx, user.Email, link); err != nil {
 		return fmt.Errorf("send email: %w", err)
 	}
@@ -256,6 +314,18 @@ func (s *Service) sendLink(ctx context.Context, user domain.User, send func(ctx 
 // CompleteVerification consumes a verification token, sets the new password and
 // marks the user verified. Existing refresh tokens are revoked.
 func (s *Service) CompleteVerification(ctx context.Context, rawToken, newPassword, ip string) error {
+	return s.completeWithToken(ctx, domain.PurposeVerification, rawToken, newPassword, ip)
+}
+
+// CompleteReset consumes a password reset token, sets the new password (the account
+// stays verified) and revokes every refresh token, which ends the existing sessions.
+// It shares the verify per-IP budget and, like verification, rejects a weak password
+// without burning the token.
+func (s *Service) CompleteReset(ctx context.Context, rawToken, newPassword, ip string) error {
+	return s.completeWithToken(ctx, domain.PurposeReset, rawToken, newPassword, ip)
+}
+
+func (s *Service) completeWithToken(ctx context.Context, purpose domain.TokenPurpose, rawToken, newPassword, ip string) error {
 	if !s.Limiter.Allow(keyVerifyIP+ip, VerifyIPLimit, VerifyIPWindow) {
 		return domain.ErrRateLimited
 	}
@@ -268,12 +338,12 @@ func (s *Service) CompleteVerification(ctx context.Context, rawToken, newPasswor
 		return fmt.Errorf("hash password: %w", err)
 	}
 	now := s.Clock.Now()
-	userID, err := s.VerificationTokens.Consume(ctx, domain.HashToken(rawToken), now)
+	userID, err := s.VerificationTokens.Consume(ctx, domain.HashToken(rawToken), purpose, now)
 	if errors.Is(err, domain.ErrNotFound) {
 		return domain.ErrInvalidToken
 	}
 	if err != nil {
-		return fmt.Errorf("consume verification token: %w", err)
+		return fmt.Errorf("consume %s token: %w", purpose, err)
 	}
 	if err := s.Users.SetPasswordAndVerify(ctx, userID, hash); err != nil {
 		return fmt.Errorf("set password: %w", err)
