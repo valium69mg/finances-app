@@ -54,7 +54,7 @@ func newRepo(t *testing.T) *postgres.Repo {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000005_settings.up.sql", "000014_cycle_start_day.up.sql", "000021_client_postal_code.up.sql"} {
+	for _, name := range []string{"000005_settings.up.sql", "000014_cycle_start_day.up.sql", "000021_client_postal_code.up.sql", "000027_cycle_start_day_last_weekday.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -72,7 +72,7 @@ func fullConfig() domain.Config {
 	pause.Note = "paused to fund Gastos futuros"
 	cfg.Pause = &pause
 	cfg.PaymentMethods = []string{"Efectivo", "Débito", "Crédito", "Transferencia"}
-	cfg.CycleStartDay = 31
+	cfg.CycleStartDay = 32
 	cfg.Issuer = domain.Issuer{RFC: "AAAA010101AAA", Name: "TEST ISSUER", Regimen: "626", PostalCode: "76246", Note: "n"}
 	cfg.Clients[0].RFC = "XEXX010101000"
 	cfg.Clients[0].PostalCode = "64000"
@@ -123,8 +123,8 @@ func TestImportRoundTrip(t *testing.T) {
 	if !got.General().SalaryUSD.Equal(want.General().SalaryUSD) || !got.MorseFeeRate.Equal(*want.MorseFeeRate) {
 		t.Fatalf("general mismatch: %+v", got.General())
 	}
-	if got.CycleStartDay != 31 {
-		t.Fatalf("cycle_start_day = %d, want 31", got.CycleStartDay)
+	if got.CycleStartDay != 32 {
+		t.Fatalf("cycle_start_day = %d, want 32", got.CycleStartDay)
 	}
 	for i, c := range got.Categories {
 		w := want.Categories[i]

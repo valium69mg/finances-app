@@ -89,7 +89,7 @@ type General struct {
 	InvestmentAllocation      []Weight
 	// CycleStartDay selects the personal budget cycle (see ledger.Cycle): 0 is
 	// the calendar month, 1..31 the day the cycle starts in the previous month
-	// (31 is its last day).
+	// (31 is its last day), and 32 the last weekday (Mon-Fri) of that month.
 	CycleStartDay int
 }
 
@@ -188,8 +188,8 @@ type Config struct {
 	ExtraIncomeEstimateMXN    decimal.Decimal
 	BudgetIncludesExtraIncome bool
 
-	// CycleStartDay is the start day of the personal budget cycle, 0 to 31
-	// (0 is the calendar month).
+	// CycleStartDay is the start day of the personal budget cycle, 0 to 32
+	// (0 is the calendar month, 32 the last weekday of the month).
 	CycleStartDay int
 
 	// ExtraIncomeSplit holds optional rates keyed as in the configuration

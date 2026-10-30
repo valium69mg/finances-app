@@ -61,8 +61,8 @@ func (g General) Validate() error {
 	if !g.FXRateApplied.IsPositive() {
 		return invalid("fx_rate_applied must be positive")
 	}
-	if g.CycleStartDay < 0 || g.CycleStartDay > 31 {
-		return invalid("cycle_start_day must be between 0 and 31")
+	if g.CycleStartDay < 0 || g.CycleStartDay > 32 {
+		return invalid("cycle_start_day must be between 0 and 32")
 	}
 	if !validRate(g.MorseFeeRate) {
 		return invalid("morse_fee_rate must be between 0 and 1")
