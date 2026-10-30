@@ -3,7 +3,6 @@ import { useMutation } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
 import type { FutureExpenseItem } from "../../api/futureExpenses";
 import { TextField } from "../../components/AuthCard";
-import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { useFutureBackend } from "./backend";
 import { describeFutureError } from "./errors";
@@ -14,16 +13,15 @@ interface Props {
   /** When set, the form edits this item instead of creating one. Remount (key) to switch. */
   editing: FutureExpenseItem | null;
   onSaved: (item: FutureExpenseItem, wasEdit: boolean) => void;
-  onCancelEdit: () => void;
+  onCancel: () => void;
 }
 
-/** Create / edit form of a future expense: name, target amount (MXN) and due date. */
-export function ItemForm({ editing, onSaved, onCancelEdit }: Props) {
+/** Create / edit form of a future expense (rendered inside a dialog that carries the title): name, target amount (MXN) and due date. */
+export function ItemForm({ editing, onSaved, onCancel }: Props) {
   const backend = useFutureBackend();
   const invalidate = useInvalidateFuture();
   const [draft, setDraft] = useState<ItemDraft>(() => (editing ? draftOf(editing) : emptyDraft()));
   const [errors, setErrors] = useState<ItemErrors>({});
-  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
   const nameRef = useRef<HTMLInputElement>(null);
   const targetRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
@@ -56,11 +54,8 @@ export function ItemForm({ editing, onSaved, onCancelEdit }: Props) {
   }
 
   return (
-    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="future-form-title" className="space-y-5">
-      <h3 id="future-form-title" className="text-base font-semibold tracking-tight">
-        {editing ? `Editar ${editing.name}` : "Nuevo gasto futuro"}
-      </h3>
-      <div className={`${fieldGrid} lg:grid-cols-3`}>
+    <form noValidate onSubmit={onSubmit} aria-label={editing ? `Editar ${editing.name}` : "Nuevo gasto futuro"} className="space-y-5">
+      <div className={fieldGrid}>
         <TextField label="Nombre" inputRef={nameRef} value={draft.name} onChange={(e) => set({ name: e.target.value })} error={errors.name} autoComplete="off" />
         <TextField
           label="Monto a juntar (MXN)"
@@ -85,11 +80,9 @@ export function ItemForm({ editing, onSaved, onCancelEdit }: Props) {
           )}
           {save.isPending ? "Guardando…" : editing ? "Guardar cambios" : "Agregar gasto futuro"}
         </button>
-        {editing && (
-          <button type="button" onClick={onCancelEdit} className={secondaryButton}>
-            Cancelar edición
-          </button>
-        )}
+        <button type="button" onClick={onCancel} className={secondaryButton}>
+          Cancelar
+        </button>
       </div>
     </form>
   );

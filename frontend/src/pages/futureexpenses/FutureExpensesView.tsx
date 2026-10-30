@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Target } from "lucide-react";
+import { CheckCircle2, Loader2, Plus, Target } from "lucide-react";
 import type { FutureExpenseItem } from "../../api/futureExpenses";
 import { EmptyNote } from "../../components/EmptyNote";
 import { DeepLinkNote } from "../../components/DeepLinkNote";
-import { InlineFormPanel } from "../../components/InlineFormPanel";
+import { Modal } from "../../components/Modal";
 import { PageTitle } from "../../components/PageTitle";
 import { useDeepLink } from "../../hooks/useDeepLink";
 import { moduleIcon } from "../../modules";
@@ -12,13 +12,20 @@ import { formatMoney } from "../expenses/money";
 import { AmountDialog, type AmountMode } from "./AmountDialog";
 import { describeFutureError } from "./errors";
 import { ItemForm } from "./ItemForm";
+import { ItemDetailDialog, PaidDetailDialog } from "./ItemDetailDialog";
 import { ActiveList, PaidList } from "./ItemLists";
 import { useFutureBackend, type PaidResult } from "./backend";
 import type { PayCategory } from "./form";
 import { PayDialog } from "./PayDialog";
-import { ErrorBanner, secondaryButton } from "../settings/ui";
+import { ErrorBanner, primaryButton, secondaryButton } from "../settings/ui";
 
-type Dialog = { kind: "amount"; mode: AmountMode; item: FutureExpenseItem } | { kind: "pay"; item: FutureExpenseItem } | null;
+type Dialog =
+  | { kind: "amount"; mode: AmountMode; item: FutureExpenseItem }
+  | { kind: "pay"; item: FutureExpenseItem }
+  | { kind: "detail"; item: FutureExpenseItem }
+  | { kind: "paid"; item: FutureExpenseItem }
+  | { kind: "form"; item: FutureExpenseItem | null }
+  | null;
 
 interface Props {
   /** Tab path, for the icon. */
@@ -39,24 +46,23 @@ function EditDeepLink({ items, open, onOpen }: { items: FutureExpenseItem[]; ope
 }
 
 /**
- * Gastos futuros: the things the user chooses to save for. Registering, editing and deleting them, adding savings,
- * assigning the free balance and "Marcar pagado" all live on this page. The owner's page and "Mis gastos futuros"
+ * Gastos futuros: the things the user chooses to save for. Summary first: "Nuevo gasto futuro" sits in the header and
+ * opens a dialog, each item is a card whose click opens a detail dialog with its actions (add savings, assign the free
+ * balance, mark paid, edit, delete), and each action opens its own dialog. The owner's page and "Mis gastos futuros"
  * render it over their own storage through the FutureBackend context.
  */
 export function FutureExpensesView({ path, title, categories, categoryRequired = false, deepLinkEdit = false }: Props) {
   const backend = useFutureBackend();
   // The owner's view of a household user: nothing that writes is rendered, and the Hogar page owns the heading.
   const readOnly = backend.readOnly === true;
-  const [editing, setEditing] = useState<FutureExpenseItem | null>(null);
-  // The create form stays collapsed until asked for; editing a row opens it by itself.
-  const [formOpen, setFormOpen] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
+  // The item whose edit form is open (the deep link and the edit action both set it through the dialog state).
+  const editing = dialog?.kind === "form" ? dialog.item : null;
   const [notice, setNotice] = useState<string | null>(null);
   const list = useQuery({ queryKey: backend.listKey, queryFn: () => backend.list(), retry: false });
 
   function onPaid({ item, expense }: PaidResult) {
     setDialog(null);
-    setEditing((cur) => (cur?.id === item.id ? null : cur));
     setNotice(`${item.name} se marcó como pagado: se registró un gasto de ${formatMoney(expense.amount)} en ${expense.category} y se liberó su ahorro.`);
   }
 
@@ -64,7 +70,24 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
     <section aria-labelledby={readOnly ? undefined : "page-title"} aria-label={readOnly ? title : undefined}>
       {!readOnly && (
         <>
-          <PageTitle icon={moduleIcon(path)}>{title}</PageTitle>
+          <PageTitle
+            icon={moduleIcon(path)}
+            action={
+              <button
+                type="button"
+                onClick={() => {
+                  setNotice(null);
+                  setDialog({ kind: "form", item: null });
+                }}
+                className={primaryButton}
+              >
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                Nuevo gasto futuro
+              </button>
+            }
+          >
+            {title}
+          </PageTitle>
           <p className="mt-1 text-sm text-muted">
             Registra lo que quieres ir juntando (un seguro, un viaje, una compra grande) con su monto y fecha. Cada ahorro que agregas aquí queda ligado a ese gasto, y te
             sugerimos cuánto apartar en cada ciclo de pago para llegar a tiempo.
@@ -101,25 +124,7 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
               </p>
             </section>
 
-            {!readOnly && (
-              <InlineFormPanel id="future-form-panel" label="+ Nuevo gasto futuro" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
-                <ItemForm
-                  key={editing?.id ?? "new"}
-                  editing={editing}
-                  onSaved={(item, wasEdit) => {
-                    setEditing(null);
-                    setFormOpen(false);
-                    setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} agregado. Aparta ${formatMoney(item.suggested_monthly)} al mes para llegar a tiempo.`);
-                  }}
-                  onCancelEdit={() => {
-                    setEditing(null);
-                    setFormOpen(false);
-                  }}
-                />
-              </InlineFormPanel>
-            )}
-
-            {deepLinkEdit && !readOnly && <EditDeepLink items={list.data.active} open={editing} onOpen={setEditing} />}
+            {deepLinkEdit && !readOnly && <EditDeepLink items={list.data.active} open={editing} onOpen={(item) => setDialog({ kind: "form", item })} />}
 
             {notice && (
               <p role="status" className="flex items-start gap-2 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">
@@ -138,27 +143,9 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
                 <>
                   <ActiveList
                     items={list.data.active}
-                    freeBalance={list.data.free_balance}
-                    editingId={editing?.id ?? null}
-                    onSaving={(item) => {
+                    onOpen={(item) => {
                       setNotice(null);
-                      setDialog({ kind: "amount", mode: "saving", item });
-                    }}
-                    onAssign={(item) => {
-                      setNotice(null);
-                      setDialog({ kind: "amount", mode: "assign", item });
-                    }}
-                    onPay={(item) => {
-                      setNotice(null);
-                      setDialog({ kind: "pay", item });
-                    }}
-                    onEdit={(item) => {
-                      setNotice(null);
-                      setEditing(item);
-                    }}
-                    onDeleted={(item) => {
-                      setEditing((cur) => (cur?.id === item.id ? null : cur));
-                      setNotice(`${item.name} se eliminó. Su ahorro volvió al saldo libre.`);
+                      setDialog({ kind: "detail", item });
                     }}
                   />
                   <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm tabular-nums">
@@ -178,13 +165,54 @@ export function FutureExpensesView({ path, title, categories, categoryRequired =
                 <h3 className="text-base font-semibold tracking-tight">Pagados</h3>
                 <PaidList
                   items={list.data.paid}
-                  onDeleted={(item) => setNotice(`${item.name} se quitó del historial. El gasto que registró se conserva.`)}
+                  onOpen={(item) => {
+                    setNotice(null);
+                    setDialog({ kind: "paid", item });
+                  }}
                 />
               </div>
             )}
           </>
         )}
 
+        {dialog?.kind === "detail" && (
+          <ItemDetailDialog
+            item={dialog.item}
+            freeBalance={list.data?.free_balance ?? "0"}
+            onClose={() => setDialog(null)}
+            onSaving={(item) => setDialog({ kind: "amount", mode: "saving", item })}
+            onAssign={(item) => setDialog({ kind: "amount", mode: "assign", item })}
+            onPay={(item) => setDialog({ kind: "pay", item })}
+            onEdit={(item) => setDialog({ kind: "form", item })}
+            onDeleted={(item) => {
+              setDialog(null);
+              setNotice(`${item.name} se eliminó. Su ahorro volvió al saldo libre.`);
+            }}
+          />
+        )}
+        {dialog?.kind === "paid" && (
+          <PaidDetailDialog
+            item={dialog.item}
+            onClose={() => setDialog(null)}
+            onDeleted={(item) => {
+              setDialog(null);
+              setNotice(`${item.name} se quitó del historial. El gasto que registró se conserva.`);
+            }}
+          />
+        )}
+        {dialog?.kind === "form" && (
+          <Modal title={dialog.item ? `Editar ${dialog.item.name}` : "Nuevo gasto futuro"} onClose={() => setDialog(null)} highlight={dialog.item !== null}>
+            <ItemForm
+              key={dialog.item?.id ?? "new"}
+              editing={dialog.item}
+              onSaved={(item, wasEdit) => {
+                setDialog(null);
+                setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} agregado. Aparta ${formatMoney(item.suggested_monthly)} al mes para llegar a tiempo.`);
+              }}
+              onCancel={() => setDialog(null)}
+            />
+          </Modal>
+        )}
         {dialog?.kind === "amount" && (
           <AmountDialog
             item={dialog.item}

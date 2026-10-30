@@ -87,6 +87,7 @@ describe("MisGastosFuturos", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Mis gastos futuros" })).toBeInTheDocument();
     expect(await screen.findByText("Laptop")).toBeInTheDocument();
     expect(api.listPersonalCategories).toHaveBeenCalledWith("Gasto");
+    fireEvent.click(screen.getByRole("button", { name: "Ver Laptop" }));
     fireEvent.click(screen.getByRole("button", { name: "Marcar pagado Laptop" }));
     expect(await screen.findByRole("option", { name: "Ropa" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Salud" })).toBeInTheDocument();

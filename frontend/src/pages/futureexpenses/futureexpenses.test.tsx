@@ -100,7 +100,7 @@ describe("form helpers", () => {
 
 describe("ItemForm", () => {
   it("blocks an invalid form and focuses the first bad field", () => {
-    wrap(<ItemForm editing={null} onSaved={vi.fn()} onCancelEdit={vi.fn()} />);
+    wrap(<ItemForm editing={null} onSaved={vi.fn()} onCancel={vi.fn()} />);
     fireEvent.click(screen.getByRole("button", { name: "Agregar gasto futuro" }));
     expect(screen.getByLabelText("Nombre")).toHaveFocus();
     expect(screen.getAllByRole("alert")).toHaveLength(3);
@@ -110,7 +110,7 @@ describe("ItemForm", () => {
   it("creates an item and reports it", async () => {
     api.createFutureExpense.mockResolvedValue(LAPTOP);
     const onSaved = vi.fn();
-    wrap(<ItemForm editing={null} onSaved={onSaved} onCancelEdit={vi.fn()} />);
+    wrap(<ItemForm editing={null} onSaved={onSaved} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "Laptop" } });
     fireEvent.change(screen.getByLabelText("Monto a juntar (MXN)"), { target: { value: "8000" } });
     fireEvent.change(screen.getByLabelText("Fecha de vencimiento"), { target: { value: "2027-01-20" } });
@@ -122,7 +122,7 @@ describe("ItemForm", () => {
   it("edits an item with its current values", async () => {
     api.updateFutureExpense.mockResolvedValue(LAPTOP);
     const onSaved = vi.fn();
-    wrap(<ItemForm editing={LAPTOP} onSaved={onSaved} onCancelEdit={vi.fn()} />);
+    wrap(<ItemForm editing={LAPTOP} onSaved={onSaved} onCancel={vi.fn()} />);
     expect(screen.getByLabelText("Nombre")).toHaveValue("Laptop");
     fireEvent.change(screen.getByLabelText("Monto a juntar (MXN)"), { target: { value: "9000" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
@@ -132,7 +132,7 @@ describe("ItemForm", () => {
 
   it("shows the backend message when the server rejects it", async () => {
     api.createFutureExpense.mockRejectedValue(new ApiError(400, "invalid_future_expense", "name is required"));
-    wrap(<ItemForm editing={null} onSaved={vi.fn()} onCancelEdit={vi.fn()} />);
+    wrap(<ItemForm editing={null} onSaved={vi.fn()} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText("Nombre"), { target: { value: "x" } });
     fireEvent.change(screen.getByLabelText("Monto a juntar (MXN)"), { target: { value: "1" } });
     fireEvent.change(screen.getByLabelText("Fecha de vencimiento"), { target: { value: "2027-01-20" } });
@@ -215,29 +215,111 @@ describe("FutureExpenses page", () => {
     expect(active).toHaveLength(2);
     expect(active[1]).toHaveTextContent("$2,000.00 de $8,000.00 (25%)");
     expect(active[1]).toHaveTextContent("Aparta $1,500.00 al mes (4 ciclos restantes)");
-    expect(active[0]).toHaveTextContent("Meta cubierta.");
+    expect(active[0]).toHaveTextContent("Meta cubierta");
     expect(screen.getByText("Sugerido al mes").nextSibling).toHaveTextContent("$1,500.00");
     expect(within(screen.getByRole("list", { name: "Gastos futuros pagados" })).getByRole("listitem")).toHaveTextContent("Pagado el 2 de septiembre de 2026 · $4,800.00");
+  });
+
+  it("shows each item as one summary card, without per-row action buttons", async () => {
+    api.listFutureExpenses.mockResolvedValue(LIST);
+    wrap(<FutureExpenses />);
+    const list = await screen.findByRole("list", { name: "Gastos futuros activos" });
+    for (const card of within(list).getAllByRole("listitem")) {
+      expect(within(card).getAllByRole("button")).toHaveLength(1);
+      expect(within(card).getByRole("progressbar")).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: /Marcar pagado|Editar|Eliminar|Agregar ahorro/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Nuevo gasto futuro" })).toBeInTheDocument();
+  });
+
+  it("opens the detail with every action of the item", async () => {
+    api.listFutureExpenses.mockResolvedValue(LIST);
+    wrap(<FutureExpenses />);
+    await screen.findByRole("list", { name: "Gastos futuros activos" });
+    const card = screen.getByRole("button", { name: "Ver Laptop" });
+    card.focus();
+    fireEvent.click(card);
+    const detail = screen.getByRole("dialog", { name: "Laptop" });
+    for (const name of ["Agregar ahorro a Laptop", "Asignar saldo libre a Laptop", "Marcar pagado Laptop", "Editar Laptop", "Eliminar Laptop"]) {
+      expect(within(detail).getByRole("button", { name })).toBeInTheDocument();
+    }
+    fireEvent.keyDown(detail, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ver Laptop" })).toHaveFocus();
   });
 
   it("hides the assign action when there is no free balance", async () => {
     api.listFutureExpenses.mockResolvedValue({ ...LIST, free_balance: "0.00" });
     wrap(<FutureExpenses />);
     await screen.findByRole("list", { name: "Gastos futuros activos" });
+    fireEvent.click(screen.getByRole("button", { name: "Ver Laptop" }));
+    expect(screen.getByRole("button", { name: "Marcar pagado Laptop" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Asignar saldo libre/ })).not.toBeInTheDocument();
   });
 
-  it("asks before deleting and explains the savings are kept", async () => {
+  it("hands the detail over to the edit, add-saving and pay dialogs", async () => {
+    api.listFutureExpenses.mockResolvedValue(LIST);
+    wrap(<FutureExpenses />);
+    await screen.findByRole("list", { name: "Gastos futuros activos" });
+    fireEvent.click(screen.getByRole("button", { name: "Ver Laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Editar Laptop" }));
+    expect(screen.getByRole("dialog", { name: "Editar Laptop" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Nombre")).toHaveValue("Laptop");
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver Laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agregar ahorro a Laptop" }));
+    expect(screen.getByLabelText("Monto (MXN)")).toBeInTheDocument();
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Ver Laptop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Marcar pagado Laptop" }));
+    expect(screen.getByLabelText("Monto pagado (MXN)")).toBeInTheDocument();
+  });
+
+  it("creates a new one from the header button, in a dialog", async () => {
+    api.listFutureExpenses.mockResolvedValue(LIST);
+    api.createFutureExpense.mockResolvedValue(LAPTOP);
+    wrap(<FutureExpenses />);
+    await screen.findByRole("list", { name: "Gastos futuros activos" });
+    fireEvent.click(screen.getByRole("button", { name: "Nuevo gasto futuro" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuevo gasto futuro" });
+    fireEvent.change(within(dialog).getByLabelText("Nombre"), { target: { value: "Laptop" } });
+    fireEvent.change(within(dialog).getByLabelText("Monto a juntar (MXN)"), { target: { value: "8000" } });
+    fireEvent.change(within(dialog).getByLabelText("Fecha de vencimiento"), { target: { value: "2027-01-20" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Agregar gasto futuro" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("status")).toHaveTextContent("Laptop agregado");
+  });
+
+  it("asks before deleting, from the detail, and explains the savings are kept", async () => {
     api.listFutureExpenses.mockResolvedValue(LIST);
     api.deleteFutureExpense.mockResolvedValue(undefined);
     wrap(<FutureExpenses />);
     await screen.findByRole("list", { name: "Gastos futuros activos" });
+    fireEvent.click(screen.getByRole("button", { name: "Ver Laptop" }));
     fireEvent.click(screen.getByRole("button", { name: "Eliminar Laptop" }));
     expect(screen.getByText(/vuelve al saldo libre/)).toBeInTheDocument();
     expect(api.deleteFutureExpense).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Sí, eliminar" }));
     await waitFor(() => expect(api.deleteFutureExpense).toHaveBeenCalledWith(1));
     expect(await screen.findByText(/Laptop se eliminó/)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("removes a paid item from the history after confirming", async () => {
+    api.listFutureExpenses.mockResolvedValue(LIST);
+    api.deleteFutureExpense.mockResolvedValue(undefined);
+    wrap(<FutureExpenses />);
+    await screen.findByRole("list", { name: "Gastos futuros pagados" });
+    fireEvent.click(screen.getByRole("button", { name: "Ver Teléfono" }));
+    expect(screen.getByRole("dialog", { name: "Teléfono" })).toHaveTextContent("$4,800.00");
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar Teléfono" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sí, eliminar" }));
+    await waitFor(() => expect(api.deleteFutureExpense).toHaveBeenCalledWith(3));
+    expect(await screen.findByText(/Teléfono se quitó del historial/)).toBeInTheDocument();
   });
 
   it("explains an empty state and offers a retry when loading fails", async () => {
