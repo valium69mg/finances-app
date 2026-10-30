@@ -339,4 +339,12 @@ test.describe("dashboard page", () => {
       await expectNoHorizontalOverflow(page, `totals at ${width}px`);
     });
   }
+
+  test("the card links have a tap-sized hit area", async ({ page }) => {
+    await open(page);
+    for (const name of ["Ver pagos recurrentes", "Administrar gastos futuros"]) {
+      const box = (await page.getByRole("link", { name, exact: true }).boundingBox())!;
+      expect(box.height, name).toBeGreaterThanOrEqual(44);
+    }
+  });
 });

@@ -1,3 +1,4 @@
+import { tapLink } from "../settings/ui";
 import { Target } from "lucide-react";
 import { useId } from "react";
 import { Link } from "react-router-dom";
@@ -84,7 +85,7 @@ export function FutureExpensesCard({ future, linkFor }: { future: FutureExpenses
           Saldo libre: <span className="font-medium text-foreground">{formatMoney(future.free_balance)}</span>, ahorro en Gastos futuros sin asignar a un gasto.
         </p>
       )}
-      <Link to="/gastos-futuros" className="mt-3 inline-block text-sm font-medium underline">
+      <Link to="/gastos-futuros" className={`${tapLink} mt-1 text-sm`}>
         Administrar gastos futuros
       </Link>
     </section>

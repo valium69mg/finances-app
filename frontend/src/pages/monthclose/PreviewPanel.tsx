@@ -4,7 +4,7 @@ import { CalendarCheck, Info, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { ApiError } from "../../api/client";
 import { createMonthClose, monthCloseKeys, previewMonthClose, type MonthClose } from "../../api/monthClose";
-import { ErrorBanner, primaryButton, secondaryButton } from "../settings/ui";
+import { ErrorBanner, primaryButton, secondaryButton, tapLink } from "../settings/ui";
 import { periodLabel } from "../taxfiling/labels";
 import { CloseReport } from "./CloseReport";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -56,7 +56,7 @@ export function PreviewPanel({ period, currentMonth, onClosed, onOpenStored }: P
             Reintentar
           </button>
           {preview.error instanceof ApiError && preview.error.code === "settings_incomplete" && (
-            <Link to="/configuracion" className="text-sm font-medium underline">
+            <Link to="/configuracion" className={`${tapLink} text-sm`}>
               Ir a Configuración
             </Link>
           )}

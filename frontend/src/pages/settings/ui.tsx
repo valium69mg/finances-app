@@ -10,6 +10,9 @@ export const primaryButton =
 export const secondaryButton =
   "focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-surface px-4 py-2 text-sm font-medium transition-colors duration-200 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-60";
 
+/** A standalone text link ("Ver pagos recurrentes", "Ir a Configuración"): the text stays small, the hit area is 44px tall. */
+export const tapLink = "focus-ring inline-flex min-h-11 items-center rounded font-medium underline underline-offset-2";
+
 export const dangerButton =
   "focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-destructive px-4 py-2 text-sm font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60";
 

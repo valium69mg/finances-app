@@ -8,7 +8,7 @@ import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
 import { InlineFormPanel } from "../components/InlineFormPanel";
 import { todayISO } from "./expenses/money";
-import { ErrorBanner, primaryButton, secondaryButton } from "./settings/ui";
+import { ErrorBanner, primaryButton, secondaryButton, tapLink } from "./settings/ui";
 import { Breakdown } from "./taxfiling/Breakdown";
 import { describeTaxFilingError } from "./taxfiling/errors";
 import { InvoiceRefs, TaxWarnings } from "./taxfiling/InvoiceRefs";
@@ -62,7 +62,7 @@ function PreviewBody({ preview, onRegistered }: { preview: TaxPreview; onRegiste
             Este periodo se presentó el <span className="font-medium">{dateLabel(preview.filing.filing_date)}</span>
             {preview.filing.folio && <> (folio {preview.filing.folio})</>}.
           </p>
-          <Link to="/declaraciones-presentadas" className="mt-2 inline-block font-medium underline">
+          <Link to="/declaraciones-presentadas" className={`${tapLink} mt-1`}>
             Ver en Declaraciones presentadas
           </Link>
         </div>
@@ -140,7 +140,7 @@ export function TaxFiling() {
               {registered.result.filing.status === "pagada" ? " y pagada" : " con el pago pendiente"}.
               {registered.result.filing.expense_movement_id !== null && " Se registró el gasto de Impuestos."}
             </span>
-            <Link to="/declaraciones-presentadas" className="font-medium underline">
+            <Link to="/declaraciones-presentadas" className={tapLink}>
               Ver declaraciones presentadas
             </Link>
           </p>
@@ -167,7 +167,7 @@ export function TaxFiling() {
                 Reintentar
               </button>
               {preview.error instanceof ApiError && preview.error.code === "settings_incomplete" && (
-                <Link to="/configuracion" className="text-sm font-medium underline">
+                <Link to="/configuracion" className={`${tapLink} text-sm`}>
                   Ir a Configuración
                 </Link>
               )}

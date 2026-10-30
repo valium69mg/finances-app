@@ -1,3 +1,4 @@
+import { tapLink } from "../settings/ui";
 import { useId } from "react";
 import { CalendarClock } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -60,7 +61,7 @@ export function UpcomingBills({ bills, linkFor }: { bills: UpcomingBill[]; linkF
           })}
         </ul>
       )}
-      <Link to="/pagos-recurrentes" className="mt-3 inline-block text-sm font-medium underline">
+      <Link to="/pagos-recurrentes" className={`${tapLink} mt-1 text-sm`}>
         Ver pagos recurrentes
       </Link>
     </section>

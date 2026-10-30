@@ -25,7 +25,7 @@ import { cycleOf, rangeText } from "./cycle";
 import { useCyclePeriod, useCycleStartDay } from "./useCycle";
 import { EmergencyCard } from "./savings/PortfolioPanel";
 import { describePersonalError } from "./personal/errors";
-import { ErrorBanner, secondaryButton } from "./settings/ui";
+import { ErrorBanner, secondaryButton, tapLink } from "./settings/ui";
 
 const isEmptyMonth = (d: DashboardData) =>
   /^-?0(\.0+)?$/.test(d.income) && /^-?0(\.0+)?$/.test(d.expenses) && /^-?0(\.0+)?$/.test(d.savings);
@@ -265,7 +265,7 @@ function OwnerDashboard() {
                 Reintentar
               </button>
               {incomplete && (
-                <Link to="/configuracion" className="text-sm font-medium underline">
+                <Link to="/configuracion" className={`${tapLink} text-sm`}>
                   Ir a Configuración
                 </Link>
               )}
