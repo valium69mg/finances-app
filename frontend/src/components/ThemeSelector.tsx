@@ -19,10 +19,10 @@ export function ThemeSelector() {
           return (
             <label
               key={value}
-              className="flex min-h-11 cursor-pointer items-center justify-center gap-1.5 rounded-md px-2 text-sm font-medium text-muted transition-colors duration-200 hover:text-foreground has-[:checked]:bg-primary/15 has-[:checked]:text-primary has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-1 has-[:focus-visible]:outline-ring"
+              className="flex min-h-14 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-md px-1 text-xs font-medium text-muted transition-colors duration-200 hover:text-foreground has-[:checked]:bg-primary/15 has-[:checked]:text-primary has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-1 has-[:focus-visible]:outline-ring"
             >
               <input type="radio" name={name} value={value} checked={theme === value} onChange={() => setTheme(value)} className="sr-only" />
-              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              <Icon className="h-5 w-5 shrink-0" aria-hidden="true" />
               {label}
             </label>
           );

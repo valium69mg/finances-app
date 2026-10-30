@@ -27,7 +27,7 @@ afterEach(() => {
 });
 beforeEach(() => {
   localStorage.clear();
-  // jsdom has no matchMedia, which the layout uses to close its drawer on wide screens.
+  // jsdom has no matchMedia, which the layout uses to close the dock overlays on wide screens.
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener: () => {}, removeEventListener: () => {} }));
 });
 
