@@ -1,69 +1,38 @@
 import { useState } from "react";
-import { updateClients, type Client } from "../../api/settings";
-import { TextField } from "../../components/AuthCard";
-import { Card, SectionForm, fieldGrid, useDraft, useSave } from "./ui";
-import { validateClients, type Errors } from "./validation";
+import { ChevronRight } from "lucide-react";
+import type { Client } from "../../api/settings";
+import { ClientDialog } from "./ClientDialog";
+import { SectionHeader, rowButton } from "./ui";
 
-type EditableKey = Exclude<keyof Client, "id">;
+const chip = "rounded-full border border-border px-2 py-0.5 text-xs text-muted";
 
-const FIELDS: { key: EditableKey; label: string; decimal?: boolean; hint?: string }[] = [
-  { key: "name", label: "Nombre" },
-  { key: "type", label: "Tipo" },
-  { key: "currency", label: "Moneda" },
-  { key: "iva_rate", label: "Tasa de IVA", decimal: true, hint: "Como fracción: 0.16 equivale a 16 %." },
-  { key: "rfc", label: "RFC" },
-  { key: "regimen", label: "Régimen fiscal" },
-  { key: "postal_code", label: "Código postal", hint: "5 dígitos. Para público en general y clientes del extranjero se usa el del emisor." },
-  { key: "uso_cfdi", label: "Uso de CFDI" },
-  { key: "ret_isr_rate", label: "Retención de ISR", decimal: true },
-  { key: "ret_iva_rate", label: "Retención de IVA", decimal: true },
-  { key: "concepto", label: "Concepto" },
-  { key: "clave_prod_serv", label: "Clave de producto o servicio" },
-  { key: "clave_unidad", label: "Clave de unidad" },
-  { key: "address", label: "Domicilio" },
-  { key: "tax_residence", label: "Residencia fiscal" },
-  { key: "contract", label: "Contrato" },
-  { key: "real_payer", label: "Pagador real" },
-];
-
+/** One compact card per client; a click edits it in a dialog. There is no way to add or remove clients from the app today. */
 export function ClientsSection({ data }: { data: Client[] }) {
-  const [draft, setDraft] = useDraft(data, (d) => d);
-  const [errors, setErrors] = useState<Errors>({});
-  const save = useSave(updateClients);
-
-  function onSubmit() {
-    const found = validateClients(draft);
-    setErrors(found);
-    if (Object.keys(found).length > 0) return false;
-    save.mutate(draft);
-    return true;
-  }
-
+  const [editing, setEditing] = useState<number | null>(null);
   return (
-    <SectionForm title="Clientes" description="Datos de facturación de cada cliente (CFDI)." save={save} onSubmit={onSubmit}>
-      {draft.length === 0 && <p className="text-sm text-muted">Aún no hay clientes configurados.</p>}
-      <ul className="space-y-3">
-        {draft.map((c, i) => (
+    <div className="space-y-6">
+      <SectionHeader title="Clientes" description="Datos de facturación de cada cliente (CFDI). Toca uno para editarlo." />
+      {data.length === 0 && <p className="text-sm text-muted">Aún no hay clientes configurados.</p>}
+      <ul className="grid gap-3 md:grid-cols-2">
+        {data.map((c, i) => (
           <li key={c.id}>
-            <Card>
-              <h3 className="mb-3 min-w-0 break-words font-semibold">{data[i]?.name || c.id}</h3>
-              <div className={fieldGrid}>
-                {FIELDS.map((f) => (
-                  <TextField
-                    key={f.key}
-                    label={`${f.label} (cliente ${i + 1})`}
-                    hint={f.hint}
-                    inputMode={f.decimal ? "decimal" : undefined}
-                    value={c[f.key]}
-                    onChange={(e) => setDraft(draft.map((x, j) => (j === i ? { ...x, [f.key]: e.target.value } : x)))}
-                    error={errors[`${i}.${f.key}`]}
-                  />
-                ))}
-              </div>
-            </Card>
+            <button type="button" onClick={() => setEditing(i)} className={`${rowButton} h-full`}>
+              <span className="min-w-0 flex-1 space-y-1.5">
+                <span className="block break-words font-semibold">{c.name || c.id}</span>
+                <span className="block text-sm text-muted">
+                  RFC {c.rfc || "—"} · Régimen {c.regimen || "—"}
+                </span>
+                <span className="flex flex-wrap gap-2">
+                  {c.type && <span className={chip}>{c.type}</span>}
+                  {c.currency && <span className={chip}>{c.currency}</span>}
+                </span>
+              </span>
+              <ChevronRight className="h-5 w-5 shrink-0 text-muted" aria-hidden="true" />
+            </button>
           </li>
         ))}
       </ul>
-    </SectionForm>
+      {editing !== null && <ClientDialog clients={data} index={editing} onClose={() => setEditing(null)} />}
+    </div>
   );
 }
