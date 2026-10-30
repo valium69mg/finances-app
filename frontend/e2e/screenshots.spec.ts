@@ -142,3 +142,126 @@ test("screenshots round 3 (dock, quick expense, Más, theme selector)", async ({
     await page.screenshot({ path: `${shots}/escritorio-tema-${scheme}-1280.png` });
   }
 });
+
+// Audit round: every owner and household page, both schemes, 375 and 1280, plus auth pages, empty and error states.
+// Also dumps per-page metrics (horizontal overflow, small touch targets, sub-16px inputs) to metrics.json.
+const AUDIT_OWNER = [
+  "/", "/peticiones", "/hogar", "/ingresos", "/gastos", "/ahorros", "/gastos-futuros", "/facturas", "/declaracion",
+  "/declaraciones-presentadas", "/cierre-de-mes", "/pagos-recurrentes", "/sistema",
+  "/configuracion?seccion=general", "/configuracion?seccion=categorias", "/configuracion?seccion=clientes",
+  "/configuracion?seccion=instrumentos", "/configuracion?seccion=resico", "/configuracion?seccion=pausa", "/configuracion?seccion=usuarios",
+];
+const AUDIT_HOUSEHOLD = ["/", "/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros", "/lista-de-deseos", "/peticiones"];
+const slug = (path: string) => (path === "/" ? "panel" : path.replace(/^\//, "").replace(/[/?=]/g, "-"));
+
+test("audit screenshots", async ({ page }, info) => {
+  test.skip(!shots || info.project.name !== "mobile", "only with SHOTS_DIR, once");
+  test.setTimeout(900_000);
+  const fs = await import("node:fs");
+  const metrics: Record<string, unknown> = {};
+  const measure = () =>
+    page.evaluate(() => {
+      const vis = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        const cs = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && cs.visibility !== "hidden" && cs.display !== "none";
+      };
+      const name = (el: Element) => (el.getAttribute("aria-label") || (el as HTMLElement).innerText || el.getAttribute("placeholder") || el.tagName).trim().slice(0, 40);
+      const small = [...document.querySelectorAll("button, a[href], [role=button], select, input:not([type=hidden])")]
+        .filter(vis)
+        .map((el) => ({ n: name(el), w: Math.round(el.getBoundingClientRect().width), h: Math.round(el.getBoundingClientRect().height) }))
+        .filter((t) => t.h < 40 || t.w < 40);
+      const fonts = [...document.querySelectorAll("input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea")]
+        .filter(vis)
+        .map((el) => ({ n: name(el), fs: parseFloat(getComputedStyle(el).fontSize) }))
+        .filter((f) => f.fs < 16);
+      const noName = [...document.querySelectorAll("button, a[href]")].filter(vis).filter((el) => !name(el) || name(el) === el.tagName).length;
+      const unlabeled = [...document.querySelectorAll("input:not([type=hidden]), select, textarea")]
+        .filter(vis)
+        .filter((el) => !el.getAttribute("aria-label") && !el.getAttribute("aria-labelledby") && !(el as HTMLInputElement).labels?.length).length;
+      const h1 = document.querySelectorAll("h1").length;
+      const tiny = [...document.querySelectorAll("body *")].filter((el) => vis(el) && el.childNodes.length && [...el.childNodes].some((n) => n.nodeType === 3 && n.textContent?.trim())).filter((el) => parseFloat(getComputedStyle(el).fontSize) < 12).length;
+      return { overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth, small: small.slice(0, 12), smallCount: small.length, fonts: fonts.slice(0, 6), noName, unlabeled, h1, tiny };
+    });
+
+  const today_ = today();
+  const data = {
+    expenses: [
+      { id: 1, date: today_, description: "Renta", category: "Renta", payment_method: "Transferencia", currency: "MXN", amount: "12000.00", exchange_rate: null, amount_mxn: "12000.00" },
+      { id: 2, date: today_, description: "Súper", category: "Comida", payment_method: "Débito", currency: "MXN", amount: "1450.00", exchange_rate: null, amount_mxn: "1450.00" },
+    ],
+    income: [{ id: 1, date: today_, description: "Sueldo octubre", category: "Sueldo", payment_method: "Transferencia", currency: "MXN", amount: "32000.00", exchange_rate: null, amount_mxn: "32000.00" }],
+    savings: [{ id: 1, date: today_, description: "Aporte", category: "Inversión", instrument: "VOO", payment_method: "Transferencia", currency: "MXN", amount: "2000.00", exchange_rate: null, amount_mxn: "2000.00" }],
+    bills: [
+      { id: 1, name: "Internet", category: "Servicios", amount: "599.00", currency: "MXN", recurrence: "monthly" as const, next_due_date: day(3), reminder_lead_days: 3, active: true, notes: "" },
+      { id: 2, name: "Seguro", category: "Seguros", amount: null, currency: "MXN", recurrence: "yearly" as const, next_due_date: day(-2), reminder_lead_days: 7, active: true, notes: "" },
+    ],
+    futureExpenses: [
+      { id: 1, name: "Laptop", target_amount: "8000.00", due_date: day(120), saved: "2000.00" },
+      { id: 2, name: "Viaje", target_amount: "24000.00", due_date: day(60), saved: "24000.00" },
+    ],
+    futureFreeBalance: "350.25",
+    closes: [CLOSE],
+    users: [OWNER_USER, ANA],
+    expenseRequests: [
+      { id: 1, requester_email: "ana@example.com", amount: "450.00", description: "Zapatos escolares", suggested_category: "Ropa", status: "solicitada" as const },
+      { id: 2, requester_email: "ana@example.com", amount: "120.00", description: "Libreta", status: "rechazada" as const, decision_comment: "Mejor el mes siguiente" },
+    ],
+    personal: PERSONAL,
+    personalFuture: [{ id: 1, name: "Laptop", target_amount: "8000.00", due_date: "2027-06-20", saved: "2000.00" }],
+    personalWishlist: [{ id: 1, name: "Bolsa", price: "499.90", category: "Ropa", priority: "alta" as const }],
+  };
+
+  const run = async (role: "owner" | "household", paths: string[], width: number, scheme: "light" | "dark", extra: Record<string, unknown> = {}, tag = "") => {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+    await page.emulateMedia({ colorScheme: scheme });
+    await mockApi(page, { role, ...data, ...extra } as never);
+    for (const path of paths) {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      await page.waitForTimeout(500);
+      const key = `${role === "household" ? "h-" : ""}${tag}${slug(path)}-${scheme}-${width}`;
+      await page.screenshot({ path: `${shots}/audit/${key}.png`, fullPage: true });
+      metrics[key] = await measure();
+    }
+  };
+  fs.mkdirSync(`${shots}/audit`, { recursive: true });
+
+  await seedSession(page, "owner");
+  for (const scheme of ["light", "dark"] as const) {
+    for (const width of [375, 1280]) await run("owner", AUDIT_OWNER, width, scheme);
+  }
+  // Household: separate page state so the stored role changes.
+  await page.addInitScript(() => localStorage.setItem("role", "household"));
+  for (const scheme of ["light", "dark"] as const) {
+    for (const width of [375, 1280]) await run("household", AUDIT_HOUSEHOLD, width, scheme);
+  }
+  await page.addInitScript(() => localStorage.setItem("role", "owner"));
+  // Empty and error states (light, both widths).
+  const empty = { expenses: [], income: [], savings: [], bills: [], futureExpenses: [], closes: [], expenseRequests: [], personal: [], personalFuture: [], personalWishlist: [], users: [OWNER_USER] };
+  for (const width of [375, 1280]) {
+    await run("owner", ["/gastos", "/ingresos", "/ahorros", "/gastos-futuros", "/pagos-recurrentes", "/cierre-de-mes", "/peticiones", "/declaraciones-presentadas", "/facturas"], width, "light", empty, "empty-");
+    await run("owner", ["/", "/gastos", "/ingresos", "/ahorros", "/gastos-futuros", "/pagos-recurrentes", "/cierre-de-mes", "/sistema"], width, "light", { dashboardFail: "server", expensesFail: "list", incomeFail: "list", savingsFail: "list", savingsListFail: true, futureFail: "list", billsFail: "list", monthCloseFail: "list", systemFail: "server" }, "error-");
+  }
+  // Auth pages (no session).
+  const bare = await page.context().browser()!.newContext({ viewport: { width: 375, height: 812 } });
+  for (const scheme of ["light", "dark"] as const) {
+    for (const width of [375, 1280]) {
+      const p = await bare.newPage({ viewport: { width, height: 812 } });
+      await p.emulateMedia({ colorScheme: scheme });
+      await mockApi(p, {});
+      for (const path of ["/login", "/restablecer?token=abc", "/verify?token=abc"]) {
+        await p.goto(path);
+        await p.waitForTimeout(500);
+        await p.screenshot({ path: `${shots}/audit/auth-${slug(path.split("?")[0])}-${scheme}-${width}.png`, fullPage: true });
+      }
+      await p.goto("/login");
+      await p.getByLabel("Correo electrónico").fill("admin@example.com");
+      await p.getByRole("button", { name: "Continuar" }).click();
+      await p.getByLabel("Contraseña", { exact: true }).waitFor();
+      await p.screenshot({ path: `${shots}/audit/auth-login-password-${scheme}-${width}.png`, fullPage: true });
+      await p.close();
+    }
+  }
+  fs.writeFileSync(`${shots}/audit/metrics.json`, JSON.stringify(metrics, null, 1));
+});
