@@ -17,14 +17,15 @@ import { MovementList } from "./MovementList";
 import { usePersonalScope } from "./scope";
 
 /**
- * Page shared by Mis ingresos, Mis gastos and Mis ahorros: period picker, total, list, and a dialog to create or edit.
+ * Page shared by Mis ingresos, Mis gastos and Mis ahorros: "Nuevo …" (and "Administrar categorías") in the header, period
+ * picker, total, a list of rows that open the edit dialog (which also deletes), and a dialog to create.
  * The household role cannot read the settings, so the period is the YYYY-MM label she picks and the server answers
  * for the current cycle until she does. The month lives in the URL (`?mes=`, the Panel's links open on it) and the
  * range hint comes from /personal/period. `?categoria=<id>` filters the list by one of the page's categories and shows
  * as a clearable chip; an id that is not one of them is ignored.
  *
  * Inside the owner's "Hogar" view (see PersonalScope) the same page is read-only: every read carries the household
- * user's id and nothing that writes is rendered (no new, edit, delete or category management), and the Hogar page owns
+ * user's id and nothing that writes is rendered (no new, edit, delete or category management; the rows are plain), and the Hogar page owns
  * the heading.
  */
 export function PersonalMovements({ config, manageCategories = false }: { config: PersonalPageConfig; manageCategories?: boolean }) {
@@ -45,56 +46,51 @@ export function PersonalMovements({ config, manageCategories = false }: { config
     queryFn: () => getPersonalPeriod(month, userId ?? undefined),
     retry: false,
   });
-  // Read-only, the categories card only shows while they load or fail; her own page always has it (the new buttons).
-  const showTop = !readOnly || categories.isPending || categories.isError;
   const hint = period.data ? rangeText(period.data.period_start, period.data.period_end) : undefined;
   const filter = categories.data?.find((c) => c.id === rawCategory);
+
+  const actions =
+    !readOnly && categories.data ? (
+      <>
+        <button type="button" onClick={() => setDialog({ editing: null })} className={primaryButton}>
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          {config.newLabel}
+        </button>
+        {manageCategories && (
+          <button type="button" onClick={() => setCategoriesOpen(true)} className={secondaryButton}>
+            <ListPlus className="h-4 w-4" aria-hidden="true" />
+            Administrar categorías
+          </button>
+        )}
+      </>
+    ) : undefined;
 
   return (
     <section aria-labelledby={readOnly ? undefined : "page-title"} aria-label={readOnly ? config.listTitle : undefined}>
       {!readOnly && (
         <>
-          <PageTitle icon={icon} tone={tone}>
+          <PageTitle icon={icon} tone={tone} action={actions}>
             {config.title}
           </PageTitle>
           <p className="mt-1 text-sm text-muted">{config.intro}</p>
         </>
       )}
 
-      {showTop && (
-        <div className={`${readOnly ? "" : "mt-6 "}rounded-xl border border-border bg-surface p-4 sm:p-6`}>
-          {categories.isPending && (
-            <p role="status" className="flex items-center gap-2 text-sm text-muted">
-              <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-              Cargando categorías…
-            </p>
-          )}
-          {categories.isError && (
-            <div className="space-y-3">
-              <ErrorBanner>{describePersonalError(categories.error)}</ErrorBanner>
-              <button type="button" onClick={() => void categories.refetch()} className={secondaryButton}>
-                Reintentar
-              </button>
-            </div>
-          )}
-          {categories.data && !readOnly && (
-            <div className="flex flex-wrap gap-3">
-              <button type="button" onClick={() => setDialog({ editing: null })} className={primaryButton}>
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                {config.newLabel}
-              </button>
-              {manageCategories && (
-                <button type="button" onClick={() => setCategoriesOpen(true)} className={secondaryButton}>
-                  <ListPlus className="h-4 w-4" aria-hidden="true" />
-                  Administrar categorías
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className={`${showTop ? "mt-6 " : ""}rounded-xl border border-border bg-surface p-4 sm:p-6`}>
+      <div className={`${readOnly ? "" : "mt-6 "}rounded-xl border border-border bg-surface p-4 sm:p-6`}>
+        {categories.isPending && (
+          <p role="status" className="mb-4 flex items-center gap-2 text-sm text-muted">
+            <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            Cargando categorías…
+          </p>
+        )}
+        {categories.isError && (
+          <div className="mb-4 space-y-3">
+            <ErrorBanner>{describePersonalError(categories.error)}</ErrorBanner>
+            <button type="button" onClick={() => void categories.refetch()} className={secondaryButton}>
+              Reintentar
+            </button>
+          </div>
+        )}
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight">{config.listTitle}</h2>
           <div className="w-full min-w-0 max-w-full sm:w-56">
@@ -114,7 +110,6 @@ export function PersonalMovements({ config, manageCategories = false }: { config
           category={filter}
           ready={!categories.isPending}
           onEdit={(m) => setDialog({ editing: m })}
-          onDeleted={(id) => setDialog((cur) => (cur?.editing?.id === id ? null : cur))}
         />
       </div>
 

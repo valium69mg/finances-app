@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
 import {
   createPersonalMovement,
+  deletePersonalMovement,
   personalKeys,
   updatePersonalMovement,
   type PersonalCategory,
@@ -10,6 +11,7 @@ import {
   type PersonalMovementInput,
 } from "../../api/personal";
 import { TextField } from "../../components/AuthCard";
+import { DeleteAction } from "../../components/DeleteAction";
 import { Modal } from "../../components/Modal";
 import { SelectField } from "../expenses/SelectField";
 import { isValuationAmount, todayISO } from "../expenses/money";
@@ -28,7 +30,7 @@ interface Props {
 
 type Direction = "aportacion" | "retiro";
 
-/** Create/edit dialog shared by the three personal pages. An Ahorro asks "Aportación" or "Retiro"; a withdrawal is sent negative. */
+/** Create/edit dialog shared by the three personal pages; editing also offers "Eliminar", with a confirmation. An Ahorro asks "Aportación" or "Retiro"; a withdrawal is sent negative. */
 export function MovementDialog({ config, categories, editing, onClose }: Props) {
   const qc = useQueryClient();
   const isSaving = config.kind === "Ahorro";
@@ -42,6 +44,14 @@ export function MovementDialog({ config, categories, editing, onClose }: Props) 
 
   const save = useMutation({
     mutationFn: (input: PersonalMovementInput) => (editing ? updatePersonalMovement(editing.id, input) : createPersonalMovement(input)),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: personalKeys.all });
+      onClose();
+    },
+  });
+
+  const remove = useMutation({
+    mutationFn: (id: number) => deletePersonalMovement(id),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: personalKeys.all });
       onClose();
@@ -106,6 +116,7 @@ export function MovementDialog({ config, categories, editing, onClose }: Props) 
         </div>
 
         {save.isError && <ErrorBanner>{describePersonalError(save.error, config.noun)}</ErrorBanner>}
+        {remove.isError && <ErrorBanner>{describePersonalError(remove.error, config.noun)}</ErrorBanner>}
 
         <div className="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={save.isPending} aria-busy={save.isPending} className={primaryButton}>
@@ -122,6 +133,17 @@ export function MovementDialog({ config, categories, editing, onClose }: Props) 
             Cancelar
           </button>
         </div>
+        {editing && (
+          <div className="border-t border-border pt-5">
+            <DeleteAction
+              name={editing.description || "este movimiento"}
+              question={config.deleteQuestion}
+              pending={remove.isPending}
+              onStart={() => remove.reset()}
+              onConfirm={() => remove.mutate(editing.id)}
+            />
+          </div>
+        )}
       </form>
     </Modal>
   );

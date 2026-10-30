@@ -1,11 +1,10 @@
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, Trash2 } from "lucide-react";
-import { deletePersonalMovement, listPersonalMovements, personalKeys, type PersonalCategory, type PersonalMovement } from "../../api/personal";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronRight, Loader2 } from "lucide-react";
+import { listPersonalMovements, personalKeys, type PersonalCategory, type PersonalMovement } from "../../api/personal";
 import { EmptyNote } from "../../components/EmptyNote";
 import { KIND } from "../../lib/tones";
 import { formatMoney } from "../expenses/money";
-import { ErrorBanner, dangerButton, secondaryButton } from "../settings/ui";
+import { ErrorBanner, rowButton, secondaryButton } from "../settings/ui";
 import type { PersonalPageConfig } from "./config";
 import { describePersonalError } from "./errors";
 import { usePersonalScope } from "./scope";
@@ -19,27 +18,17 @@ interface Props {
   category?: PersonalCategory;
   /** False while the categories load: the filter is only known once they have, so the list waits for it. */
   ready?: boolean;
+  /** Opens the edit dialog (hers only; the read-only Hogar view renders plain rows). */
   onEdit: (movement: PersonalMovement) => void;
-  onDeleted: (id: number) => void;
 }
 
-export function MovementList({ config, month, category, ready = true, onEdit, onDeleted }: Props) {
-  const qc = useQueryClient();
+export function MovementList({ config, month, category, ready = true, onEdit }: Props) {
   const { userId, readOnly } = usePersonalScope();
-  const [confirmId, setConfirmId] = useState<number | null>(null);
   const list = useQuery({
     queryKey: personalKeys.movements(config.kind, month, category?.id ?? 0, userId ?? undefined),
     queryFn: () => listPersonalMovements({ month, kind: config.kind, categoryId: category?.id, userId: userId ?? undefined }),
     enabled: ready,
     retry: false,
-  });
-  const remove = useMutation({
-    mutationFn: (id: number) => deletePersonalMovement(id),
-    onSuccess: (_, id) => {
-      setConfirmId(null);
-      onDeleted(id);
-      return qc.invalidateQueries({ queryKey: personalKeys.all });
-    },
   });
 
   if (list.isPending) {
@@ -72,52 +61,31 @@ export function MovementList({ config, month, category, ready = true, onEdit, on
       <p className="text-sm text-muted">
         {config.totalLabel}: <strong data-testid="personal-total" className={`text-base tabular-nums ${isNegative(total) ? "text-destructive" : "text-foreground"}`}>{formatMoney(total)} MXN</strong>
       </p>
-      {remove.isError && <ErrorBanner>{describePersonalError(remove.error, config.noun)}</ErrorBanner>}
-      <ul className="divide-y divide-border rounded-xl border border-border">
+      <ul className="space-y-2">
         {list.data.map((m) => {
           const label = m.description || "Sin descripción";
-          const confirming = confirmId === m.id;
           const withdrawal = config.kind === "Ahorro" && isNegative(m.amount);
-          return (
-            <li key={m.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <p className="break-words font-medium">{label}</p>
-                <p className="mt-0.5 break-words text-sm text-muted">
+          const body = (
+            <>
+              <span className="min-w-0 flex-1">
+                <span className="block break-words font-medium">{label}</span>
+                <span className="mt-0.5 block break-words text-sm text-muted">
                   {m.date} · {m.category}
                   {config.kind === "Ahorro" ? ` · ${withdrawal ? "Retiro" : "Aportación"}` : ""}
-                </p>
-              </div>
-              <p className={`shrink-0 text-left font-semibold tabular-nums sm:text-right ${withdrawal ? "text-destructive" : ""}`}>{formatMoney(m.amount)} MXN</p>
-              {readOnly ? null : confirming ? (
-                <div role="group" aria-label={`Confirmar eliminación de ${label}`} className="flex shrink-0 flex-wrap items-center gap-2">
-                  <span className="text-sm">{config.deleteQuestion}</span>
-                  <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(m.id)} className={dangerButton}>
-                    {remove.isPending && <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}
-                    Sí, eliminar
-                  </button>
-                  <button type="button" disabled={remove.isPending} onClick={() => setConfirmId(null)} className={secondaryButton}>
-                    Cancelar
-                  </button>
-                </div>
+                </span>
+              </span>
+              <span className={`shrink-0 font-semibold tabular-nums ${withdrawal ? "text-destructive" : ""}`}>{formatMoney(m.amount)} MXN</span>
+              {!readOnly && <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />}
+            </>
+          );
+          return (
+            <li key={m.id}>
+              {readOnly ? (
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3">{body}</div>
               ) : (
-                <div className="flex shrink-0 gap-2">
-                  <button type="button" onClick={() => onEdit(m)} aria-label={`Editar ${label}`} className={secondaryButton}>
-                    <Pencil className="h-4 w-4" aria-hidden="true" />
-                    Editar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      remove.reset();
-                      setConfirmId(m.id);
-                    }}
-                    aria-label={`Eliminar ${label}`}
-                    className={dangerButton}
-                  >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    Eliminar
-                  </button>
-                </div>
+                <button type="button" onClick={() => onEdit(m)} aria-label={`Editar ${label}`} className={rowButton}>
+                  {body}
+                </button>
               )}
             </li>
           );

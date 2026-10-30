@@ -1,128 +1,93 @@
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Pencil, Plus, X } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { createPersonalCategory, personalKeys, renamePersonalCategory, type PersonalCategory } from "../../api/personal";
 import { TextField } from "../../components/AuthCard";
 import { Modal } from "../../components/Modal";
-import { ErrorBanner, primaryButton, secondaryButton } from "../settings/ui";
+import { EditDialog } from "../settings/EditDialog";
+import { ErrorBanner, primaryButton, rowButton, secondaryButton } from "../settings/ui";
 import { describePersonalError } from "./errors";
 
-/** Add and rename her categories (no delete). Fixed categories never show the rename action. */
-export function CategoriesDialog({ categories, onClose }: { categories: PersonalCategory[]; onClose: () => void }) {
+const NAME_REQUIRED = "Escribe el nombre de la categoría.";
+
+/** The name form of one category: "Nueva categoría" (add) or "Renombrar" (edit). Closes itself when the save succeeds. */
+function NameDialog({ category, onClose }: { category: PersonalCategory | null; onClose: () => void }) {
   const qc = useQueryClient();
-  const [newName, setNewName] = useState("");
-  const [renamingId, setRenamingId] = useState<number | null>(null);
-  const [draft, setDraft] = useState("");
-  const [nameError, setNameError] = useState<string | null>(null);
-
+  const [name, setName] = useState(category?.name ?? "");
+  const [error, setError] = useState<string | null>(null);
   // A rename changes the category name shown on every movement, so every personal query is refreshed.
-  const refresh = () => qc.invalidateQueries({ queryKey: personalKeys.all });
-  const create = useMutation({
-    mutationFn: (name: string) => createPersonalCategory(name),
+  const save = useMutation({
+    mutationFn: (value: string) => (category ? renamePersonalCategory(category.id, value) : createPersonalCategory(value)),
     onSuccess: async () => {
-      setNewName("");
-      await refresh();
-    },
-  });
-  const rename = useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => renamePersonalCategory(id, name),
-    onSuccess: async () => {
-      setRenamingId(null);
-      await refresh();
+      await qc.invalidateQueries({ queryKey: personalKeys.all });
+      onClose();
     },
   });
 
-  function onCreate(e: FormEvent) {
-    e.preventDefault();
-    rename.reset();
-    if (newName.trim() === "") {
-      setNameError("Escribe el nombre de la categoría.");
-      return;
+  function onSubmit(): boolean {
+    if (name.trim() === "") {
+      setError(NAME_REQUIRED);
+      return false;
     }
-    setNameError(null);
-    create.mutate(newName.trim());
+    setError(null);
+    save.mutate(name.trim());
+    return true;
   }
-
-  function onRename(e: FormEvent, id: number) {
-    e.preventDefault();
-    create.reset();
-    if (draft.trim() === "") {
-      setNameError("Escribe el nombre de la categoría.");
-      return;
-    }
-    setNameError(null);
-    rename.mutate({ id, name: draft.trim() });
-  }
-
-  const failure = create.error ?? rename.error;
 
   return (
-    <Modal title="Mis categorías de gasto" onClose={onClose}>
-      <div className="space-y-5">
-        <form noValidate onSubmit={onCreate} className="space-y-3">
-          <TextField label="Nueva categoría" value={newName} onChange={(e) => setNewName(e.target.value)} error={renamingId === null ? (nameError ?? undefined) : undefined} autoComplete="off" />
-          <button type="submit" disabled={create.isPending} className={primaryButton}>
-            {create.isPending ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
+    <EditDialog
+      title={category ? `Renombrar ${category.name}` : "Nueva categoría"}
+      editing={category !== null}
+      onClose={onClose}
+      save={{ isPending: save.isPending, isError: false, error: null }}
+      onSubmit={onSubmit}
+      submitLabel={category ? "Guardar nombre" : "Agregar categoría"}
+      notice={save.isError ? <ErrorBanner>{describePersonalError(save.error, "la categoría")}</ErrorBanner> : undefined}
+    >
+      <TextField label={category ? "Nuevo nombre" : "Nueva categoría"} value={name} onChange={(e) => setName(e.target.value)} error={error ?? undefined} autoComplete="off" />
+    </EditDialog>
+  );
+}
+
+/**
+ * Her categories as a summary list: a row opens its rename dialog (fixed categories are plain rows, never editable)
+ * and "Agregar categoría" opens the create dialog. No delete.
+ */
+export function CategoriesDialog({ categories, onClose }: { categories: PersonalCategory[]; onClose: () => void }) {
+  const [form, setForm] = useState<{ category: PersonalCategory | null } | null>(null);
+
+  return (
+    <>
+      <Modal title="Mis categorías de gasto" onClose={onClose}>
+        <div className="space-y-5">
+          <button type="button" onClick={() => setForm({ category: null })} className={primaryButton}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
             Agregar categoría
           </button>
-        </form>
 
-        {failure && <ErrorBanner>{describePersonalError(failure, "la categoría")}</ErrorBanner>}
-
-        <ul className="divide-y divide-border rounded-xl border border-border">
-          {categories.map((c) => (
-            <li key={c.id} className="p-3">
-              {renamingId === c.id ? (
-                <form noValidate onSubmit={(e) => onRename(e, c.id)} aria-label={`Renombrar ${c.name}`} className="space-y-3">
-                  <TextField label="Nuevo nombre" value={draft} onChange={(e) => setDraft(e.target.value)} error={nameError ?? undefined} autoComplete="off" />
-                  <div className="flex flex-wrap gap-2">
-                    <button type="submit" disabled={rename.isPending} className={primaryButton}>
-                      {rename.isPending ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Check className="h-4 w-4" aria-hidden="true" />}
-                      Guardar nombre
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setRenamingId(null);
-                        setNameError(null);
-                        rename.reset();
-                      }}
-                      className={secondaryButton}
-                    >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                      Cancelar
-                    </button>
+          <ul className="space-y-2">
+            {categories.map((c) => (
+              <li key={c.id}>
+                {c.fixed ? (
+                  <div className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
+                    <span className="min-w-0 break-words font-medium">{c.name}</span>
+                    <span className="shrink-0 text-xs text-muted">Fija</span>
                   </div>
-                </form>
-              ) : (
-                <div className="flex items-center justify-between gap-3">
-                  <span className="min-w-0 break-words font-medium">{c.name}</span>
-                  {!c.fixed && (
-                    <button
-                      type="button"
-                      aria-label={`Renombrar ${c.name}`}
-                      onClick={() => {
-                        create.reset();
-                        rename.reset();
-                        setNameError(null);
-                        setDraft(c.name);
-                        setRenamingId(c.id);
-                      }}
-                      className={secondaryButton}
-                    >
-                      <Pencil className="h-4 w-4" aria-hidden="true" />
-                      Renombrar
-                    </button>
-                  )}
-                </div>
-              )}
-            </li>
-          ))}
-        </ul>
-        <button type="button" onClick={onClose} className={secondaryButton}>
-          Cerrar
-        </button>
-      </div>
-    </Modal>
+                ) : (
+                  <button type="button" aria-label={`Renombrar ${c.name}`} onClick={() => setForm({ category: c })} className={rowButton}>
+                    <span className="min-w-0 flex-1 break-words font-medium">{c.name}</span>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={onClose} className={secondaryButton}>
+            Cerrar
+          </button>
+        </div>
+      </Modal>
+      {form && <NameDialog key={form.category?.id ?? "new"} category={form.category} onClose={() => setForm(null)} />}
+    </>
   );
 }
