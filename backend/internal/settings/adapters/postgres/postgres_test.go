@@ -252,3 +252,48 @@ func TestImportIsAtomic(t *testing.T) {
 		t.Fatalf("failed import left data behind: empty=%v err=%v", empty, err)
 	}
 }
+
+func TestSaveCategoriesAppendsNewOnesAfterTheExisting(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	if err := repo.Import(ctx, fullConfig()); err != nil {
+		t.Fatal(err)
+	}
+	before, err := repo.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	budget := settingstest.D("250")
+	added := append([]domain.Category{}, before.Categories...)
+	added = append(added,
+		domain.Category{Name: "Donaciones", Kind: "Gasto", Keywords: []string{"iglesia", "diezmo"}},
+		domain.Category{Name: "Efectivo", Kind: "Gasto", Budget: &budget},
+	)
+	if err := repo.SaveCategories(ctx, added); err != nil {
+		t.Fatalf("SaveCategories: %v", err)
+	}
+
+	got, err := repo.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := len(before.Categories)
+	if len(got.Categories) != n+2 {
+		t.Fatalf("got %d categories, want %d", len(got.Categories), n+2)
+	}
+	for i, c := range before.Categories {
+		g := got.Categories[i]
+		if g.Name != c.Name || g.Kind != c.Kind || g.Includes != c.Includes ||
+			(g.Budget == nil) != (c.Budget == nil) || (g.Budget != nil && !g.Budget.Equal(*c.Budget)) {
+			t.Fatalf("existing category %d changed: %+v, want %+v", i, g, c)
+		}
+	}
+	if d, e := got.Categories[n], got.Categories[n+1]; d.Name != "Donaciones" || len(d.Keywords) != 2 || d.Budget != nil ||
+		e.Name != "Efectivo" || e.Budget == nil || !e.Budget.Equal(budget) {
+		t.Fatalf("new categories = %+v / %+v", d, e)
+	}
+	if names := got.Catalog().CategoryNames("Gasto"); names[len(names)-1] != "Efectivo" {
+		t.Fatalf("new Gasto categories missing from the catalog: %v", names)
+	}
+}
