@@ -1,136 +1,95 @@
-import { useState } from "react";
-import { updateGeneral, type General } from "../../api/settings";
-import { FieldError, TextField } from "../../components/AuthCard";
-import { isHundred } from "../../lib/planning";
-import { SelectField } from "../expenses/SelectField";
-import { PercentField } from "./PercentField";
-import { Checkbox, SectionForm, fieldGrid, useDraft, useSave } from "./ui";
-import { allocationTotal, fromGeneralDraft, splitDestinationsTotal, toGeneralDraft, validateGeneral, SPLIT_DESTINATIONS, type Errors } from "./validation";
+import { useState, type ReactNode } from "react";
+import { Pencil } from "lucide-react";
+import type { General } from "../../api/settings";
+import { baseIncome, formatPlain, rateToPercent } from "../../lib/planning";
+import { formatMoney, formatRatePercent, todayISO } from "../expenses/money";
+import { BLOCK_TITLES, GeneralDialog, SPLIT_LABELS, orderedSplitKeys } from "./GeneralDialog";
+import { currentPeriodText, cycleStartLabel } from "./summary";
+import { Card, SectionHeader, secondaryButton } from "./ui";
+import type { GeneralBlock } from "./validation";
 
-/** Spanish names of the extra-income split keys. */
-const SPLIT_LABELS: Record<string, string> = {
-  sat_reserve_rate: "Reserva SAT",
-  fondo_emergencia: "Fondo de emergencia",
-  inversiones: "Inversiones",
-  aguinaldo_vacaciones: "Aguinaldo y vacaciones",
-};
-
-const SPLIT_KEYS = ["sat_reserve_rate", ...SPLIT_DESTINATIONS];
-const orderedKeys = (split: Record<string, string>) => [...SPLIT_KEYS.filter((k) => k in split), ...Object.keys(split).filter((k) => !SPLIT_KEYS.includes(k))];
-
-/** Live "Suma: X %" line; it turns destructive (and says so) while the parts do not add up to 100 %. */
-function SumLine({ total, label }: { total: string | null; label: string }) {
-  if (total === null) return null;
-  const ok = isHundred(total);
+function Block({ id, block, onEdit, children }: { id: string; block: GeneralBlock; onEdit: (b: GeneralBlock) => void; children: ReactNode }) {
+  const title = BLOCK_TITLES[block];
   return (
-    <p aria-live="polite" className={`text-sm ${ok ? "text-muted" : "font-medium text-destructive"}`}>
-      {label}: {total} %{ok ? "" : " (debe sumar 100 %)"}
-    </p>
+    <Card className="flex flex-col gap-3">
+      <div className="flex items-start justify-between gap-3">
+        <h3 id={id} className="min-w-0 break-words font-semibold">
+          {title}
+        </h3>
+        <button type="button" onClick={() => onEdit(block)} aria-label={`Editar ${title.toLowerCase()}`} className={`${secondaryButton} shrink-0`}>
+          <Pencil className="h-4 w-4" aria-hidden="true" />
+          Editar
+        </button>
+      </div>
+      {children}
+    </Card>
   );
 }
 
-const FIELDS = [
-  { key: "salary_usd", label: "Salario mensual (USD)" },
-  { key: "fx_rate_applied", label: "Tipo de cambio aplicado (MXN por USD)" },
-  { key: "morse_fee_rate", label: "Comisión de Morse (tasa)", hint: "Como fracción: 0.01 equivale a 1 %." },
-  { key: "emergency_months", label: "Meses de fondo de emergencia" },
-  { key: "extra_income_estimate_mxn", label: "Ingreso extra estimado (MXN)" },
-] as const;
+function Facts({ items }: { items: [string, string][] }) {
+  return (
+    <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
+      {items.map(([label, value]) => (
+        <div key={label} className="min-w-0">
+          <dt className="text-muted">{label}</dt>
+          <dd className="break-words font-medium">{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
+/** General settings as summary cards; each block is edited on its own in a dialog. */
 export function GeneralSection({ data }: { data: General }) {
-  const [draft, setDraft] = useDraft(data, toGeneralDraft);
-  const [errors, setErrors] = useState<Errors>({});
-  const save = useSave(updateGeneral);
-
-  function onSubmit() {
-    const found = validateGeneral(draft);
-    setErrors(found);
-    if (Object.keys(found).length > 0) return false;
-    save.mutate(fromGeneralDraft(draft));
-    return true;
-  }
+  const [editing, setEditing] = useState<GeneralBlock | null>(null);
+  const base = baseIncome(data.salary_usd, data.fx_rate_applied);
+  const splitKeys = orderedSplitKeys(data.extra_income_split);
 
   return (
-    <SectionForm title="General" description="Ingresos, tipo de cambio y reglas base de tu presupuesto." save={save} onSubmit={onSubmit}>
-      <div className={fieldGrid}>
-        {FIELDS.map((f) => (
-          <TextField
-            key={f.key}
-            label={f.label}
-            hint={"hint" in f ? f.hint : undefined}
-            inputMode="decimal"
-            value={draft[f.key]}
-            onChange={(e) => setDraft({ ...draft, [f.key]: e.target.value })}
-            error={errors[f.key]}
-          />
-        ))}
-      </div>
-      <div className={fieldGrid}>
-        <SelectField
-          label="Inicio del periodo"
-          hint="Con “Último día del mes”, el periodo de octubre va del 30 de septiembre al 30 de octubre; con “Último día hábil”, el periodo empieza el último día de lunes a viernes del mes. Gastos, ingresos, ahorros y cierre de mes usan este periodo; las facturas y la declaración siguen por mes calendario."
-          value={String(draft.cycle_start_day)}
-          onChange={(e) => setDraft({ ...draft, cycle_start_day: Number(e.target.value) })}
-        >
-          <option value="0">Mes calendario</option>
-          <option value="31">Último día del mes</option>
-          <option value="32">Último día hábil (lun–vie)</option>
-          {![0, 31, 32].includes(draft.cycle_start_day) && <option value={draft.cycle_start_day}>{`Día ${draft.cycle_start_day} (configurado)`}</option>}
-        </SelectField>
-      </div>
-      <Checkbox
-        label="El presupuesto incluye el ingreso extra estimado"
-        checked={draft.budget_includes_extra_income}
-        onChange={(v) => setDraft({ ...draft, budget_includes_extra_income: v })}
-      />
-
-      {Object.keys(draft.extra_income_split).length > 0 && (
-        <fieldset className="space-y-3">
-          <legend className="text-sm font-semibold">Reparto del ingreso extra</legend>
-          <p className="text-sm text-muted">
-            La reserva SAT se aparta primero; lo demás se reparte entre fondo de emergencia, inversiones y aguinaldo y vacaciones, que deben sumar 100 %.
+    <div className="space-y-6">
+      <SectionHeader title="General" description="Ingresos, tipo de cambio y reglas base de tu presupuesto." />
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Block id="general-income" block="income" onEdit={setEditing}>
+          <p className="text-sm">
+            {base ? (
+              <>
+                {formatPlain(data.salary_usd)} USD × {formatPlain(data.fx_rate_applied)} = <span className="font-semibold">{formatMoney(base)}</span> al mes
+              </>
+            ) : (
+              <span className="text-muted">Aún no hay ingreso base: captura el salario y el tipo de cambio.</span>
+            )}
           </p>
-          <div className={fieldGrid}>
-            {orderedKeys(draft.extra_income_split).map((key) => (
-              <PercentField
-                key={key}
-                label={`${SPLIT_LABELS[key] ?? key} (%)`}
-                value={draft.extra_income_split[key]}
-                onChange={(e) => setDraft({ ...draft, extra_income_split: { ...draft.extra_income_split, [key]: e.target.value } })}
-                error={errors[`split.${key}`]}
-                aria-invalid={errors["split"] && key === SPLIT_DESTINATIONS[0] ? true : undefined}
-              />
-            ))}
-          </div>
-          <SumLine total={splitDestinationsTotal(draft.extra_income_split)} label="Suma de los tres destinos" />
-          {errors["split"] && <FieldError id="split-sum-error">{errors["split"]}</FieldError>}
-        </fieldset>
-      )}
+          <Facts items={[["Comisión de Morse", formatRatePercent(data.morse_fee_rate)]]} />
+        </Block>
 
-      {draft.investment_allocation.length > 0 && (
-        <fieldset className="space-y-3">
-          <legend className="text-sm font-semibold">Distribución de inversiones</legend>
-          <div className={fieldGrid}>
-            {draft.investment_allocation.map((w, i) => (
-              <PercentField
-                key={w.key}
-                label={`Inversión: ${w.key} (%)`}
-                value={w.value}
-                onChange={(e) =>
-                  setDraft({
-                    ...draft,
-                    investment_allocation: draft.investment_allocation.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)),
-                  })
-                }
-                error={errors[`alloc.${i}`]}
-                aria-invalid={errors["alloc"] && i === 0 ? true : undefined}
-              />
-            ))}
-          </div>
-          <SumLine total={allocationTotal(draft.investment_allocation)} label="Suma de la distribución" />
-          {errors["alloc"] && <FieldError id="alloc-sum-error">{errors["alloc"]}</FieldError>}
-        </fieldset>
-      )}
-    </SectionForm>
+        <Block id="general-extra" block="extra" onEdit={setEditing}>
+          <Facts
+            items={[
+              ["Ingreso extra estimado", formatMoney(data.extra_income_estimate_mxn)],
+              ["Fondo de emergencia", `${formatPlain(data.emergency_months)} meses`],
+              ["Presupuesto con ingreso extra", data.budget_includes_extra_income ? "Sí lo incluye" : "No lo incluye"],
+            ]}
+          />
+        </Block>
+
+        <Block id="general-period" block="period" onEdit={setEditing}>
+          <Facts items={[["Inicio del periodo", cycleStartLabel(data.cycle_start_day)]]} />
+          <p className="text-sm font-medium">{currentPeriodText(data.cycle_start_day, todayISO())}</p>
+        </Block>
+
+        {splitKeys.length > 0 && (
+          <Block id="general-split" block="split" onEdit={setEditing}>
+            <Facts items={splitKeys.map((k): [string, string] => [SPLIT_LABELS[k] ?? k, `${rateToPercent(data.extra_income_split[k])} %`])} />
+          </Block>
+        )}
+
+        {data.investment_allocation.length > 0 && (
+          <Block id="general-alloc" block="alloc" onEdit={setEditing}>
+            <Facts items={data.investment_allocation.map((w): [string, string] => [w.key, `${rateToPercent(w.value)} %`])} />
+          </Block>
+        )}
+      </div>
+      {editing && <GeneralDialog data={data} block={editing} onClose={() => setEditing(null)} />}
+    </div>
   );
 }
