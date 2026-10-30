@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockClose } from "./helpers";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -70,6 +70,14 @@ async function openClose(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
   return api;
 }
 
+/** Expands a collapsible section of a close report (they start collapsed) and returns its button. */
+async function expand(scope: Page | Locator, name: string | RegExp) {
+  const button = scope.getByRole("button", { name });
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+  await expect(button).toHaveAttribute("aria-expanded", "true");
+  return button;
+}
+
 const withMovements = { income: MOVEMENTS.income, expenses: MOVEMENTS.expenses, savings: MOVEMENTS.savings };
 const historyRow = (page: Page, period: string) => page.getByRole("button", { name: `Ver cierre de ${label(period)}` });
 
@@ -79,8 +87,10 @@ test.describe("month close preview", () => {
     await expect(page.getByLabel("Mes a cerrar")).toHaveValue(PREV);
     await expect(page.getByRole("heading", { name: `Vista previa del cierre de ${label(PREV)}` })).toBeVisible();
     await expect(page.getByText("Ninguna categoría de gasto excedió su presupuesto.")).toBeVisible();
+    await expand(page, /^¿Dónde poner el dinero disponible\?/);
     await expect(page.getByText("No quedó dinero disponible este mes")).toBeVisible();
     // Nothing was spent, so every budgeted category is 100% under its budget.
+    await expand(page, /^Ajustes de presupuesto sugeridos/);
     await expect(page.getByRole("list", { name: "Ajustes de presupuesto sugeridos" })).toContainText("-100.00%");
     await expect(page.getByText("Aún no has cerrado ningún mes")).toBeVisible();
   });
@@ -98,6 +108,14 @@ test.describe("month close preview", () => {
     await expect(over).toContainText("Comida");
     await expect(over).toContainText("$8,000.00 contra presupuesto de $6,000.00");
 
+    // The long sections start collapsed in the preview.
+    await expect(page.getByRole("button", { name: /^Presupuesto por categoría/ })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("list", { name: "Sugerencia del dinero disponible" })).toHaveCount(0);
+    await expect(page.getByRole("list", { name: "Ajustes de presupuesto sugeridos" })).toHaveCount(0);
+    await expand(page, /^Presupuesto por categoría/);
+    await expand(page, /^¿Dónde poner el dinero disponible\?/);
+    await expand(page, /^Ajustes de presupuesto sugeridos/);
+    await expand(page, /^Declaración de/);
     // The budget rows are a table from md up and compact cards on a phone.
     const phone = (page.viewportSize()?.width ?? 1024) < 768;
     await expect(phone ? page.getByTestId("budget-card").filter({ hasText: "Servicios" }) : page.getByRole("table")).toContainText("Servicios");
@@ -118,7 +136,7 @@ test.describe("month close preview", () => {
     await expect(hints).not.toContainText("Renta");
     await expect(hints).not.toContainText("Suscripciones");
 
-    await expect(page.getByRole("region", { name: "Declaración del mes" })).toContainText("Sin declarar");
+    await expect(page.getByRole("region", { name: /^Declaración de/ })).toContainText("Sin declarar");
     expect(api.closeWrites).toHaveLength(0);
     expect(api.closes).toHaveLength(0);
   });
@@ -138,6 +156,7 @@ test.describe("month close preview", () => {
       savings: [{ ...MOVEMENTS.savings[0], date: "2026-08-01", amount: "60000.00", amount_mxn: "60000.00" }],
     });
     await page.getByLabel("Mes a cerrar").fill("2026-10");
+    await expand(page, /^¿Dónde poner el dinero disponible\?/);
     const suggestion = page.getByRole("list", { name: "Sugerencia del dinero disponible" });
     await expect(suggestion).toContainText("Mover a Gastos futuros");
     await expect(suggestion).toContainText("Inversiones está en pausa este mes");
@@ -150,6 +169,7 @@ test.describe("month close preview", () => {
       ...withMovements,
       savings: [{ ...MOVEMENTS.savings[0], date: `${OLDER}-01`, amount: "60000.00", amount_mxn: "60000.00" }],
     });
+    await expand(page, /^¿Dónde poner el dinero disponible\?/);
     const suggestion = page.getByRole("list", { name: "Sugerencia del dinero disponible" });
     await expect(suggestion).toContainText("Mover a Inversiones");
     await expect(suggestion).not.toContainText("Fondo de emergencia");
@@ -258,19 +278,48 @@ test.describe("month close history", () => {
     const detail = page.getByRole("region", { name: `Detalle del cierre de ${label(PREV)}` });
     await expect(detail).toContainText("Guardado el");
     await expect(detail.getByRole("list", { name: "Categorías sobre presupuesto" })).toContainText("Comida");
-    await expect(detail.getByRole("region", { name: "Declaración del mes" })).toContainText("Pago pendiente");
+    await expand(detail, /^Declaración de/);
+    await expand(detail, /^¿Dónde poner el dinero disponible\?/);
+    await expand(detail, /^Ajustes de presupuesto sugeridos/);
+    await expect(detail.getByRole("region", { name: /^Declaración de/ })).toContainText("Pago pendiente");
     await expect(detail.getByRole("list", { name: "Sugerencia del dinero disponible" })).toContainText("$7,860.50");
     await expect(detail.getByRole("list", { name: "Ajustes de presupuesto sugeridos" })).toContainText("+50.00%");
 
     await detail.getByRole("button", { name: "Cerrar detalle" }).click();
     await expect(detail).toBeHidden();
+    await expect(historyRow(page, PREV)).toHaveAttribute("aria-expanded", "false");
 
     // A close without a suggestion, hints or filing status says so.
     await historyRow(page, OLDER).click();
     const older = page.getByRole("region", { name: `Detalle del cierre de ${label(OLDER)}` });
+    await expand(older, /^¿Dónde poner el dinero disponible\?/);
+    await expand(older, /^Ajustes de presupuesto sugeridos/);
     await expect(older.getByText("No quedó dinero disponible este mes")).toBeVisible();
     await expect(older.getByText("Ningún presupuesto se desvió más de 20%")).toBeVisible();
-    await expect(older.getByRole("region", { name: "Declaración del mes" })).toHaveCount(0);
+    await expect(older.getByRole("button", { name: /^Declaración de/ })).toHaveCount(0);
+  });
+
+  test("is an accordion: the detail opens right under its row and a second click collapses it", async ({ page }) => {
+    await openClose(page, { closes: CLOSES });
+    const row = historyRow(page, PREV);
+    const detail = page.getByRole("region", { name: `Detalle del cierre de ${label(PREV)}` });
+    await expect(row).toHaveAttribute("aria-expanded", "false");
+    await row.click();
+    await expect(row).toHaveAttribute("aria-expanded", "true");
+    await expect(detail).toBeVisible();
+    // The detail is inside the same list item as the clicked row, not below the whole list.
+    await expect(page.getByRole("listitem").filter({ has: row }).locator(detail)).toHaveCount(1);
+    // The row's button comes right before the detail in the document.
+    expect(await row.evaluate((el, d) => Boolean(el.compareDocumentPosition(d as Node) & Node.DOCUMENT_POSITION_FOLLOWING), await detail.elementHandle())).toBe(true);
+
+    // Opening another one closes the first.
+    await historyRow(page, OLDER).click();
+    await expect(detail).toBeHidden();
+    await expect(page.getByRole("region", { name: `Detalle del cierre de ${label(OLDER)}` })).toBeVisible();
+
+    await historyRow(page, OLDER).click();
+    await expect(page.getByRole("region", { name: `Detalle del cierre de ${label(OLDER)}` })).toBeHidden();
+    await expect(historyRow(page, OLDER)).toHaveAttribute("aria-expanded", "false");
   });
 
   test("deletes a close only after confirming, warning that the snapshot is discarded", async ({ page }) => {
@@ -326,11 +375,14 @@ test.describe("month close layout", () => {
         }),
       ],
     });
+    for (const name of [/^Presupuesto por categoría/, /^Declaración de/, /^¿Dónde poner el dinero disponible\?/, /^Ajustes de presupuesto sugeridos/]) await expand(page, name);
     await expect(page.getByRole("list", { name: "Sugerencia del dinero disponible" })).toBeVisible();
     await expectNoHorizontalOverflow(page, "month close preview");
 
     await historyRow(page, OLDER).click();
-    await expect(page.getByRole("region", { name: `Detalle del cierre de ${label(OLDER)}` })).toBeVisible();
+    const detail = page.getByRole("region", { name: `Detalle del cierre de ${label(OLDER)}` });
+    await expect(detail).toBeVisible();
+    for (const name of [/^Presupuesto por categoría/, /^Ajustes de presupuesto sugeridos/]) await expand(detail, name);
     await expectNoHorizontalOverflow(page, "month close detail");
 
     await page.getByRole("button", { name: "Eliminar cierre" }).click();
