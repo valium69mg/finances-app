@@ -107,6 +107,8 @@ test.describe("owner: Hogar", () => {
     await open(page, "/hogar?usuario=u-ana&seccion=ingresos");
     await expect(page.getByText("Quincena")).toBeVisible();
     await expect(page.getByTestId("personal-total")).toHaveText("$9,000.00 MXN");
+    // The rows are plain: nothing in them opens an editor.
+    await expect(page.getByRole("listitem").filter({ hasText: "Quincena" }).getByRole("button")).toHaveCount(0);
     await expectReadOnly(page);
     await switchSection(page, "Ahorros");
     await expect(page.getByText("Aporte")).toBeVisible();

@@ -71,6 +71,24 @@ test.describe("Mis gastos", () => {
     await expectNoHorizontalOverflow(page, "Mis gastos");
   });
 
+  test("puts Nuevo gasto and Administrar categorías in the page header and makes each row one clickable target", async ({ page }) => {
+    await open(page, "/mis-gastos", [gasto()]);
+    const title = page.getByRole("heading", { level: 1, name: "Mis gastos" });
+    const header = page.locator("section > div").filter({ has: title }).first();
+    await expect(header.getByRole("button", { name: "Nuevo gasto" })).toBeVisible();
+    await expect(header.getByRole("button", { name: "Administrar categorías" })).toBeVisible();
+    // One button per row: no separate Editar / Eliminar.
+    const rows = page.getByRole("listitem").filter({ hasText: "MXN" });
+    await expect(rows).toHaveCount(1);
+    await expect(rows.getByRole("button")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Eliminar Blusa" })).toHaveCount(0);
+    await rows.getByRole("button").click();
+    await expect(dialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(rows.getByRole("button")).toBeFocused();
+  });
+
   test("creates, edits and deletes an expense", async ({ page }) => {
     const api = await open(page, "/mis-gastos");
     await expect(page.getByText("No hay gastos registrados en este periodo.")).toBeVisible();
@@ -94,8 +112,16 @@ test.describe("Mis gastos", () => {
     await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByTestId("personal-total")).toHaveText("$210.00 MXN");
 
-    await page.getByRole("button", { name: "Eliminar Labial" }).click();
-    await page.getByRole("button", { name: "Sí, eliminar" }).click();
+    // Delete lives inside the edit dialog, behind a confirmation; the row itself has no Editar/Eliminar buttons.
+    await expect(page.getByRole("button", { name: "Eliminar Labial" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Editar Labial" }).click();
+    await dialog(page).getByRole("button", { name: "Eliminar Labial" }).click();
+    await expect(dialog(page).getByText("¿Eliminar este gasto?")).toBeVisible();
+    await dialog(page).getByRole("group", { name: /Confirmar eliminación/ }).getByRole("button", { name: "Cancelar" }).click();
+    await expect(dialog(page).getByRole("button", { name: "Eliminar Labial" })).toBeFocused();
+    await dialog(page).getByRole("button", { name: "Eliminar Labial" }).click();
+    await dialog(page).getByRole("button", { name: "Sí, eliminar" }).click();
+    await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByText("No hay gastos registrados en este periodo.")).toBeVisible();
   });
 
@@ -107,27 +133,39 @@ test.describe("Mis gastos", () => {
     await expect(dialog(page)).toContainText("máximo dos decimales");
   });
 
-  test("adds and renames a category, and reports a duplicate", async ({ page }) => {
+  test("lists categories as rows, adds one in a modal, renames another and reports a duplicate", async ({ page }) => {
     await open(page, "/mis-gastos", [gasto()]);
     await page.getByRole("button", { name: "Administrar categorías" }).click();
+    const list = dialog(page).first();
+    // A row opens the rename view; there is no inline form.
+    await expect(list.getByLabel("Nueva categoría", { exact: true })).toHaveCount(0);
 
-    await dialog(page).getByLabel("Nueva categoría", { exact: true }).fill("Café");
-    await dialog(page).getByRole("button", { name: "Agregar categoría" }).click();
+    await list.getByRole("button", { name: "Agregar categoría" }).click();
+    await dialog(page).last().getByLabel("Nueva categoría", { exact: true }).fill("Café");
+    await dialog(page).last().getByRole("button", { name: "Agregar categoría" }).click();
+    await expect(dialog(page)).toHaveCount(1);
     await expect(dialog(page).getByText("Café", { exact: true })).toBeVisible();
 
-    await dialog(page).getByLabel("Nueva categoría", { exact: true }).fill("café");
     await dialog(page).getByRole("button", { name: "Agregar categoría" }).click();
-    await expect(dialog(page).getByRole("alert")).toContainText("Ya tienes una categoría con ese nombre");
+    await dialog(page).last().getByLabel("Nueva categoría", { exact: true }).fill("café");
+    await dialog(page).last().getByRole("button", { name: "Agregar categoría" }).click();
+    await expect(dialog(page).last().getByRole("alert")).toContainText("Ya tienes una categoría con ese nombre");
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toHaveCount(1);
 
     await dialog(page).getByRole("button", { name: "Renombrar Ropa" }).click();
-    await dialog(page).getByLabel("Nuevo nombre").fill("Vestuario");
-    await dialog(page).getByRole("button", { name: "Guardar nombre" }).click();
+    await dialog(page).last().getByLabel("Nuevo nombre").fill("Vestuario");
+    await dialog(page).last().getByRole("button", { name: "Guardar nombre" }).click();
+    await expect(dialog(page)).toHaveCount(1);
     await expect(dialog(page).getByText("Vestuario", { exact: true })).toBeVisible();
+    // Focus returns to the row that opened the rename view.
+    await expect(dialog(page).getByRole("button", { name: "Renombrar Vestuario" })).toBeVisible();
 
     await dialog(page).getByRole("button", { name: "Renombrar Salud" }).click();
-    await dialog(page).getByLabel("Nuevo nombre").fill("Belleza");
-    await dialog(page).getByRole("button", { name: "Guardar nombre" }).click();
-    await expect(dialog(page).getByRole("alert")).toContainText("Ya tienes una categoría con ese nombre");
+    await dialog(page).last().getByLabel("Nuevo nombre").fill("Belleza");
+    await dialog(page).last().getByRole("button", { name: "Guardar nombre" }).click();
+    await expect(dialog(page).last().getByRole("alert")).toContainText("Ya tienes una categoría con ese nombre");
+    await page.keyboard.press("Escape");
 
     await dialog(page).getByRole("button", { name: "Cerrar", exact: true }).first().click();
     // The rename reaches the movement list.
