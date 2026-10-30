@@ -35,6 +35,14 @@ const convertedList = (page: Page) => page.getByRole("list", { name: "Deseos con
 const cardOf = (list: ReturnType<typeof activeList>, name: string) => list.getByRole("listitem").filter({ hasText: name }).first();
 const dialog = (page: Page) => page.getByRole("dialog");
 
+/** Opens the detail dialog of a wish (its card is one button) and returns it. */
+async function openWish(page: Page, name: string) {
+  await page.getByRole("list").getByRole("button", { name: `Ver ${name}` }).click();
+  const detail = page.getByRole("dialog", { name });
+  await expect(detail).toBeVisible();
+  return detail;
+}
+
 test.describe("household: Lista de deseos", () => {
   test("is a tab of hers and lists active items by priority, with price, category, link and note", async ({ page }) => {
     await open(page, [LABIAL, BOLSA, CREMA]);
@@ -50,11 +58,18 @@ test.describe("household: Lista de deseos", () => {
     await expect(cards.nth(0).getByTestId("wish-priority")).toHaveText("Prioridad alta");
     await expect(cards.nth(2).getByTestId("wish-priority")).toHaveText("Prioridad baja");
     await expect(cards.nth(0)).toContainText("$499.90 MXN · Ropa");
-    await expect(cards.nth(0)).toContainText("La de piel");
-    const link = cards.nth(0).getByRole("link", { name: /Ver en la tienda/ });
+    // Cards are summaries: the link and the note live in the detail dialog.
+    await expect(cards.nth(0).getByRole("link")).toHaveCount(0);
+    await expect(cards.nth(0).getByRole("button")).toHaveCount(1);
+    const detail = await openWish(page, "Bolsa roja");
+    await expect(detail).toContainText("La de piel");
+    const link = detail.getByRole("link", { name: /Ver en la tienda/ });
     await expect(link).toHaveAttribute("href", "https://tienda.example/bolsa");
     await expect(link).toHaveAttribute("target", "_blank");
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+    await page.keyboard.press("Escape");
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Ver Bolsa roja" })).toBeFocused();
     await expect(page.getByText("Total estimado:")).toContainText("$999.90 MXN");
     await expect(convertedList(page)).toHaveCount(0);
     await expectNoHorizontalOverflow(page, "Lista de deseos");
@@ -67,11 +82,12 @@ test.describe("household: Lista de deseos", () => {
     await expectNoHorizontalOverflow(page, "375px Lista de deseos");
   });
 
-  test("creates an item from the collapsed form and checks the link", async ({ page }) => {
+  test("creates an item from the header button's dialog and checks the link", async ({ page }) => {
     const api = await open(page);
     await expect(page.getByText("Aún no tienes deseos pendientes.")).toBeVisible();
     await expect(page.getByLabel("Nombre")).toHaveCount(0);
     await page.getByRole("button", { name: "Nuevo deseo" }).click();
+    await expect(dialog(page)).toBeVisible();
 
     await page.getByRole("button", { name: "Agregar deseo" }).click();
     await expect(page.getByText("Escribe qué quieres, por ejemplo Bolsa o Zapatos.")).toBeVisible();
@@ -87,6 +103,7 @@ test.describe("household: Lista de deseos", () => {
     await expectNoHorizontalOverflow(page, "wish form");
     await page.getByRole("button", { name: "Agregar deseo" }).click();
 
+    await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByText("Zapatos blancos se agregó a tu lista.")).toBeVisible();
     const card = cardOf(activeList(page), "Zapatos blancos");
     await expect(card).toContainText("$1,200.00 MXN · Ropa");
@@ -101,7 +118,7 @@ test.describe("household: Lista de deseos", () => {
 
   test("edits an item and deletes another after confirming", async ({ page }) => {
     const api = await open(page, [BOLSA, LABIAL]);
-    await page.getByRole("button", { name: "Editar Bolsa roja" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("button", { name: "Editar Bolsa roja" }).click();
     await expect(page.getByLabel("Nombre")).toHaveValue("Bolsa roja");
     await page.getByLabel("Precio estimado (MXN)").fill("450");
     await page.getByLabel("Prioridad").selectOption({ label: "Baja" });
@@ -110,12 +127,14 @@ test.describe("household: Lista de deseos", () => {
     await expect(cardOf(activeList(page), "Bolsa roja")).toContainText("$450.00 MXN");
     expect((await api).personalWishWrites.at(-1)).toMatchObject({ method: "PUT", path: "/personal/wishlist/1", body: { price: "450", priority: "baja" } });
 
+    await openWish(page, "Labial mate");
     await page.getByRole("button", { name: "Eliminar Labial mate" }).click();
     await expect(page.getByText("¿Eliminar este deseo?")).toBeVisible();
-    await page.getByRole("button", { name: "Cancelar", exact: true }).click();
-    await expect(cardOf(activeList(page), "Labial mate")).toBeVisible();
+    await page.getByRole("group", { name: /Confirmar eliminación/ }).getByRole("button", { name: "Cancelar" }).click();
+    await expect(dialog(page)).toBeVisible();
     await page.getByRole("button", { name: "Eliminar Labial mate" }).click();
     await page.getByRole("button", { name: "Sí, eliminar" }).click();
+    await expect(dialog(page)).toHaveCount(0);
     await expect(page.getByText("Labial mate se eliminó de tu lista.")).toBeVisible();
     await expect(activeList(page).getByRole("listitem")).toHaveCount(1);
     expect((await api).personalWishWrites.at(-1)).toMatchObject({ method: "DELETE", path: "/personal/wishlist/2" });
@@ -123,7 +142,7 @@ test.describe("household: Lista de deseos", () => {
 
   test("converts to a future expense, which shows on Mis gastos futuros; deleting it brings the item back", async ({ page }) => {
     const api = await open(page, [BOLSA, CREMA]);
-    await page.getByRole("button", { name: "Convertir Bolsa roja" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("button", { name: "Convertir Bolsa roja" }).click();
     await expect(dialog(page).getByRole("radio")).toHaveCount(3);
     await expect(dialog(page).getByLabel("Monto a juntar (MXN)")).toHaveValue("499.90");
     await expectNoHorizontalOverflow(page, "convert dialog");
@@ -137,19 +156,20 @@ test.describe("household: Lista de deseos", () => {
     await expect(activeList(page).getByRole("listitem")).toHaveCount(1);
     const card = cardOf(convertedList(page), "Bolsa roja");
     await expect(card).toContainText("Se convirtió en un gasto futuro.");
-    await expect(card.getByRole("button", { name: /Convertir/ })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Convertir/ })).toHaveCount(0);
     expect((await api).personalWishWrites.at(-1)).toMatchObject({
       path: "/personal/wishlist/1/convert/future-expense",
       body: { target_amount: "499.90", due_date: day(60) },
     });
 
-    await card.getByRole("link", { name: "Ver en Mis gastos futuros" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("link", { name: "Ver en Mis gastos futuros" }).click();
     await expect(page).toHaveURL(/\/mis-gastos-futuros$/);
     const future = page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("listitem").filter({ hasText: "Bolsa roja" });
     await expect(future).toContainText("$499.90");
 
     // Deleting the future expense reactivates the wish.
-    await future.getByRole("button", { name: /Eliminar/ }).click();
+    await future.getByRole("button", { name: "Ver Bolsa roja" }).click();
+    await page.getByRole("button", { name: /Eliminar/ }).click();
     await page.getByRole("button", { name: "Sí, eliminar" }).click();
     await expect(future).toHaveCount(0);
     await page.goto("/lista-de-deseos");
@@ -160,7 +180,7 @@ test.describe("household: Lista de deseos", () => {
 
   test("converts to her Gasto with her own categories, and deleting the Gasto brings the item back", async ({ page }) => {
     const api = await open(page, [BOLSA]);
-    await page.getByRole("button", { name: "Convertir Bolsa roja" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("button", { name: "Convertir Bolsa roja" }).click();
     await dialog(page).getByRole("radio", { name: /Ya lo compré/ }).check();
     await expect(dialog(page).getByLabel("Monto (MXN)")).toHaveValue("499.90");
     await expect(dialog(page).getByLabel("Fecha")).toHaveValue(day(0));
@@ -176,14 +196,15 @@ test.describe("household: Lista de deseos", () => {
     await expect(card).toContainText("Ya lo compraste: se registró como gasto.");
     expect((await api).personalWishWrites.at(-1)).toMatchObject({ path: "/personal/wishlist/1/convert/expense", body: { amount: "450", date: day(0) } });
 
-    await card.getByRole("link", { name: "Ver en Mis gastos" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("link", { name: "Ver en Mis gastos" }).click();
     await expect(page).toHaveURL(/\/mis-gastos$/);
     const expense = page.getByRole("listitem").filter({ hasText: "Bolsa roja" });
     await expect(expense).toContainText("$450.00");
     await expect(expense).toContainText("Ropa");
 
-    await expense.getByRole("button", { name: "Eliminar Bolsa roja" }).click();
-    await page.getByRole("button", { name: "Sí, eliminar" }).click();
+    await expense.getByRole("button", { name: "Editar Bolsa roja" }).click();
+    await dialog(page).getByRole("button", { name: "Eliminar Bolsa roja" }).click();
+    await dialog(page).getByRole("button", { name: "Sí, eliminar" }).click();
     await expect(expense).toHaveCount(0);
     await page.goto("/lista-de-deseos");
     await expect(cardOf(activeList(page), "Bolsa roja")).toBeVisible();
@@ -192,7 +213,7 @@ test.describe("household: Lista de deseos", () => {
 
   test("asks the owner with an owner category; cancelling the request brings the item back", async ({ page }) => {
     const api = await open(page, [BOLSA]);
-    await page.getByRole("button", { name: "Convertir Bolsa roja" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("button", { name: "Convertir Bolsa roja" }).click();
     await dialog(page).getByRole("radio", { name: /Pedir al titular/ }).check();
     await dialog(page).getByRole("button", { name: "Enviar petición" }).click();
     await expect(dialog(page).getByText("Elige la categoría con la que se pedirá.")).toBeVisible();
@@ -214,7 +235,7 @@ test.describe("household: Lista de deseos", () => {
     });
 
     // The request is really hers on Peticiones; cancelling it there frees the item.
-    await card.getByRole("link", { name: "Ver en Peticiones" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("link", { name: "Ver en Peticiones" }).click();
     await expect(page).toHaveURL(/\/peticiones$/);
     await expect(page.getByTestId("request-card").filter({ hasText: "Bolsa roja" })).toContainText("Solicitada");
     await page.getByRole("button", { name: "Cancelar la petición Bolsa roja" }).click();
@@ -236,7 +257,7 @@ test.describe("household: Lista de deseos", () => {
     await expect(bolsa).toContainText("El titular rechazó tu petición: puedes convertirlo de nuevo.");
     await expect(cardOf(convertedList(page), "Crema facial").getByTestId("request-state")).toHaveText("Aprobada");
 
-    await bolsa.getByRole("button", { name: "Convertir Bolsa roja" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("button", { name: "Convertir Bolsa roja" }).click();
     await dialog(page).getByRole("radio", { name: /Ya lo compré/ }).check();
     await dialog(page).getByRole("button", { name: "Convertir", exact: true }).click();
     await expect(dialog(page)).toHaveCount(0);
@@ -246,7 +267,7 @@ test.describe("household: Lista de deseos", () => {
 
   test("shows the rate limit of requests in Spanish and keeps the item active", async ({ page }) => {
     await open(page, [BOLSA], { expenseRequestsFail: "rate_limit" });
-    await page.getByRole("button", { name: "Convertir Bolsa roja" }).click();
+    await (await openWish(page, "Bolsa roja")).getByRole("button", { name: "Convertir Bolsa roja" }).click();
     await dialog(page).getByRole("radio", { name: /Pedir al titular/ }).check();
     await dialog(page).getByLabel("Categoría de la petición").selectOption({ index: 1 });
     await dialog(page).getByRole("button", { name: "Enviar petición" }).click();
