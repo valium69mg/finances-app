@@ -384,10 +384,17 @@ describe("BillList", () => {
     const onPay = vi.fn();
     const onEdit = vi.fn();
     wrap(<BillList {...props} onPay={onPay} onEdit={onEdit} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Pagar Megacable" }));
-    fireEvent.click(screen.getByRole("button", { name: "Editar Megacable" }));
+    const card = await screen.findByRole("listitem");
+    // The card keeps one action; the rest lives in the detail dialog.
+    expect(within(card).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Ver Megacable", "Pagar Megacable"]);
+    fireEvent.click(within(card).getByRole("button", { name: "Pagar Megacable" }));
     expect(onPay).toHaveBeenCalledWith(OVERDUE_BILL);
+    fireEvent.click(within(card).getByRole("button", { name: "Ver Megacable" }));
+    const dialog = screen.getByRole("dialog", { name: "Megacable" });
+    expect(within(dialog).getByText("Mensual")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Editar Megacable" }));
     expect(onEdit).toHaveBeenCalledWith(OVERDUE_BILL);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("skips only after confirming, and says no expense was registered", async () => {
@@ -396,7 +403,8 @@ describe("BillList", () => {
     const onNotice = vi.fn();
     const onChanged = vi.fn();
     wrap(<BillList {...props} onNotice={onNotice} onChanged={onChanged} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Omitir Megacable" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Megacable" }));
+    fireEvent.click(screen.getByRole("button", { name: "Omitir Megacable" }));
     const group = screen.getByRole("group", { name: "Confirmar omitir Megacable" });
     expect(group).toHaveTextContent("No se registra ningún gasto");
     expect(api.skipBill).not.toHaveBeenCalled();
@@ -409,6 +417,7 @@ describe("BillList", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sí, omitir" }));
     await waitFor(() => expect(api.skipBill).toHaveBeenCalledWith(1));
     await waitFor(() => expect(onNotice).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(onNotice.mock.calls[0][0]).toContain("No se registró ningún gasto");
     expect(onNotice.mock.calls[0][0]).toContain("1 de noviembre de 2026");
     expect(onChanged).toHaveBeenCalledWith(1);
@@ -419,7 +428,8 @@ describe("BillList", () => {
     api.deactivateBill.mockResolvedValue(undefined);
     const onNotice = vi.fn();
     wrap(<BillList {...props} onNotice={onNotice} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Desactivar Netflix" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Netflix" }));
+    fireEvent.click(screen.getByRole("button", { name: "Desactivar Netflix" }));
     expect(api.deactivateBill).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Sí, desactivar" }));
     await waitFor(() => expect(api.deactivateBill).toHaveBeenCalledWith(3));
@@ -429,24 +439,36 @@ describe("BillList", () => {
   it("shows the API error of a failed skip", async () => {
     api.listBills.mockResolvedValue([OVERDUE_BILL]);
     api.skipBill.mockRejectedValue(new ApiError(409, "occurrence_resolved"));
+    api.getBill.mockResolvedValue(DETAIL);
     wrap(<BillList {...props} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Omitir Megacable" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Megacable" }));
+    fireEvent.click(screen.getByRole("button", { name: "Omitir Megacable" }));
     fireEvent.click(screen.getByRole("button", { name: "Sí, omitir" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("ya se pagó u omitió");
   });
 
-  it("expands the history of a bill", async () => {
+  it("shows the history of a bill inside its detail dialog", async () => {
     api.listBills.mockResolvedValue([OVERDUE_BILL]);
     api.getBill.mockResolvedValue(DETAIL);
     wrap(<BillList {...props} />);
-    const toggle = await screen.findByRole("button", { name: "Ver historial de Megacable" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toggle);
-    const history = await screen.findByRole("list", { name: "Historial de Megacable" });
-    expect(history).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Ocultar historial de Megacable" })).toHaveAttribute("aria-expanded", "true");
-    fireEvent.click(screen.getByRole("button", { name: "Ocultar historial de Megacable" }));
     expect(screen.queryByRole("list", { name: "Historial de Megacable" })).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Megacable" }));
+    expect(await screen.findByRole("list", { name: "Historial de Megacable" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("reactivates from the dialog of a deactivated bill and closes it", async () => {
+    api.listBills.mockResolvedValue([INACTIVE_BILL]);
+    api.getBill.mockResolvedValue({ ...DETAIL, ...INACTIVE_BILL, history: [] });
+    api.updateBill.mockResolvedValue({ ...INACTIVE_BILL, active: true });
+    wrap(<BillList {...props} includeInactive />);
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Disney+" }));
+    const dialog = screen.getByRole("dialog", { name: "Disney+" });
+    expect(within(dialog).queryByRole("button", { name: "Omitir Disney+" })).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Reactivar Disney+" }));
+    await waitFor(() => expect(api.updateBill).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 });
 

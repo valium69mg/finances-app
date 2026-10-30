@@ -6,6 +6,7 @@ import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
 import { DeepLinkNote } from "../components/DeepLinkNote";
 import { InlineFormPanel } from "../components/InlineFormPanel";
+import { IncomeDialog } from "./income/IncomeDialog";
 import { IncomeForm } from "./income/IncomeForm";
 import { IncomeList } from "./income/IncomeList";
 import { SaveSummary } from "./income/SaveSummary";
@@ -16,11 +17,11 @@ import { useUrlCyclePeriod } from "./useCycle";
 import { PageTitle } from "../components/PageTitle";
 import { KIND } from "../lib/tones";
 
-/** The month lives in the URL (`?mes=`) and `?editar=<id>` opens one income's edit form: the Panel's links use both. */
+/** The month lives in the URL (`?mes=`) and `?editar=<id>` opens one income's edit dialog: the Panel's links use both. */
 export function Income() {
   const { month, setMonth, rangeHint } = useUrlCyclePeriod();
   const [editing, setEditing] = useState<IncomeRow | null>(null);
-  // The create form stays collapsed until asked for; editing a row opens it by itself.
+  // The create form stays collapsed until asked for; editing a row opens its dialog.
   const [formOpen, setFormOpen] = useState(false);
   const [result, setResult] = useState<SaveIncomeResult | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
@@ -50,20 +51,15 @@ export function Income() {
         )}
         {settings.data && (
           <div className="space-y-4">
-            <InlineFormPanel id="income-form-panel" label="+ Nuevo ingreso" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+            <InlineFormPanel id="income-form-panel" label="+ Nuevo ingreso" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={false}>
               <IncomeForm
-                key={editing?.id ?? "new"}
                 settings={settings.data}
-                editing={editing}
+                editing={null}
                 onSaved={(r) => {
                   setResult(r);
-                  setEditing(null);
                   setFormOpen(false);
                 }}
-                onCancelEdit={() => {
-                  setEditing(null);
-                  setFormOpen(false);
-                }}
+                onCancelEdit={() => setFormOpen(false)}
               />
             </InlineFormPanel>
             {result && <SaveSummary result={result} />}
@@ -92,10 +88,21 @@ export function Income() {
               setResult(null);
               setEditing(i);
             }}
-            onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
           />
         )}
       </div>
+
+      {editing && settings.data && (
+        <IncomeDialog
+          settings={settings.data}
+          income={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(r) => {
+            setResult(r);
+            setEditing(null);
+          }}
+        />
+      )}
     </section>
   );
 }

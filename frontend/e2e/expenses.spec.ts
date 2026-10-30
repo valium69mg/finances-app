@@ -67,20 +67,25 @@ test.describe("expenses page", () => {
     await expect(toggle).toBeFocused();
   });
 
-  test("starting to edit a row opens the form, keeps the green highlight and collapses on cancel", async ({ page }) => {
+  test("a row is one button that opens the edit dialog with the green highlight; Cancelar closes it", async ({ page }) => {
     await open(page, { expenses: [seeded()] }, { expanded: false });
     await expect(page.getByRole("form")).toHaveCount(0);
-    await page.getByRole("button", { name: "Editar Tacos del centro" }).click();
+    const row = page.getByRole("listitem").filter({ hasText: "Tacos del centro" });
+    // No Editar/Eliminar pair on the row: the whole row is the edit button.
+    await expect(row.getByRole("button")).toHaveCount(1);
+    await row.getByRole("button", { name: "Editar Tacos del centro" }).click();
 
-    const form = page.getByRole("form", { name: "Editar gasto" });
-    await expect(form).toBeVisible();
-    await expect(form).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
-    await expect(form.getByLabel("Descripción")).toBeFocused();
-    await expect(form.getByLabel("Monto")).toHaveValue("180.00");
-
-    await page.getByRole("button", { name: "Cancelar edición" }).click();
-    await expect(page.getByRole("form")).toHaveCount(0);
+    const dialog = page.getByRole("dialog", { name: "Editar gasto" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator(".edit-highlight")).toHaveCount(1);
+    await expect(dialog.getByLabel("Descripción")).toBeFocused();
+    await expect(dialog.getByLabel("Monto")).toHaveValue("180.00");
+    // The create panel stays collapsed behind the dialog.
     await expect(page.getByRole("button", { name: "Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
+
+    await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "Editar Tacos del centro" })).toBeFocused();
   });
 
   test("with a pay cycle starting on the last day, a 2026-09-30 expense lists under 2026-10, not 2026-09", async ({ page }) => {
@@ -180,40 +185,52 @@ test.describe("expenses page", () => {
     await expect(page.getByText("Sin presupuesto definido para Inversiones.")).toBeVisible();
   });
 
-  test("edits an expense through the form", async ({ page }) => {
+  test("edits an expense in the dialog", async ({ page }) => {
     const api = await open(page, { expenses: [seeded()] });
     await page.getByRole("button", { name: "Editar Tacos del centro" }).click();
 
-    await expect(page.getByRole("heading", { level: 2, name: "Editar gasto" })).toBeVisible();
-    await expect(page.getByLabel("Monto")).toHaveValue("180.00");
-    await page.getByLabel("Monto").fill("220.75");
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    const dialog = page.getByRole("dialog", { name: "Editar gasto" });
+    await expect(dialog.getByLabel("Monto")).toHaveValue("180.00");
+    await dialog.getByLabel("Monto").fill("220.75");
+    await dialog.getByRole("button", { name: "Guardar cambios" }).click();
 
     await expect(page.getByText("Gasto guardado.")).toBeVisible();
-    // The form collapses after saving.
-    await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Nuevo gasto" })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("listitem").filter({ hasText: "Tacos del centro" })).toContainText("$220.75 MXN");
     const put = api.writes.find((w) => w.method === "PUT" && w.path === "/expenses/1");
     expect((put?.body as { amount: string }).amount).toBe("220.75");
   });
 
-  test("deletes an expense after an inline confirmation", async ({ page }) => {
+  test("deletes an expense from its dialog, only after a confirmation", async ({ page }) => {
     page.on("dialog", (d) => {
       throw new Error(`unexpected native dialog: ${d.message()}`);
     });
     const api = await open(page, { expenses: [seeded()] });
 
-    await page.getByRole("button", { name: "Eliminar Tacos del centro" }).click();
-    await expect(page.getByText("¿Eliminar este gasto?")).toBeVisible();
-    await page.getByRole("button", { name: "Cancelar", exact: true }).click();
-    await expect(page.getByText("Tacos del centro")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Eliminar Tacos del centro" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Editar Tacos del centro" }).click();
+    const dialog = page.getByRole("dialog", { name: "Editar gasto" });
+    await dialog.getByRole("button", { name: "Eliminar Tacos del centro" }).click();
+    await expect(dialog.getByText("¿Eliminar este gasto?")).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Cancelar", exact: true }).last()).toBeFocused();
+    await dialog.getByRole("group", { name: /Confirmar eliminación/ }).getByRole("button", { name: "Cancelar" }).click();
     expect(api.writes).toHaveLength(0);
 
-    await page.getByRole("button", { name: "Eliminar Tacos del centro" }).click();
-    await page.getByRole("button", { name: "Sí, eliminar" }).click();
+    await dialog.getByRole("button", { name: "Eliminar Tacos del centro" }).click();
+    await dialog.getByRole("button", { name: "Sí, eliminar" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByText("No hay gastos registrados en este periodo.")).toBeVisible();
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/expenses/1")).toBe(true);
+  });
+
+  test("an ?editar= deep link opens the edit dialog", async ({ page }) => {
+    await mockApi(page, { expenses: [seeded({ id: 5, description: "Gasolina" })] });
+    await seedSession(page);
+    await page.goto("/gastos?editar=5");
+    const dialog = page.getByRole("dialog", { name: "Editar gasto" });
+    await expect(dialog.getByLabel("Descripción")).toHaveValue("Gasolina");
+    await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await expect(page).not.toHaveURL(/editar=/);
   });
 
   test("shows the backend message when the server rejects the expense", async ({ page }) => {
@@ -249,8 +266,9 @@ test.describe("expenses page", () => {
       await page.getByLabel("Monto").fill("10");
       await page.getByRole("button", { name: "Agregar gasto" }).click();
       await expect(page.getByText("Gasto guardado.")).toBeVisible();
+      await page.getByRole("button", { name: /^Editar/ }).first().click();
       await page.getByRole("button", { name: /^Eliminar/ }).first().click();
-      await expectNoHorizontalOverflow(page, `${vp.name}px form + confirm`);
+      await expectNoHorizontalOverflow(page, `${vp.name}px dialog + confirm`);
     });
   }
 });

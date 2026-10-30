@@ -6,6 +6,7 @@ import { getSettings, settingsKeys } from "../api/settings";
 import { DeepLinkNote } from "../components/DeepLinkNote";
 import { InlineFormPanel } from "../components/InlineFormPanel";
 import { BillForm } from "./bills/BillForm";
+import { Modal } from "../components/Modal";
 import { BillList } from "./bills/BillList";
 import { describeBillsError } from "./bills/errors";
 import { expenseCategories } from "./bills/form";
@@ -23,7 +24,7 @@ import { moduleIcon } from "../modules";
  */
 export function Bills() {
   const [editing, setEditing] = useState<Bill | null>(null);
-  // The create form stays collapsed until asked for; editing a row opens it by itself.
+  // The create form stays collapsed until asked for; editing a bill opens its dialog (from the bill's detail).
   const [formOpen, setFormOpen] = useState(false);
   const [paying, setPaying] = useState<Bill | null>(null);
   const [includeInactive, setIncludeInactive] = useState(false);
@@ -69,20 +70,15 @@ export function Bills() {
           </div>
         )}
         {settings.data && (
-          <InlineFormPanel id="bill-form-panel" label="+ Nuevo pago recurrente" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+          <InlineFormPanel id="bill-form-panel" label="+ Nuevo pago recurrente" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={false}>
             <BillForm
-              key={editing?.id ?? "new"}
               categories={categories}
-              editing={editing}
-              onSaved={(bill, wasEdit) => {
-                setEditing(null);
+              editing={null}
+              onSaved={(bill) => {
                 setFormOpen(false);
-                setNotice(wasEdit ? `Cambios de ${bill.name} guardados.` : `${bill.name} agregado. Próximo vencimiento: ${dateLabel(bill.next_due_date)}.`);
+                setNotice(`${bill.name} agregado. Próximo vencimiento: ${dateLabel(bill.next_due_date)}.`);
               }}
-              onCancelEdit={() => {
-                setEditing(null);
-                setFormOpen(false);
-              }}
+              onCancelEdit={() => setFormOpen(false)}
             />
           </InlineFormPanel>
         )}
@@ -116,6 +112,21 @@ export function Bills() {
         />
       </div>
 
+      {editing && (
+        <Modal title={`Editar ${editing.name}`} onClose={() => setEditing(null)} highlight>
+          <BillForm
+            key={editing.id}
+            categories={categories}
+            editing={editing}
+            onSaved={(bill) => {
+              setEditing(null);
+              setNotice(`Cambios de ${bill.name} guardados.`);
+            }}
+            onCancelEdit={() => setEditing(null)}
+            inDialog
+          />
+        </Modal>
+      )}
       {paying && <PayDialog bill={paying} categories={categories} onClose={() => setPaying(null)} onPaid={onPaid} />}
     </section>
   );

@@ -49,10 +49,18 @@ async function openBills(page: Page, opts: Parameters<typeof mockApi>[1] = {}, {
   return api;
 }
 
+/** Opens the detail dialog of a bill (its card is one button) and returns it. */
+async function openDetail(page: Page, name: string) {
+  await rowOf(page, name).getByRole("button", { name: `Ver ${name}` }).click();
+  const dialog = page.getByRole("dialog", { name });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
 const rowOf = (page: Page, name: string) => page.getByRole("list", { name: "Pagos recurrentes" }).getByRole("listitem").filter({ hasText: name }).first();
 
 test.describe("bills page", () => {
-  test("the bill form is collapsed by default, expands inline and opens by itself on edit", async ({ page }) => {
+  test("the bill form is collapsed by default and expands inline; editing opens a dialog from the detail", async ({ page }) => {
     await openBills(page, { bills: BILLS }, { expanded: false });
     const toggle = page.getByRole("button", { name: "Nuevo pago recurrente" });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
@@ -66,12 +74,17 @@ test.describe("bills page", () => {
     await toggle.click();
     await expect(page.getByRole("form")).toHaveCount(0);
 
-    await rowOf(page, "Megacable").getByRole("button", { name: "Editar Megacable" }).click();
-    const form = page.getByRole("form", { name: "Editar Megacable" });
-    await expect(form).toBeVisible();
-    await expect(form).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
-    await page.getByRole("button", { name: "Cancelar edición" }).click();
-    await expect(page.getByRole("form")).toHaveCount(0);
+    // A card keeps one action; the rest lives in the detail dialog.
+    const card = rowOf(page, "Megacable");
+    await expect(card.getByRole("button")).toHaveText([/Megacable/, "Pagar"]);
+    const detail = await openDetail(page, "Megacable");
+    await detail.getByRole("button", { name: "Editar Megacable" }).click();
+    const dialog = page.getByRole("dialog", { name: "Editar Megacable" });
+    await expect(dialog.getByRole("form", { name: "Editar Megacable" })).toBeVisible();
+    await expect(dialog.locator(".edit-highlight")).toHaveCount(1);
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
   test("shows the empty state", async ({ page }) => {
@@ -175,20 +188,21 @@ test.describe("bills page", () => {
 
   test("edits a bill", async ({ page }) => {
     const api = await openBills(page, { bills: BILLS });
-    await rowOf(page, "Megacable").getByRole("button", { name: "Editar Megacable" }).click();
-    await expect(page.getByRole("form", { name: "Editar Megacable" })).toBeVisible();
-    await expect(page.getByLabel("Nombre")).toHaveValue("Megacable");
-    await expect(page.getByLabel("Monto", { exact: true })).toHaveValue("550.00");
-    await page.getByLabel("Monto", { exact: true }).fill("600");
-    await page.getByLabel("Recurrencia").selectOption({ label: "Anual" });
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    const detail = await openDetail(page, "Megacable");
+    await detail.getByRole("button", { name: "Editar Megacable" }).click();
+    const dialog = page.getByRole("dialog", { name: "Editar Megacable" });
+    await expect(dialog.getByLabel("Nombre")).toHaveValue("Megacable");
+    await expect(dialog.getByLabel("Monto", { exact: true })).toHaveValue("550.00");
+    await dialog.getByLabel("Monto", { exact: true }).fill("600");
+    await dialog.getByLabel("Recurrencia").selectOption({ label: "Anual" });
+    await dialog.getByRole("button", { name: "Guardar cambios" }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "Cambios de Megacable guardados" })).toBeVisible();
     const write = api.billWrites.find((w) => w.method === "PUT" && w.path === "/bills/1");
     expect(write?.body).toMatchObject({ amount: "600", recurrence: "yearly", next_due_date: day(-5), active: true });
     await expect(rowOf(page, "Megacable")).toContainText("$600.00 MXN");
     await expect(rowOf(page, "Megacable")).toContainText("Anual");
-    await expect(page.getByRole("form")).toHaveCount(0);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
   });
 
   test("pays a fixed bill with the defaults, registers the expense and generates the next occurrence", async ({ page }) => {
@@ -275,14 +289,15 @@ test.describe("bills page", () => {
 
   test("skips an occurrence only after confirming and registers no expense", async ({ page }) => {
     const api = await openBills(page, { bills: BILLS });
-    const row = rowOf(page, "Megacable");
-    await row.getByRole("button", { name: "Omitir Megacable" }).click();
-    await expect(row.getByText(/¿Omitir este vencimiento\?/)).toBeVisible();
-    await row.getByRole("button", { name: "Cancelar" }).click();
+    const detail = await openDetail(page, "Megacable");
+    await detail.getByRole("button", { name: "Omitir Megacable" }).click();
+    await expect(detail.getByText(/¿Omitir este vencimiento\?/)).toBeVisible();
+    await detail.getByRole("button", { name: "Cancelar" }).click();
     expect(api.billWrites).toHaveLength(0);
 
-    await row.getByRole("button", { name: "Omitir Megacable" }).click();
-    await row.getByRole("button", { name: "Sí, omitir" }).click();
+    await detail.getByRole("button", { name: "Omitir Megacable" }).click();
+    await detail.getByRole("button", { name: "Sí, omitir" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "Se omitió el vencimiento de Megacable. No se registró ningún gasto" })).toBeVisible();
     expect(api.billWrites.find((w) => w.path === "/bills/1/skip")).toBeTruthy();
     expect(api.expenses).toHaveLength(0);
@@ -292,10 +307,10 @@ test.describe("bills page", () => {
 
   test("shows the API error of a failed skip", async ({ page }) => {
     await openBills(page, { bills: BILLS, billsFail: "skip" });
-    const row = rowOf(page, "Megacable");
-    await row.getByRole("button", { name: "Omitir Megacable" }).click();
-    await row.getByRole("button", { name: "Sí, omitir" }).click();
-    await expect(page.getByRole("alert").filter({ hasText: "El servidor tuvo un problema" })).toBeVisible();
+    const detail = await openDetail(page, "Megacable");
+    await detail.getByRole("button", { name: "Omitir Megacable" }).click();
+    await detail.getByRole("button", { name: "Sí, omitir" }).click();
+    await expect(detail.getByRole("alert").filter({ hasText: "El servidor tuvo un problema" })).toBeVisible();
   });
 
   test("shows the history of paid and skipped occurrences", async ({ page }) => {
@@ -309,38 +324,38 @@ test.describe("bills page", () => {
         }),
       ],
     });
-    const row = rowOf(page, "Megacable");
-    await row.getByRole("button", { name: "Ver historial de Megacable" }).click();
-    const history = row.getByRole("list", { name: "Historial de Megacable" });
+    const detail = await openDetail(page, "Megacable");
+    const history = detail.getByRole("list", { name: "Historial de Megacable" });
     await expect(history.getByRole("listitem")).toHaveCount(2);
     await expect(history).toContainText(`Pagado el ${day(-33)} · $499.50 MXN · gasto #42`);
     await expect(history).toContainText("Omitido: no se registró ningún gasto");
-    await row.getByRole("button", { name: "Ocultar historial de Megacable" }).click();
+    await detail.getByRole("button", { name: "Cerrar", exact: true }).click();
     await expect(history).toBeHidden();
   });
 
   test("an empty history is explained", async ({ page }) => {
     await openBills(page, { bills: [bill()] });
-    await rowOf(page, "Megacable").getByRole("button", { name: "Ver historial de Megacable" }).click();
+    await openDetail(page, "Megacable");
     await expect(page.getByText("Aún no hay pagos ni omisiones")).toBeVisible();
   });
 
   test("shows the history error with a retry", async ({ page }) => {
     await openBills(page, { bills: [bill()], billsFail: "detail" });
-    await rowOf(page, "Megacable").getByRole("button", { name: "Ver historial de Megacable" }).click();
+    await openDetail(page, "Megacable");
     await expect(page.getByRole("alert").filter({ hasText: "El servidor tuvo un problema" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
   });
 
   test("deactivates a bill after confirming and reactivates it from the inactive list", async ({ page }) => {
     const api = await openBills(page, { bills: BILLS });
-    const row = rowOf(page, "Netflix");
-    await row.getByRole("button", { name: "Desactivar Netflix" }).click();
-    await row.getByRole("button", { name: "Cancelar" }).click();
+    const detail = await openDetail(page, "Netflix");
+    await detail.getByRole("button", { name: "Desactivar Netflix" }).click();
+    await detail.getByRole("button", { name: "Cancelar" }).click();
     expect(api.billWrites).toHaveLength(0);
 
-    await row.getByRole("button", { name: "Desactivar Netflix" }).click();
-    await row.getByRole("button", { name: "Sí, desactivar" }).click();
+    await detail.getByRole("button", { name: "Desactivar Netflix" }).click();
+    await detail.getByRole("button", { name: "Sí, desactivar" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("status").filter({ hasText: "Netflix se desactivó. Su historial y sus gastos se conservan." })).toBeVisible();
     await expect(page.getByRole("list", { name: "Pagos recurrentes" }).getByRole("listitem")).toHaveCount(2);
     expect(api.bills.find((b) => b.id === 3)?.active).toBe(false);
@@ -375,18 +390,19 @@ test.describe("bills layout", () => {
     await expect(page.getByRole("list", { name: "Pagos recurrentes" })).toBeVisible();
     await expectNoHorizontalOverflow(page, "bills list");
 
-    await rowOf(page, "Megacable").getByRole("button", { name: "Ver historial de Megacable" }).click();
+    const detail = await openDetail(page, "Megacable");
     await expect(page.getByText("Aún no hay pagos ni omisiones")).toBeVisible();
-    await expectNoHorizontalOverflow(page, "bills history");
+    await expectNoHorizontalOverflow(page, "bills detail dialog");
+
+    await detail.getByRole("button", { name: "Omitir Megacable" }).click();
+    await expect(page.getByRole("group", { name: "Confirmar omitir Megacable" })).toBeVisible();
+    await expectNoHorizontalOverflow(page, "bills skip confirmation");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Agregar pago recurrente" }).click();
     await expect(page.getByText("Escribe el nombre del pago")).toBeVisible();
     await expectNoHorizontalOverflow(page, "bills form errors");
-
-    await rowOf(page, "Megacable").getByRole("button", { name: "Omitir Megacable" }).click();
-    await expect(page.getByRole("group", { name: "Confirmar omitir Megacable" })).toBeVisible();
-    await expectNoHorizontalOverflow(page, "bills skip confirmation");
-    await page.getByRole("button", { name: "Cancelar" }).click();
 
     await rowOf(page, "Luz").getByRole("button", { name: "Pagar Luz" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Registrar pago" }).click();

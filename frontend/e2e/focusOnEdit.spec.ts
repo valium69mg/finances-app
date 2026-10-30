@@ -43,29 +43,27 @@ async function openPage(page: Page, path: string, opts: Parameters<typeof mockAp
 
 const HIGHLIGHT = /(^|\s)edit-highlight(\s|$)/;
 
-test.describe("focus on edit (inline form)", () => {
-  test("editing the last income scrolls the form into view, focuses it and flashes green", async ({ page }) => {
+test.describe("focus on edit (row dialog)", () => {
+  test("editing the last income opens its dialog in view, focused and flashing green, wherever the page was scrolled", async ({ page }) => {
     await openPage(page, "/ingresos", { income: INCOME });
     const edit = page.getByRole("button", { name: "Editar Sueldo 80" });
     await expect(edit).toBeVisible();
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    // The create form is collapsed: its toggle sits at the top of the page, far from the last row.
-    await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Nuevo ingreso" })).not.toBeInViewport();
     expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
 
     await edit.click();
 
-    const editForm = page.getByRole("form", { name: "Editar ingreso" });
-    await expect(editForm).toBeInViewport({ ratio: 0.9 });
-    await expect(editForm).toHaveClass(HIGHLIGHT);
-    await expect(editForm.getByLabel("Descripción")).toBeFocused();
+    const dialog = page.getByRole("dialog", { name: "Editar ingreso" });
+    await expect(dialog).toBeInViewport({ ratio: 0.9 });
+    const body = dialog.locator("form").locator("xpath=..").locator("xpath=..");
+    await expect(body).toHaveClass(HIGHLIGHT);
+    await expect(dialog.getByLabel("Descripción")).toBeFocused();
     // The highlight fades away after about two seconds.
-    await expect(editForm).not.toHaveClass(HIGHLIGHT, { timeout: 4_000 });
+    await expect(body).not.toHaveClass(HIGHLIGHT, { timeout: 4_000 });
   });
 });
 
-test.describe("focus on edit (modal form)", () => {
+test.describe("focus on edit (action dialog)", () => {
   test("the payment dialog is in view and shows the highlight without scrolling the page", async ({ page }) => {
     await openPage(page, "/pagos-recurrentes", { bills: [BILL] });
     await page.getByRole("button", { name: "Pagar Megacable" }).click();

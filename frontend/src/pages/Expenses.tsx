@@ -8,6 +8,7 @@ import { DeepLinkNote } from "../components/DeepLinkNote";
 import { FilterChip } from "../components/FilterChip";
 import { InlineFormPanel } from "../components/InlineFormPanel";
 import { BudgetFeedbackNote } from "./expenses/BudgetFeedbackNote";
+import { ExpenseDialog } from "./expenses/ExpenseDialog";
 import { ExpenseForm } from "./expenses/ExpenseForm";
 import { ExpenseList } from "./expenses/ExpenseList";
 import { describeExpenseError } from "./expenses/errors";
@@ -20,12 +21,12 @@ import { KIND } from "../lib/tones";
 
 /**
  * The month lives in the URL (`?mes=`), as do the category filter (`?categoria=<name>`, a clearable chip) and a deep
- * link to one expense's edit form (`?editar=<id>`): the Panel's links open the page on them.
+ * link to one expense's edit dialog (`?editar=<id>`): the Panel's links open the page on them.
  */
 export function Expenses() {
   const { month, setMonth, rangeHint } = useUrlCyclePeriod();
   const [editing, setEditing] = useState<Expense | null>(null);
-  // The create form stays collapsed until asked for; editing a row opens it by itself.
+  // The create form stays collapsed until asked for; editing a row opens its dialog.
   const [formOpen, setFormOpen] = useState(false);
   const [feedback, setFeedback] = useState<SaveExpenseResult | null>(null);
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
@@ -56,20 +57,15 @@ export function Expenses() {
         )}
         {settings.data && (
           <div className="space-y-4">
-            <InlineFormPanel id="expense-form-panel" label="+ Nuevo gasto" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
+            <InlineFormPanel id="expense-form-panel" label="+ Nuevo gasto" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={false}>
               <ExpenseForm
-                key={editing?.id ?? "new"}
                 settings={settings.data}
-                editing={editing}
+                editing={null}
                 onSaved={(result) => {
                   setFeedback(result);
-                  setEditing(null);
                   setFormOpen(false);
                 }}
-                onCancelEdit={() => {
-                  setEditing(null);
-                  setFormOpen(false);
-                }}
+                onCancelEdit={() => setFormOpen(false)}
               />
             </InlineFormPanel>
             {feedback && <BudgetFeedbackNote result={feedback} />}
@@ -103,10 +99,21 @@ export function Expenses() {
               setFeedback(null);
               setEditing(e);
             }}
-            onDeleted={(id) => setEditing((cur) => (cur?.id === id ? null : cur))}
           />
         )}
       </div>
+
+      {editing && settings.data && (
+        <ExpenseDialog
+          settings={settings.data}
+          expense={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(result) => {
+            setFeedback(result);
+            setEditing(null);
+          }}
+        />
+      )}
     </section>
   );
 }

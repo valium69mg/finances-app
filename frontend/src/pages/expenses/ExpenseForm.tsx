@@ -19,9 +19,11 @@ interface Props {
   editing: Expense | null;
   onSaved: (result: SaveExpenseResult) => void;
   onCancelEdit: () => void;
+  /** Rendered inside a dialog that carries the title: no heading, one column, the focus cue belongs to the dialog. */
+  inDialog?: boolean;
 }
 
-export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props) {
+export function ExpenseForm({ settings, editing, onSaved, onCancelEdit, inDialog = false }: Props) {
   const qc = useQueryClient();
   const methods = settings.payment_methods;
   const defaultMethod = methods.includes("Débito") ? "Débito" : (methods[0] ?? "");
@@ -35,7 +37,7 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props)
   // The user's own category choice; null means "follow the suggestion".
   const [chosen, setChosen] = useState<string | null>(editing ? editing.category : null);
   const [errors, setErrors] = useState<{ amount?: string; rate?: string; date?: string }>({});
-  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
+  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null && !inDialog);
   const amountRef = useRef<HTMLInputElement>(null);
 
   const debouncedDescription = useDebounced(description.trim(), DEBOUNCE_MS);
@@ -91,11 +93,13 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props)
   const title = editing ? "Editar gasto" : "Nuevo gasto";
 
   return (
-    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="expense-form-title" className="space-y-5">
-      <h2 id="expense-form-title" className="text-lg font-semibold tracking-tight">
-        {title}
-      </h2>
-      <div className={`${fieldGrid} lg:grid-cols-3`}>
+    <form ref={formRef} noValidate onSubmit={onSubmit} aria-label={inDialog ? title : undefined} aria-labelledby={inDialog ? undefined : "expense-form-title"} className="space-y-5">
+      {!inDialog && (
+        <h2 id="expense-form-title" className="text-lg font-semibold tracking-tight">
+          {title}
+        </h2>
+      )}
+      <div className={inDialog ? fieldGrid : `${fieldGrid} lg:grid-cols-3`}>
         <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH} autoComplete="off" />
         <TextField
           label="Monto"
@@ -166,7 +170,7 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit }: Props)
         </button>
         {editing && (
           <button type="button" onClick={onCancelEdit} className={secondaryButton}>
-            Cancelar edición
+            {inDialog ? "Cancelar" : "Cancelar edición"}
           </button>
         )}
       </div>

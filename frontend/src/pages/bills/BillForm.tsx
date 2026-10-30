@@ -19,14 +19,16 @@ interface Props {
   editing: Bill | null;
   onSaved: (bill: Bill, wasEdit: boolean) => void;
   onCancelEdit: () => void;
+  /** Rendered inside a dialog that carries the title: no heading, one column, the focus cue belongs to the dialog. */
+  inDialog?: boolean;
 }
 
 /** Create / edit form of a recurring bill or subscription. */
-export function BillForm({ categories, editing, onSaved, onCancelEdit }: Props) {
+export function BillForm({ categories, editing, onSaved, onCancelEdit, inDialog = false }: Props) {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<BillDraft>(() => (editing ? draftOf(editing) : emptyDraft(todayISO(), categories[0] ?? "")));
   const [errors, setErrors] = useState<BillErrors>({});
-  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
+  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null && !inDialog);
   const nameRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
   const leadRef = useRef<HTMLInputElement>(null);
@@ -62,11 +64,13 @@ export function BillForm({ categories, editing, onSaved, onCancelEdit }: Props) 
   const title = editing ? `Editar ${editing.name}` : "Nuevo pago recurrente";
 
   return (
-    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="bill-form-title" className="space-y-5">
-      <h2 id="bill-form-title" className="text-lg font-semibold tracking-tight">
-        {title}
-      </h2>
-      <div className={`${fieldGrid} lg:grid-cols-3`}>
+    <form ref={formRef} noValidate onSubmit={onSubmit} aria-label={inDialog ? title : undefined} aria-labelledby={inDialog ? undefined : "bill-form-title"} className="space-y-5">
+      {!inDialog && (
+        <h2 id="bill-form-title" className="text-lg font-semibold tracking-tight">
+          {title}
+        </h2>
+      )}
+      <div className={inDialog ? fieldGrid : `${fieldGrid} lg:grid-cols-3`}>
         <TextField label="Nombre" inputRef={nameRef} value={draft.name} onChange={(e) => set({ name: e.target.value })} error={errors.name} autoComplete="off" />
         <SelectField label="Categoría del gasto" value={draft.category} onChange={(e) => set({ category: e.target.value })} hint="Puedes cambiarla al pagar.">
           {draft.category === "" && <option value="">Elige una categoría</option>}
@@ -137,7 +141,7 @@ export function BillForm({ categories, editing, onSaved, onCancelEdit }: Props) 
         </button>
         {editing && (
           <button type="button" onClick={onCancelEdit} className={secondaryButton}>
-            Cancelar edición
+            {inDialog ? "Cancelar" : "Cancelar edición"}
           </button>
         )}
       </div>

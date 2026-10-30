@@ -74,18 +74,22 @@ test.describe("income page", () => {
     await expect(page.getByRole("button", { name: "Nuevo ingreso" })).toHaveAttribute("aria-expanded", "false");
   });
 
-  test("starting to edit a row opens the form, keeps the green highlight and collapses on cancel", async ({ page }) => {
+  test("a row is one button that opens the edit dialog with the green highlight; Cancelar closes it", async ({ page }) => {
     await open(page, { income: [seeded()] }, { expanded: false });
     await expect(page.getByRole("form")).toHaveCount(0);
-    await page.getByRole("button", { name: "Editar Sueldo octubre" }).click();
+    const row = page.getByRole("listitem").filter({ hasText: "Sueldo octubre" });
+    await expect(row.getByRole("button")).toHaveCount(1);
+    await row.getByRole("button", { name: "Editar Sueldo octubre" }).click();
 
-    const form = page.getByRole("form", { name: "Editar ingreso" });
-    await expect(form).toBeVisible();
-    await expect(form).toHaveClass(/(^|\s)edit-highlight(\s|$)/);
-    await expect(form.getByLabel("Descripción")).toBeFocused();
+    const dialog = page.getByRole("dialog", { name: "Editar ingreso" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator(".edit-highlight")).toHaveCount(1);
+    await expect(dialog.getByLabel("Descripción")).toBeFocused();
+    await expect(page.getByRole("button", { name: "Nuevo ingreso" })).toHaveAttribute("aria-expanded", "false");
 
-    await page.getByRole("button", { name: "Cancelar edición" }).click();
-    await expect(page.getByRole("form")).toHaveCount(0);
+    await dialog.getByRole("button", { name: "Cancelar", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "Editar Sueldo octubre" })).toBeFocused();
   });
 
   test("adds a Sueldo income and shows the month summary", async ({ page }) => {
@@ -181,38 +185,39 @@ test.describe("income page", () => {
     expect(api.requests.filter((r) => r.path === "/income")).toHaveLength(0);
   });
 
-  test("edits an income through the form", async ({ page }) => {
+  test("edits an income in the dialog", async ({ page }) => {
     const api = await open(page, { income: [seeded()] });
     await page.getByRole("button", { name: "Editar Sueldo octubre" }).click();
 
-    await expect(page.getByRole("heading", { level: 2, name: "Editar ingreso" })).toBeVisible();
-    await expect(page.getByLabel("Monto")).toHaveValue("20000.00");
-    await page.getByLabel("Monto").fill("21000.75");
-    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    const dialog = page.getByRole("dialog", { name: "Editar ingreso" });
+    await expect(dialog.getByLabel("Monto")).toHaveValue("20000.00");
+    await dialog.getByLabel("Monto").fill("21000.75");
+    await dialog.getByRole("button", { name: "Guardar cambios" }).click();
 
     await expect(page.getByText("Ingreso guardado.")).toBeVisible();
-    // The form collapses after saving.
-    await expect(page.getByRole("form")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Nuevo ingreso" })).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("listitem").filter({ hasText: "Sueldo octubre" })).toContainText("$21,000.75 MXN");
     const put = api.writes.find((w) => w.method === "PUT" && w.path === "/income/1");
     expect((put?.body as { amount: string }).amount).toBe("21000.75");
   });
 
-  test("deletes an income after an inline confirmation", async ({ page }) => {
+  test("deletes an income from its dialog, only after a confirmation", async ({ page }) => {
     page.on("dialog", (d) => {
       throw new Error(`unexpected native dialog: ${d.message()}`);
     });
     const api = await open(page, { income: [seeded()] });
 
-    await page.getByRole("button", { name: "Eliminar Sueldo octubre" }).click();
-    await expect(page.getByText("¿Eliminar este ingreso?")).toBeVisible();
-    await page.getByRole("button", { name: "Cancelar", exact: true }).click();
-    await expect(page.getByText("Sueldo octubre")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Eliminar Sueldo octubre" })).toHaveCount(0);
+    await page.getByRole("button", { name: "Editar Sueldo octubre" }).click();
+    const dialog = page.getByRole("dialog", { name: "Editar ingreso" });
+    await dialog.getByRole("button", { name: "Eliminar Sueldo octubre" }).click();
+    await expect(dialog.getByText("¿Eliminar este ingreso?")).toBeVisible();
+    await dialog.getByRole("group", { name: /Confirmar eliminación/ }).getByRole("button", { name: "Cancelar" }).click();
     expect(api.writes).toHaveLength(0);
 
-    await page.getByRole("button", { name: "Eliminar Sueldo octubre" }).click();
-    await page.getByRole("button", { name: "Sí, eliminar" }).click();
+    await dialog.getByRole("button", { name: "Eliminar Sueldo octubre" }).click();
+    await dialog.getByRole("button", { name: "Sí, eliminar" }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByText("No hay ingresos registrados en este periodo.")).toBeVisible();
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/income/1")).toBe(true);
   });
@@ -251,8 +256,9 @@ test.describe("income page", () => {
       await page.getByRole("button", { name: "Agregar ingreso" }).click();
       await expect(page.getByRole("region", { name: "Reparto sugerido" })).toBeVisible();
       await expectNoHorizontalOverflow(page, `${vp.name}px summary`);
+      await page.getByRole("button", { name: /^Editar/ }).first().click();
       await page.getByRole("button", { name: /^Eliminar/ }).first().click();
-      await expectNoHorizontalOverflow(page, `${vp.name}px form + confirm`);
+      await expectNoHorizontalOverflow(page, `${vp.name}px dialog + confirm`);
     });
   }
 });
