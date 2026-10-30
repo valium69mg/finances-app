@@ -1,13 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { API_ORIGIN, mockApi, seedSession, type MockExpense, type MockExpenseRequest } from "./helpers";
+import { expectModules, pendingBadge } from "./nav";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
-
-const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
 
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({
@@ -117,9 +116,7 @@ test.describe("household: expense requests", () => {
 
   test("the navigation shows Peticiones next to the dashboard and her own finances, nothing owner-only", async ({ page }) => {
     await openAsHousehold(page);
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    const links = page.getByRole("navigation", { name: "Módulos" }).getByRole("link");
-    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
+    await expectModules(page, ["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
     await expect(page.getByTestId("pending-requests-badge")).toHaveCount(0);
   });
 
@@ -210,8 +207,7 @@ test.describe("owner: expense requests", () => {
     await page.getByRole("button", { name: "Todas" }).click();
     await expect(cards(page)).toHaveCount(4);
 
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByTestId("pending-requests-badge").first()).toHaveText("2");
+    await expect(await pendingBadge(page)).toHaveText("2");
   });
 
   test("approves as a Gasto that fits: the bar shows what is spent and the request, then registers the Gasto", async ({ page }) => {
@@ -369,8 +365,7 @@ test.describe("owner: expense requests", () => {
     await expect(cardOf(page, "Tacos del sábado").getByTestId("request-state")).toHaveText("Solicitada");
     await expect(cardOf(page, "Tacos del sábado").getByTestId("revert-history")).toContainText("una vez");
     await expect(cardOf(page, "Tacos del sábado").getByRole("button", { name: /Aprobar/ })).toBeVisible();
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByTestId("pending-requests-badge").first()).toHaveText("2");
+    await expect(await pendingBadge(page)).toHaveText("2");
   });
 
   test("reverts a future expense approval: the item disappears and its savings go back to the free balance", async ({ page }) => {

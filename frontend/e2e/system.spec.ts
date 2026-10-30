@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, seedSession, systemStatus } from "./helpers";
+import { moduleLabels } from "./nav";
 
 const GB = 1024 ** 3;
 
@@ -50,9 +51,7 @@ test.describe("system page", () => {
   test("is a tab before Configuración and shows the three cards with bars and numbers", async ({ page }) => {
     await open(page);
 
-    const tabs = page.getByRole("navigation", { name: "Módulos" });
-    if (!(await tabs.isVisible())) await page.getByRole("button", { name: "Abrir menú" }).click();
-    const labels = await tabs.getByRole("link").allInnerTexts();
+    const labels = await moduleLabels(page);
     expect(labels.indexOf("Sistema")).toBe(labels.indexOf("Configuración") - 1);
 
     for (const [name, value] of [

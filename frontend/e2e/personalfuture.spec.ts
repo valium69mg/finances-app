@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockPersonalFuture, type MockPersonalMovement } from "./helpers";
+import { closeMore, moduleLink } from "./nav";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -9,8 +10,6 @@ function day(offset = 0) {
   d.setDate(d.getDate() + offset);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-
-const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
 
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
@@ -45,8 +44,8 @@ const freeBalance = (page: Page) => page.getByRole("region", { name: "Saldo libr
 test.describe("household: Mis gastos futuros", () => {
   test("is a tab of hers and lists the free balance, the items and the history", async ({ page }) => {
     await open(page, [VIAJE, CURSO, BOLSA], [FREE]);
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Mis gastos futuros" })).toHaveAttribute("aria-current", "page");
+    await expect(await moduleLink(page, "Mis gastos futuros")).toHaveAttribute("aria-current", "page");
+    await closeMore(page);
 
     await expect(freeBalance(page)).toContainText("$400.00");
     const rows = activeList(page).getByRole("listitem");

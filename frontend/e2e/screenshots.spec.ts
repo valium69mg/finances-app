@@ -104,3 +104,41 @@ test("screenshot: Mis gastos (household)", async ({ page }, info) => {
     await page.screenshot({ path: `${shots}/mis-gastos-${width}.png`, fullPage: true });
   }
 });
+
+// Round 3: the mobile dock, the quick expense, the Más sheet and the theme selector, in both color schemes.
+test("screenshots round 3 (dock, quick expense, Más, theme selector)", async ({ page }, info) => {
+  test.skip(!shots || info.project.name !== "mobile", "only with SHOTS_DIR, once");
+  const EXPENSES = [
+    { id: 1, date: today(), description: "Renta", category: "Renta", payment_method: "Transferencia", currency: "MXN", amount: "12000.00", exchange_rate: null, amount_mxn: "12000.00" },
+    { id: 2, date: today(), description: "Súper", category: "Comida", payment_method: "Débito", currency: "MXN", amount: "1450.00", exchange_rate: null, amount_mxn: "1450.00" },
+  ];
+  await mockApi(page, { role: "owner", expenses: EXPENSES });
+  await seedSession(page, "owner");
+  for (const scheme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: scheme });
+
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
+    await page.screenshot({ path: `${shots}/panel-dock-${scheme}-375.png` });
+
+    await page.getByRole("button", { name: "Registrar gasto rápido" }).click();
+    const quick = page.getByRole("dialog", { name: "Gasto rápido" });
+    await quick.getByLabel("Monto (MXN)").fill("250.50");
+    await quick.getByLabel("Descripción").fill("Tacos");
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${shots}/gasto-rapido-${scheme}-375.png` });
+    await page.keyboard.press("Escape");
+
+    await page.getByRole("button", { name: "Más", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Más", exact: true })).toBeVisible();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${shots}/mas-${scheme}-375.png` });
+    await page.keyboard.press("Escape");
+
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
+    await page.screenshot({ path: `${shots}/escritorio-tema-${scheme}-1280.png` });
+  }
+});

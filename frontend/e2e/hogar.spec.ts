@@ -2,13 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { OWNER_USER } from "./usersMock";
 import { expectSection, switchSection } from "./settingsNav";
 import { mockApi, seedSession, type MockPersonalFuture, type MockPersonalMovement, type MockPersonalWish, type MockUser } from "./helpers";
+import { isDesktop, moduleLabels } from "./nav";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
-const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
 
 const ANA: MockUser = { id: "u-ana", email: "ana@example.com", role: "household", active: true, verified: true };
 const LUZ: MockUser = { id: "u-luz", email: "luz@example.com", role: "household", active: true, verified: true };
@@ -46,9 +46,9 @@ async function expectReadOnly(page: Page) {
 test.describe("owner: Hogar", () => {
   test("is listed for the owner, right after Peticiones", async ({ page }) => {
     await open(page, "/");
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    const labels = await page.getByRole("navigation", { name: "Módulos" }).getByRole("link").allInnerTexts();
-    expect(labels.slice(0, 3)).toEqual(["Panel", "Peticiones", "Hogar"]);
+    const labels = await moduleLabels(page);
+    if (isDesktop(page)) expect(labels.slice(0, 3)).toEqual(["Panel", "Peticiones", "Hogar"]);
+    else expect(labels).toEqual(expect.arrayContaining(["Panel", "Peticiones", "Hogar"]));
   });
 
   test("selects the only household user by itself and reads her summary with user_id", async ({ page }) => {
@@ -156,8 +156,7 @@ test.describe("household session", () => {
     await seedSession(page, "household");
     await page.goto("/hogar");
     await expect(page).toHaveURL(/\/$/);
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    expect(await page.getByRole("navigation", { name: "Módulos" }).getByRole("link").allInnerTexts()).not.toContain("Hogar");
+    expect(await moduleLabels(page)).not.toContain("Hogar");
     await page.goto("/mis-gastos");
     await expect(page.getByRole("heading", { level: 1, name: "Mis gastos" })).toBeVisible();
     await expect(page.getByText("Blusa", { exact: true })).toBeVisible();

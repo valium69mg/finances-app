@@ -1,11 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { MODULE_ROUTES, goToPasswordStep, mockApi, seedSession } from "./helpers";
-
-const DESKTOP_MIN = 1024;
-
-function isDesktop(width: number | undefined): boolean {
-  return (width ?? 0) >= DESKTOP_MIN;
-}
+import { dock, isDesktop, moduleLink, moreButton, moreSheet, openMore, sidebar } from "./nav";
 
 test.describe("authentication", () => {
   test("redirects an unauthenticated visit to /login", async ({ page }) => {
@@ -44,65 +39,54 @@ test.describe("layout", () => {
       }));
       expect(page_.scrollWidth, `page overflows on ${route}`).toBeLessThanOrEqual(page_.clientWidth);
 
-      if (!isDesktop(page.viewportSize()?.width)) {
-        await page.getByRole("button", { name: "Abrir menú" }).click();
-      }
-      const nav = await page
-        .getByRole("navigation", { name: "Módulos" })
-        .evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
+      const nav = await (isDesktop(page) ? sidebar(page) : dock(page)).evaluate((el) => ({ scrollWidth: el.scrollWidth, clientWidth: el.clientWidth }));
       expect(nav.scrollWidth, `nav overflows on ${route}`).toBeLessThanOrEqual(nav.clientWidth);
     }
   });
 
   test("marks the active module with aria-current", async ({ page }) => {
     await page.goto("/gastos");
-    if (!isDesktop(page.viewportSize()?.width)) {
-      await page.getByRole("button", { name: "Abrir menú" }).click();
-    }
-    await expect(page.getByRole("link", { name: "Gastos", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(await moduleLink(page, "Gastos")).toHaveAttribute("aria-current", "page");
   });
 
   test("moves focus to the content after navigating", async ({ page }) => {
     await page.goto("/");
-    if (!isDesktop(page.viewportSize()?.width)) {
-      await page.getByRole("button", { name: "Abrir menú" }).click();
-    }
     // The Panel's own Ingresos card is a link too: pick the one of the module menu.
-    await page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Ingresos" }).click();
+    await (await moduleLink(page, "Ingresos")).click();
     await expect(page).toHaveURL(/\/ingresos$/);
     await expect(page.locator("main")).toBeFocused();
   });
 
-  test("mobile drawer opens and closes with the button and Escape, restoring focus", async ({ page }) => {
-    test.skip(isDesktop(page.viewportSize()?.width), "The drawer only exists below 1024px");
+  test("the \"Más\" sheet opens and closes with the close button and Escape, restoring focus", async ({ page }) => {
+    test.skip(isDesktop(page), "The dock only exists below 1024px");
     await page.goto("/");
-    const menuButton = page.getByRole("button", { name: "Abrir menú" });
-    const dialog = page.getByRole("dialog", { name: "Menú de navegación" });
+    await expect(moreSheet(page)).toBeHidden();
+    await moreButton(page).click();
+    await expect(moreSheet(page)).toBeVisible();
 
-    await expect(dialog).toBeHidden();
-    await menuButton.click();
-    await expect(dialog).toBeVisible();
+    await moreSheet(page).getByRole("button", { name: "Cerrar", exact: true }).click();
+    await expect(moreSheet(page)).toBeHidden();
+    await expect(moreButton(page)).toBeFocused();
 
-    await page.getByRole("button", { name: "Cerrar menú" }).click();
-    await expect(dialog).toBeHidden();
-    await expect(menuButton).toBeFocused();
-
-    await menuButton.click();
-    await expect(dialog).toBeVisible();
+    await moreButton(page).click();
+    await expect(moreSheet(page)).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
-    await expect(menuButton).toBeFocused();
+    await expect(moreSheet(page)).toBeHidden();
+    await expect(moreButton(page)).toBeFocused();
   });
 
-  test("desktop shows a permanent sidebar and no menu button", async ({ page }) => {
-    test.skip(!isDesktop(page.viewportSize()?.width), "Sidebar layout starts at 1024px");
+  test("desktop shows a permanent sidebar and no dock", async ({ page }) => {
+    test.skip(!isDesktop(page), "Sidebar layout starts at 1024px");
     await page.goto("/");
-    await expect(page.getByRole("navigation", { name: "Módulos" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Abrir menú" })).toBeHidden();
+    await expect(sidebar(page)).toBeVisible();
+    await expect(dock(page)).toBeHidden();
+    await expect(moreButton(page)).toBeHidden();
   });
 
   test("shows the user email and a separate logout button", async ({ page }) => {
     await page.goto("/");
+    if (!isDesktop(page)) await openMore(page);
+    await expect((isDesktop(page) ? page.locator("header") : moreSheet(page)).getByText("admin@example.com")).toBeVisible();
     await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     await expect(page).toHaveURL(/\/login$/);

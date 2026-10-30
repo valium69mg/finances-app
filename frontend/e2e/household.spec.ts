@@ -1,7 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { API_ORIGIN, MODULE_ROUTES, mockApi, seedSession, type MockExpense } from "./helpers";
-
-const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
+import { expectModules, moduleLabels } from "./nav";
 
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({
@@ -73,9 +72,7 @@ test.describe("household session", () => {
 
   test("the navigation lists the dashboard, the requests and her personal finances", async ({ page }) => {
     await openAsHousehold(page);
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    const links = page.getByRole("navigation", { name: "Módulos" }).getByRole("link");
-    await expect(links).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
+    await expectModules(page, ["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
   });
 
   test("every other module redirects to the dashboard", async ({ page }) => {
@@ -115,8 +112,7 @@ test.describe("household session", () => {
     await seedSession(page, "owner");
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 2, name: "Presupuesto por categoría" })).toBeVisible();
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link")).toHaveCount(7);
+    expect(await moduleLabels(page)).toHaveLength(7);
   });
 
   test("login stores the role and a household user lands on the reduced dashboard", async ({ page }) => {
@@ -137,8 +133,7 @@ test.describe("owner session is unchanged", () => {
     await seedSession(page, "owner");
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    const labels = await page.getByRole("navigation", { name: "Módulos" }).getByRole("link").allInnerTexts();
+    const labels = await moduleLabels(page);
     expect(labels).toHaveLength(MODULE_ROUTES.length);
     expect(labels).toContain("Sistema");
     expect(labels).toContain("Configuración");

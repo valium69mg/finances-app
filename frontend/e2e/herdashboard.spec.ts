@@ -266,7 +266,7 @@ test.describe("owner Panel and her Panel stay apart", () => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
     await expect(page.locator("dl").first().getByRole("link")).toHaveCount(3);
-    await expect(page.getByRole("link", { name: "Gastos", exact: true }).last()).toHaveAttribute("href", new RegExp(`^/gastos\\?mes=\\d{4}-\\d{2}$`));
+    await expect(page.locator("main").getByRole("link", { name: "Gastos", exact: true }).last()).toHaveAttribute("href", new RegExp(`^/gastos\\?mes=\\d{4}-\\d{2}$`));
     await expect(page.getByRole("heading", { level: 2, name: "Presupuesto por categoría" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Mi resumen" })).toHaveCount(0);
     await expect(page.getByTestId("category-spend")).toHaveCount(0);

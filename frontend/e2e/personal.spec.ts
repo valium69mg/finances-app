@@ -1,13 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockPersonalMovement } from "./helpers";
+import { expectModules, moduleLabels, moduleLink } from "./nav";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const today = () => {
   const d = new Date();
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
-const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
-
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
   expect(size.scrollWidth, `page overflows on ${where}`).toBeLessThanOrEqual(size.clientWidth);
@@ -35,10 +34,8 @@ const dialog = (page: Page) => page.getByRole("dialog");
 test.describe("household: navigation", () => {
   test("lists the four personal tabs", async ({ page }) => {
     await open(page, "/");
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    const nav = page.getByRole("navigation", { name: "Módulos" });
-    await expect(nav.getByRole("link")).toHaveText(["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
-    await nav.getByRole("link", { name: "Mis gastos", exact: true }).click();
+    await expectModules(page, ["Panel", "Peticiones", "Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]);
+    await (await moduleLink(page, "Mis gastos")).click();
     await expect(page).toHaveURL(/\/mis-gastos$/);
     await expect(page.getByRole("heading", { level: 1, name: "Mis gastos" })).toBeVisible();
   });
@@ -50,8 +47,7 @@ test.describe("owner session", () => {
     await seedSession(page, "owner");
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    const labels = await page.getByRole("navigation", { name: "Módulos" }).getByRole("link").allInnerTexts();
+    const labels = await moduleLabels(page);
     for (const hidden of ["Mis ingresos", "Mis gastos", "Mis ahorros", "Mis gastos futuros", "Lista de deseos"]) expect(labels).not.toContain(hidden);
     for (const path of ["/mis-ingresos", "/mis-gastos", "/mis-ahorros", "/mis-gastos-futuros", "/lista-de-deseos"]) {
       await page.goto(path);

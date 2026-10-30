@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockExpenseRequest, type MockPersonalFuture, type MockPersonalWish } from "./helpers";
+import { closeMore, moduleLabels, moduleLink } from "./nav";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -9,8 +10,6 @@ function day(offset = 0) {
   d.setDate(d.getDate() + offset);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-
-const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
 
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
@@ -46,9 +45,8 @@ async function openWish(page: Page, name: string) {
 test.describe("household: Lista de deseos", () => {
   test("is a tab of hers and lists active items by priority, with price, category, link and note", async ({ page }) => {
     await open(page, [LABIAL, BOLSA, CREMA]);
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Lista de deseos" })).toHaveAttribute("aria-current", "page");
-    if (!isDesktop(page.viewportSize()?.width)) await page.keyboard.press("Escape");
+    await expect(await moduleLink(page, "Lista de deseos")).toHaveAttribute("aria-current", "page");
+    await closeMore(page);
 
     const cards = activeList(page).getByRole("listitem");
     await expect(cards).toHaveCount(3);
@@ -284,8 +282,7 @@ test.describe("owner session", () => {
     await seedSession(page, "owner");
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 2, name: "Resumen del mes" })).toBeVisible();
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    expect(await page.getByRole("navigation", { name: "Módulos" }).getByRole("link").allInnerTexts()).not.toContain("Lista de deseos");
+    expect(await moduleLabels(page)).not.toContain("Lista de deseos");
     await page.goto("/lista-de-deseos");
     await expect(page).toHaveURL(/\/$/);
   });

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockFutureExpense } from "./helpers";
 import { sectionControl } from "./settingsNav";
+import { closeMore, moduleLink } from "./nav";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -10,8 +11,6 @@ function day(offset = 0) {
   d.setDate(d.getDate() + offset);
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
-
-const isDesktop = (width: number | undefined) => (width ?? 0) >= 1024;
 
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({
@@ -63,12 +62,11 @@ test.describe("future expenses module", () => {
     await mockApi(page, { futureExpenses: [LAPTOP] });
     await seedSession(page);
     await page.goto("/");
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Gastos futuros" }).click();
+    await (await moduleLink(page, "Gastos futuros")).click();
     await expect(page).toHaveURL(/\/gastos-futuros$/);
     await expect(page.getByRole("heading", { level: 1, name: "Gastos futuros" })).toBeVisible();
-    if (!isDesktop(page.viewportSize()?.width)) await page.getByRole("button", { name: "Abrir menú" }).click();
-    await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Gastos futuros" })).toHaveAttribute("aria-current", "page");
+    await expect(await moduleLink(page, "Gastos futuros")).toHaveAttribute("aria-current", "page");
+    await closeMore(page);
 
     await page.goto("/configuracion");
     await expect(sectionControl(page)).toBeVisible();
