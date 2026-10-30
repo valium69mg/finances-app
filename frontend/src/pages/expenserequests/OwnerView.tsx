@@ -43,14 +43,15 @@ export function OwnerView() {
 
   return (
     <div className="mt-6 space-y-6 rounded-xl border border-border bg-surface p-4 sm:p-6">
-      <div role="group" aria-label="Filtrar por estado" className="flex flex-wrap gap-2">
+      {/* One scrollable row on a phone (the chips used to wrap into three), wrapping again from sm up. */}
+      <div role="group" aria-label="Filtrar por estado" className="-mx-1 -my-1 flex gap-2 overflow-x-auto px-1 py-1 sm:flex-wrap sm:overflow-visible">
         {FILTERS.map((f) => (
           <button
             key={f.label}
             type="button"
             aria-pressed={filter === f.value}
             onClick={() => setFilter(f.value)}
-            className={`focus-ring inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm font-medium transition-colors duration-200 ${
+            className={`focus-ring inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-lg border px-4 py-2 text-sm font-medium transition-colors duration-200 ${
               filter === f.value ? "border-primary bg-primary/10 text-primary" : "border-border bg-surface hover:bg-primary/5"
             }`}
           >

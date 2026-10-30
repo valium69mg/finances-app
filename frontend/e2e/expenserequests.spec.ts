@@ -450,4 +450,17 @@ test.describe("owner: expense requests", () => {
       if (b) expect(b.height, `touch target of "${await control.innerText()}"`).toBeGreaterThanOrEqual(43);
     }
   });
+
+  test("the state filters are one scrollable row on a phone, without widening the page", async ({ page }) => {
+    test.skip((page.viewportSize()?.width ?? 1024) >= 640, "Phone layout only");
+    await openAsOwner(page, { expenseRequests: [TACOS] });
+    const chips = page.getByRole("group", { name: "Filtrar por estado" }).getByRole("button");
+    const boxes = await chips.evaluateAll((els) => els.map((e) => e.getBoundingClientRect().top));
+    expect(new Set(boxes.map((t) => Math.round(t))).size).toBe(1);
+    await expectNoHorizontalOverflow(page, "request filters");
+    // The last chip can be reached by scrolling the row.
+    const last = chips.last();
+    await last.scrollIntoViewIfNeeded();
+    await expect(last).toBeInViewport();
+  });
 });
