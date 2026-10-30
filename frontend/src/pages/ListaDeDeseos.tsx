@@ -1,19 +1,20 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Gift, Loader2 } from "lucide-react";
+import { CheckCircle2, Gift, Loader2, Plus } from "lucide-react";
 import { listPersonalCategories, personalKeys } from "../api/personal";
 import { listWishlist, wishlistKeys, type WishItem } from "../api/wishlist";
 import { EmptyNote } from "../components/EmptyNote";
-import { InlineFormPanel } from "../components/InlineFormPanel";
+import { Modal } from "../components/Modal";
 import { PageTitle } from "../components/PageTitle";
 import { moduleIcon } from "../modules";
 import { formatMoney } from "./expenses/money";
-import { ErrorBanner, secondaryButton } from "./settings/ui";
+import { ErrorBanner, primaryButton, secondaryButton } from "./settings/ui";
 import { ConvertDialog } from "./wishlist/ConvertDialog";
 import { describeWishError } from "./wishlist/errors";
 import type { ConvertChoice } from "./wishlist/form";
 import { CONVERSION_TARGET } from "./wishlist/labels";
 import { WishCard } from "./wishlist/WishCard";
+import { WishDetailDialog } from "./wishlist/WishDetailDialog";
 import { WishForm } from "./wishlist/WishForm";
 import { usePersonalScope } from "./personal/scope";
 
@@ -27,16 +28,16 @@ const CONVERTED_NOTICE: Record<ConvertChoice, string> = {
  * Lista de deseos (household only): what she would like to buy, with an estimated price, a category of hers, a store
  * link, a priority and a note. An active item converts into her future expense, her Gasto or a request to the owner;
  * it then moves to the converted section and comes back when the request is rejected or cancelled or its target is
- * deleted (the server derives the status).
+ * deleted (the server derives the status). Summary first: "Nuevo deseo" sits in the header and opens a dialog, each wish
+ * is a card whose click opens a detail dialog (convert, edit, delete).
  *
  * Inside the owner's "Hogar" view the same page is read-only (see PersonalScope): the list is read with the household
  * user's id and no form, convert, edit or delete control is rendered. The Hogar page owns the heading.
  */
 export function ListaDeDeseos() {
   const { userId, readOnly } = usePersonalScope();
-  const [editing, setEditing] = useState<WishItem | null>(null);
-  // The create form stays collapsed until asked for; editing a row opens it by itself.
-  const [formOpen, setFormOpen] = useState(false);
+  // One dialog at a time: the detail of a wish, its form (null item = new) or, apart, the conversion.
+  const [dialog, setDialog] = useState<{ kind: "detail"; item: WishItem } | { kind: "form"; item: WishItem | null } | null>(null);
   const [converting, setConverting] = useState<WishItem | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const list = useQuery({ queryKey: userId ? wishlistKeys.of(userId) : wishlistKeys.all, queryFn: () => listWishlist(userId ?? undefined), retry: false });
@@ -47,6 +48,10 @@ export function ListaDeDeseos() {
   const categoriesFailed = !readOnly && categories.isError;
   const ready = list.data !== undefined && (readOnly || categories.data !== undefined);
 
+  const open = (item: WishItem) => {
+    setNotice(null);
+    setDialog({ kind: "detail", item });
+  };
   const active = list.data?.filter((i) => i.status === "activa") ?? [];
   const converted = list.data?.filter((i) => i.status === "convertida") ?? [];
 
@@ -54,7 +59,26 @@ export function ListaDeDeseos() {
     <section aria-labelledby={readOnly ? undefined : "page-title"} aria-label={readOnly ? "Lista de deseos" : undefined}>
       {!readOnly && (
         <>
-          <PageTitle icon={moduleIcon("/lista-de-deseos")}>Lista de deseos</PageTitle>
+          <PageTitle
+            icon={moduleIcon("/lista-de-deseos")}
+            action={
+              categories.data ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNotice(null);
+                    setDialog({ kind: "form", item: null });
+                  }}
+                  className={primaryButton}
+                >
+                  <Plus className="h-4 w-4" aria-hidden="true" />
+                  Nuevo deseo
+                </button>
+              ) : undefined
+            }
+          >
+            Lista de deseos
+          </PageTitle>
           <p className="mt-1 text-sm text-muted">
             Anota lo que te gustaría comprar, con su precio estimado y qué tan pronto lo quieres. Cuando llegue el momento, conviértelo en un gasto futuro, regístralo
             como comprado o pídelo al titular.
@@ -87,25 +111,6 @@ export function ListaDeDeseos() {
 
         {list.data && ready && (
           <>
-            {!readOnly && categories.data && (
-              <InlineFormPanel id="wish-form-panel" label="+ Nuevo deseo" open={formOpen} onToggle={() => setFormOpen((o) => !o)} editing={editing !== null}>
-                <WishForm
-                  key={editing?.id ?? "new"}
-                  categories={categories.data}
-                  editing={editing}
-                  onSaved={(item, wasEdit) => {
-                    setEditing(null);
-                    setFormOpen(false);
-                    setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} se agregó a tu lista.`);
-                  }}
-                  onCancelEdit={() => {
-                    setEditing(null);
-                    setFormOpen(false);
-                  }}
-                />
-              </InlineFormPanel>
-            )}
-
             {notice && (
               <p role="status" className="flex items-start gap-2 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">
                 <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
@@ -121,24 +126,9 @@ export function ListaDeDeseos() {
                 </EmptyNote>
               ) : (
                 <>
-                  <ul aria-label="Deseos activos" className="divide-y divide-border rounded-xl border border-border">
+                  <ul aria-label="Deseos activos" className="space-y-2">
                     {active.map((item) => (
-                      <WishCard
-                        key={item.id}
-                        item={item}
-                        onConvert={(i) => {
-                          setNotice(null);
-                          setConverting(i);
-                        }}
-                        onEdit={(i) => {
-                          setNotice(null);
-                          setEditing(i);
-                        }}
-                        onDeleted={(i) => {
-                          setEditing((cur) => (cur?.id === i.id ? null : cur));
-                          setNotice(`${i.name} se eliminó de tu lista.`);
-                        }}
-                      />
+                      <WishCard key={item.id} item={item} onOpen={open} />
                     ))}
                   </ul>
                   <p className="text-sm text-muted">
@@ -151,21 +141,9 @@ export function ListaDeDeseos() {
             {converted.length > 0 && (
               <div className="space-y-3">
                 <h2 className="text-base font-semibold tracking-tight">Convertidos</h2>
-                <ul aria-label="Deseos convertidos" className="divide-y divide-border rounded-xl border border-border">
+                <ul aria-label="Deseos convertidos" className="space-y-2">
                   {converted.map((item) => (
-                    <WishCard
-                      key={item.id}
-                      item={item}
-                      onConvert={setConverting}
-                      onEdit={(i) => {
-                        setNotice(null);
-                        setEditing(i);
-                      }}
-                      onDeleted={(i) => {
-                        setEditing((cur) => (cur?.id === i.id ? null : cur));
-                        setNotice(`${i.name} se eliminó de tu lista. Lo que se creó con él no cambió.`);
-                      }}
-                    />
+                    <WishCard key={item.id} item={item} onOpen={open} />
                   ))}
                 </ul>
               </div>
@@ -174,6 +152,35 @@ export function ListaDeDeseos() {
         )}
       </div>
 
+      {!readOnly && dialog?.kind === "detail" && (
+        <WishDetailDialog
+          item={dialog.item}
+          onClose={() => setDialog(null)}
+          onConvert={(item) => {
+            setDialog(null);
+            setConverting(item);
+          }}
+          onEdit={(item) => setDialog({ kind: "form", item })}
+          onDeleted={(item) => {
+            setDialog(null);
+            setNotice(item.status === "convertida" ? `${item.name} se eliminó de tu lista. Lo que se creó con él no cambió.` : `${item.name} se eliminó de tu lista.`);
+          }}
+        />
+      )}
+      {!readOnly && dialog?.kind === "form" && categories.data && (
+        <Modal title={dialog.item ? `Editar ${dialog.item.name}` : "Nuevo deseo"} onClose={() => setDialog(null)} highlight={dialog.item !== null}>
+          <WishForm
+            key={dialog.item?.id ?? "new"}
+            categories={categories.data}
+            editing={dialog.item}
+            onSaved={(item, wasEdit) => {
+              setDialog(null);
+              setNotice(wasEdit ? `Cambios de ${item.name} guardados.` : `${item.name} se agregó a tu lista.`);
+            }}
+            onCancel={() => setDialog(null)}
+          />
+        </Modal>
+      )}
       {!readOnly && converting && (
         <ConvertDialog
           key={converting.id}
@@ -181,7 +188,6 @@ export function ListaDeDeseos() {
           onClose={() => setConverting(null)}
           onConverted={(item, choice) => {
             setConverting(null);
-            setEditing((cur) => (cur?.id === item.id ? null : cur));
             const where = item.conversion ? CONVERSION_TARGET[item.conversion.type].link.replace("Ver en ", "") : "";
             setNotice(`${item.name} ${CONVERTED_NOTICE[choice]}${choice === "peticion" ? "" : ` Lo encuentras en ${where}.`}`);
           }}

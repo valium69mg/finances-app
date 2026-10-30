@@ -4,7 +4,6 @@ import { Loader2, Plus, Save } from "lucide-react";
 import type { PersonalCategory } from "../../api/personal";
 import { createWishItem, updateWishItem, wishlistKeys, WISH_PRIORITIES, type WishItem } from "../../api/wishlist";
 import { FieldError, TextField } from "../../components/AuthCard";
-import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { SelectField } from "../expenses/SelectField";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeWishError } from "./errors";
@@ -17,17 +16,16 @@ interface Props {
   /** When set, the form edits this item instead of creating one. Remount (key) to switch. */
   editing: WishItem | null;
   onSaved: (item: WishItem, wasEdit: boolean) => void;
-  onCancelEdit: () => void;
+  onCancel: () => void;
 }
 
-/** Create / edit form of a wishlist item: name, estimated price, category, store link, priority and note. */
-export function WishForm({ categories, editing, onSaved, onCancelEdit }: Props) {
+/** Create / edit form of a wishlist item (rendered inside a dialog that carries the title): name, estimated price, category, store link, priority and note. */
+export function WishForm({ categories, editing, onSaved, onCancel }: Props) {
   const qc = useQueryClient();
   const noteId = useId();
   const noteErrorId = `${noteId}-error`;
   const [draft, setDraft] = useState<WishDraft>(() => (editing ? draftOf(editing) : emptyDraft(String(categories[0]?.id ?? ""))));
   const [errors, setErrors] = useState<WishErrors>({});
-  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
   const nameRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
   const categoryRef = useRef<HTMLSelectElement>(null);
@@ -67,11 +65,8 @@ export function WishForm({ categories, editing, onSaved, onCancelEdit }: Props) 
   const options = editing && !categories.some((c) => c.id === editing.category_id) ? [...categories, { id: editing.category_id, name: editing.category }] : categories;
 
   return (
-    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="wish-form-title" className="space-y-5">
-      <h3 id="wish-form-title" className="text-base font-semibold tracking-tight">
-        {editing ? `Editar ${editing.name}` : "Nuevo deseo"}
-      </h3>
-      <div className={`${fieldGrid} lg:grid-cols-3`}>
+    <form noValidate onSubmit={onSubmit} aria-label={editing ? `Editar ${editing.name}` : "Nuevo deseo"} className="space-y-5">
+      <div className={fieldGrid}>
         <TextField label="Nombre" inputRef={nameRef} value={draft.name} onChange={(e) => set({ name: e.target.value })} error={errors.name} maxLength={MAX_NAME_LENGTH + 20} autoComplete="off" />
         <TextField
           label="Precio estimado (MXN)"
@@ -135,11 +130,9 @@ export function WishForm({ categories, editing, onSaved, onCancelEdit }: Props) 
           )}
           {save.isPending ? "Guardando…" : editing ? "Guardar cambios" : "Agregar deseo"}
         </button>
-        {editing && (
-          <button type="button" onClick={onCancelEdit} className={secondaryButton}>
-            Cancelar edición
-          </button>
-        )}
+        <button type="button" onClick={onCancel} className={secondaryButton}>
+          Cancelar
+        </button>
       </div>
     </form>
   );

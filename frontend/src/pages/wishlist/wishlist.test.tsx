@@ -72,11 +72,20 @@ describe("ListaDeDeseos list", () => {
     expect(within(active).getByText("Bolsa")).toBeInTheDocument();
     expect(within(active).queryByText("Zapatos")).not.toBeInTheDocument();
     const converted = screen.getByRole("list", { name: "Deseos convertidos" });
+    // The card says what each became; the links live in the detail dialog.
     expect(within(converted).getByText("Se convirtió en un gasto futuro.")).toBeInTheDocument();
-    expect(within(converted).getByRole("link", { name: "Ver en Mis gastos futuros" })).toHaveAttribute("href", "/mis-gastos-futuros");
-    expect(within(converted).getByRole("link", { name: "Ver en Peticiones" })).toHaveAttribute("href", "/peticiones");
     expect(within(converted).getByTestId("request-state")).toHaveTextContent("Solicitada");
+    expect(within(converted).queryByRole("link")).not.toBeInTheDocument();
     expect(within(converted).queryByRole("button", { name: /Convertir/ })).not.toBeInTheDocument();
+
+    fireEvent.click(within(converted).getByRole("button", { name: "Ver Zapatos" }));
+    let dialog = screen.getByRole("dialog", { name: "Zapatos" });
+    expect(within(dialog).getByRole("link", { name: "Ver en Mis gastos futuros" })).toHaveAttribute("href", "/mis-gastos-futuros");
+    expect(within(dialog).queryByRole("button", { name: /Convertir/ })).not.toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    fireEvent.click(within(converted).getByRole("button", { name: "Ver Labial" }));
+    dialog = screen.getByRole("dialog", { name: "Labial" });
+    expect(within(dialog).getByRole("link", { name: "Ver en Peticiones" })).toHaveAttribute("href", "/peticiones");
   });
 
   it("shows priority with text, the total of the active items and a safe store link", async () => {
@@ -84,6 +93,8 @@ describe("ListaDeDeseos list", () => {
     await screen.findByText("Bolsa");
     expect(screen.getAllByTestId("wish-priority").map((n) => n.textContent)).toEqual(["Prioridad alta", "Prioridad baja"]);
     expect(screen.getByText("$150.10 MXN")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Ver en la tienda/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ver Bolsa" }));
     const link = screen.getByRole("link", { name: /Ver en la tienda/ });
     expect(link).toHaveAttribute("href", "https://tienda.example/b");
     expect(link).toHaveAttribute("target", "_blank");
@@ -93,7 +104,7 @@ describe("ListaDeDeseos list", () => {
 
   it("never renders a link that is not http or https", async () => {
     renderPage([item({ store_url: "javascript:alert(1)" })]);
-    await screen.findByText("Bolsa");
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Bolsa" }));
     expect(screen.queryByRole("link", { name: /Ver en la tienda/ })).not.toBeInTheDocument();
   });
 
@@ -128,13 +139,13 @@ describe("ListaDeDeseos list", () => {
 });
 
 describe("ListaDeDeseos create, edit and delete", () => {
-  it("keeps the form collapsed, validates and creates", async () => {
+  it("opens the create form in a dialog from the header, validates and creates", async () => {
     api.createWishItem.mockResolvedValue(base);
     renderPage([]);
     await screen.findByText(/Aún no tienes deseos pendientes/);
-    const toggle = screen.getByRole("button", { name: "Nuevo deseo" });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toggle);
+    expect(screen.queryByLabelText("Nombre")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Nuevo deseo" }));
+    expect(screen.getByRole("dialog", { name: "Nuevo deseo" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Agregar deseo" }));
     expect(await screen.findByText("Escribe qué quieres, por ejemplo Bolsa o Zapatos.")).toBeInTheDocument();
     expect(api.createWishItem).not.toHaveBeenCalled();
@@ -152,10 +163,12 @@ describe("ListaDeDeseos create, edit and delete", () => {
     expect(await screen.findByText("Bolsa se agregó a tu lista.")).toBeInTheDocument();
   });
 
-  it("edits an item from its card", async () => {
+  it("edits an item from its detail dialog", async () => {
     api.updateWishItem.mockResolvedValue(base);
     renderPage([base]);
-    fireEvent.click(await screen.findByRole("button", { name: "Editar Bolsa" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Bolsa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Editar Bolsa" }));
+    expect(screen.getByRole("dialog", { name: "Editar Bolsa" })).toBeInTheDocument();
     expect(screen.getByLabelText("Nombre")).toHaveValue("Bolsa");
     fireEvent.change(screen.getByLabelText("Precio estimado (MXN)"), { target: { value: "450" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
@@ -166,7 +179,8 @@ describe("ListaDeDeseos create, edit and delete", () => {
   it("asks before deleting and says a converted target is untouched", async () => {
     api.deleteWishItem.mockResolvedValue(undefined);
     renderPage([item({ id: 2, name: "Zapatos", status: "convertida", conversion: { type: "gasto", target_id: 3, request_state: null } })]);
-    fireEvent.click(await screen.findByRole("button", { name: "Eliminar Zapatos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Zapatos" }));
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar Zapatos" }));
     expect(screen.getByText("¿Eliminar este deseo? Lo que se creó con él no cambia.")).toBeInTheDocument();
     expect(api.deleteWishItem).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Sí, eliminar" }));
@@ -176,8 +190,9 @@ describe("ListaDeDeseos create, edit and delete", () => {
 
 describe("ListaDeDeseos convert", () => {
   async function openDialog() {
-    fireEvent.click(await screen.findByRole("button", { name: "Convertir Bolsa" }));
-    return screen.findByRole("dialog");
+    fireEvent.click(await screen.findByRole("button", { name: "Ver Bolsa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Convertir Bolsa" }));
+    return screen.findByRole("dialog", { name: /Convertir/ });
   }
 
   it("offers the three ways with the price as default", async () => {
