@@ -26,12 +26,14 @@ interface Props {
   /** When set, the dialog edits this movement instead of creating one. */
   editing: PersonalMovement | null;
   onClose: () => void;
+  /** Called after a create or an edit is saved (not after a delete), just before the dialog closes. */
+  onSaved?: () => void;
 }
 
 type Direction = "aportacion" | "retiro";
 
 /** Create/edit dialog shared by the three personal pages; editing also offers "Eliminar", with a confirmation. An Ahorro asks "Aportación" or "Retiro"; a withdrawal is sent negative. */
-export function MovementDialog({ config, categories, editing, onClose }: Props) {
+export function MovementDialog({ config, categories, editing, onClose, onSaved }: Props) {
   const qc = useQueryClient();
   const isSaving = config.kind === "Ahorro";
   const [description, setDescription] = useState(editing?.description ?? "");
@@ -46,6 +48,7 @@ export function MovementDialog({ config, categories, editing, onClose }: Props) 
     mutationFn: (input: PersonalMovementInput) => (editing ? updatePersonalMovement(editing.id, input) : createPersonalMovement(input)),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: personalKeys.all });
+      onSaved?.();
       onClose();
     },
   });

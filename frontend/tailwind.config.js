@@ -29,8 +29,8 @@ export default {
         sans: ['"IBM Plex Sans"', "ui-sans-serif", "system-ui", "sans-serif"],
       },
       animation: {
-        "drawer-in": "drawer-in 250ms ease-out",
         "fade-in": "fade-in 200ms ease-out",
+        "sheet-in": "sheet-in 250ms ease-out",
       },
     },
   },

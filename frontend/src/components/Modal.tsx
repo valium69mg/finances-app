@@ -8,6 +8,8 @@ interface Props {
   children: ReactNode;
   /** Flash the green "edit here" cue on the body (for data-entry dialogs, not confirmations). */
   highlight?: boolean;
+  /** Bottom sheet on every width: anchored at the bottom with a drag-handle look (used by the mobile "Más" menu). */
+  sheet?: boolean;
 }
 
 /** Open modals, innermost last: Escape closes only the top one, wherever the focus is. */
@@ -20,7 +22,7 @@ const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), selec
  * backdrop, keeps Tab inside, locks the page scroll and gives the focus back to
  * the element that opened it.
  */
-export function Modal({ title, onClose, children, highlight = false }: Props) {
+export function Modal({ title, onClose, children, highlight = false, sheet = false }: Props) {
   // The dialog is already in view and Modal focuses its first field, so only the cue is applied.
   const bodyRef = useFocusOnEdit<HTMLDivElement>(highlight, { scroll: false, focus: false, inset: true });
   const titleId = useId();
@@ -73,9 +75,14 @@ export function Modal({ title, onClose, children, highlight = false }: Props) {
   }
 
   return (
-    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown} className="fixed inset-0 z-40 flex items-end justify-center sm:items-center sm:p-4">
+    <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown} className={`fixed inset-0 z-40 flex items-end justify-center ${sheet ? "" : "sm:items-center sm:p-4"}`}>
       <div className="absolute inset-0 animate-fade-in bg-foreground/50" onClick={onClose} aria-hidden="true" />
-      <div className="relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-border bg-surface shadow-xl sm:rounded-xl">
+      <div
+        className={`relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-border bg-surface shadow-xl ${
+          sheet ? "animate-sheet-in" : "sm:rounded-xl"
+        }`}
+      >
+        {sheet && <div aria-hidden="true" className="mx-auto mt-2 h-1.5 w-10 shrink-0 rounded-full bg-border" />}
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border py-2 pl-5 pr-2">
           <h2 id={titleId} className="min-w-0 break-words text-lg font-semibold tracking-tight">
             {title}

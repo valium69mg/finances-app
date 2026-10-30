@@ -69,4 +69,26 @@ describe("Modal", () => {
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(trigger).toHaveFocus();
   });
+
+  it("as a sheet it is anchored at the bottom on every width and shows a drag handle", () => {
+    render(
+      <Modal title="Más" onClose={() => {}} sheet>
+        <button type="button">dentro</button>
+      </Modal>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Más" });
+    expect(dialog.className).not.toContain("sm:items-center");
+    expect(dialog.querySelector(".rounded-full.bg-border")).not.toBeNull();
+  });
+
+  it("without sheet it keeps the centered layout and no handle", () => {
+    render(
+      <Modal title="Uno" onClose={() => {}}>
+        <button type="button">dentro</button>
+      </Modal>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Uno" });
+    expect(dialog.className).toContain("sm:items-center");
+    expect(dialog.querySelector(".h-1\\.5")).toBeNull();
+  });
 });
