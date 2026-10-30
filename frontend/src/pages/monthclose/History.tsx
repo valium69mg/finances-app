@@ -1,5 +1,6 @@
+import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CalendarCheck, ChevronRight, Loader2 } from "lucide-react";
+import { AlertTriangle, CalendarCheck, ChevronDown, Loader2 } from "lucide-react";
 import { listMonthCloses, monthCloseKeys, type MonthClose } from "../../api/monthClose";
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
@@ -17,7 +18,7 @@ interface Props {
   onDeleted: (period: string) => void;
 }
 
-function Row({ close, selected, onSelect }: { close: MonthClose; selected: boolean; onSelect: () => void }) {
+function Row({ close, selected, onSelect, children }: { close: MonthClose; selected: boolean; onSelect: () => void; children?: ReactNode }) {
   const over = overBudgetOf(close).length;
   return (
     <li className={selected ? "bg-primary/5" : undefined}>
@@ -25,7 +26,8 @@ function Row({ close, selected, onSelect }: { close: MonthClose; selected: boole
         type="button"
         onClick={onSelect}
         aria-label={`Ver cierre de ${periodLabel(close.period)}`}
-        aria-current={selected ? "true" : undefined}
+        aria-expanded={selected}
+        aria-controls={`close-detail-${close.period}`}
         className="focus-ring flex w-full flex-col gap-2 p-4 text-left transition-colors duration-200 hover:bg-primary/5 sm:flex-row sm:items-center sm:justify-between"
       >
         <span className="min-w-0">
@@ -42,14 +44,18 @@ function Row({ close, selected, onSelect }: { close: MonthClose; selected: boole
               {over === 1 ? "1 categoría excedida" : `${over} categorías excedidas`}
             </span>
           )}
-          <ChevronRight className="hidden h-4 w-4 text-muted sm:block" aria-hidden="true" />
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 text-muted transition-transform duration-200 motion-reduce:transition-none ${selected ? "rotate-180" : ""}`}
+            aria-hidden="true"
+          />
         </span>
       </button>
+      {children}
     </li>
   );
 }
 
-/** Stored closes, newest first, with the snapshot of the selected one below the list. */
+/** Stored closes, newest first, as an accordion: the snapshot of the selected one opens directly under its row; a second click closes it. */
 export function History({ selected, onSelect, onDeleted }: Props) {
   const list = useQuery({ queryKey: monthCloseKeys.list, queryFn: listMonthCloses, retry: false });
 
@@ -75,15 +81,16 @@ export function History({ selected, onSelect, onDeleted }: Props) {
     return <EmptyNote icon={CalendarCheck}>Aún no has cerrado ningún mes. Cuando cierres uno, su resumen se guardará aquí tal como estaba ese día.</EmptyNote>;
   }
 
-  const open = list.data.find((c) => c.period === selected);
   return (
-    <div className="space-y-6">
-      <ul aria-label="Cierres guardados" className="divide-y divide-border rounded-xl border border-border">
-        {list.data.map((c) => (
-          <Row key={c.period} close={c} selected={c.period === selected} onSelect={() => onSelect(c.period === selected ? null : c.period)} />
-        ))}
-      </ul>
-      {open && <CloseDetail close={open} onClose={() => onSelect(null)} onDeleted={onDeleted} />}
-    </div>
+    <ul aria-label="Cierres guardados" className="divide-y divide-border rounded-xl border border-border">
+      {list.data.map((c) => {
+        const open = c.period === selected;
+        return (
+          <Row key={c.period} close={c} selected={open} onSelect={() => onSelect(open ? null : c.period)}>
+            {open && <CloseDetail close={c} onClose={() => onSelect(null)} onDeleted={onDeleted} />}
+          </Row>
+        );
+      })}
+    </ul>
   );
 }

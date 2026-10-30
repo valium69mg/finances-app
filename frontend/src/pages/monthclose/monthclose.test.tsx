@@ -78,7 +78,7 @@ describe("describeMonthCloseError", () => {
 
 describe("CloseReport", () => {
   it("shows totals, the over-budget list, the suggestion, the hints and the filing status", () => {
-    wrap(<CloseReport close={CLOSE} />);
+    wrap(<CloseReport close={CLOSE} expanded />);
     const totals = screen.getByRole("region", { name: "Resumen del mes" });
     expect(totals).toHaveTextContent("$30,000.00");
     expect(totals).toHaveTextContent("$6,860.50");
@@ -99,12 +99,26 @@ describe("CloseReport", () => {
     expect(hints).toHaveTextContent("Inversiones (ahorro)");
     expect(hints).toHaveTextContent("-80.00%");
 
-    expect(screen.getByRole("region", { name: "Declaración del mes" })).toHaveTextContent("Pago pendiente");
+    expect(screen.getByRole("region", { name: "Declaración de septiembre de 2026" })).toHaveTextContent("Pago pendiente");
+  });
+
+  it("keeps the summary visible and the long sections collapsed until opened", () => {
+    wrap(<CloseReport close={CLOSE} />);
+    expect(screen.getByRole("region", { name: "Resumen del mes" })).toHaveTextContent("$30,000.00");
+    expect(screen.getByRole("list", { name: "Categorías sobre presupuesto" })).toBeInTheDocument();
+    for (const name of [/^Presupuesto por categoría/, /^Declaración de/, /^¿Dónde poner el dinero disponible\?/, /^Ajustes de presupuesto sugeridos/]) {
+      expect(screen.getByRole("button", { name })).toHaveAttribute("aria-expanded", "false");
+    }
+    expect(screen.queryByRole("list", { name: "Sugerencia del dinero disponible" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Ajustes de presupuesto sugeridos" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "¿Dónde poner el dinero disponible?" }));
+    expect(screen.getByRole("list", { name: "Sugerencia del dinero disponible" })).toBeInTheDocument();
   });
 
   it("splits the suggestion between the fund and Inversiones, or Gastos futuros while paused", () => {
     const split = { ...CLOSE, suggestion: { to_emergency_fund: "1000", to_investments: "2500", to_future_expenses: "0", investments_paused: false } };
-    const { unmount } = wrap(<CloseReport close={split} />);
+    const { unmount } = wrap(<CloseReport close={split} expanded />);
     let list = screen.getByRole("list", { name: "Sugerencia del dinero disponible" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
     expect(list).toHaveTextContent("Mover a Inversiones");
@@ -112,7 +126,7 @@ describe("CloseReport", () => {
     unmount();
 
     const paused = { ...CLOSE, suggestion: { to_emergency_fund: "0", to_investments: "0", to_future_expenses: "3500", investments_paused: true } };
-    wrap(<CloseReport close={paused} />);
+    wrap(<CloseReport close={paused} expanded />);
     list = screen.getByRole("list", { name: "Sugerencia del dinero disponible" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
     expect(list).toHaveTextContent("Mover a Gastos futuros");
@@ -122,19 +136,19 @@ describe("CloseReport", () => {
 
   it("explains the empty cases", () => {
     const empty: MonthClose = { ...CLOSE, categories: [], suggestion: null, adjustments: [], tax_filing_status: null, available: "-5.00" };
-    wrap(<CloseReport close={empty} />);
+    wrap(<CloseReport close={empty} expanded />);
     expect(screen.getByText("Ninguna categoría de gasto excedió su presupuesto.")).toBeInTheDocument();
     expect(screen.getByText(/No hay categorías de gasto en Configuración/)).toBeInTheDocument();
     expect(screen.getByText(/No quedó dinero disponible este mes/)).toBeInTheDocument();
     expect(screen.getByText(/Ningún presupuesto se desvió más de 20%/)).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Declaración del mes" })).toBeNull();
+    expect(screen.queryByRole("region", { name: /^Declaración de/ })).toBeNull();
   });
 
   it("says today's status on a preview and the status at closing time on a stored close", () => {
-    const { unmount } = wrap(<CloseReport close={{ ...CLOSE, closed_at: null }} />);
+    const { unmount } = wrap(<CloseReport close={{ ...CLOSE, closed_at: null }} expanded />);
     expect(screen.getByText(/de este periodo hoy/)).toBeInTheDocument();
     unmount();
-    wrap(<CloseReport close={CLOSE} />);
+    wrap(<CloseReport close={CLOSE} expanded />);
     expect(screen.getByText(/al generar el cierre/)).toBeInTheDocument();
   });
 });
@@ -249,7 +263,7 @@ describe("History and CloseDetail", () => {
     wrap(<History selected="2026-09" onSelect={() => {}} onDeleted={() => {}} />);
     const detail = await screen.findByRole("region", { name: "Detalle del cierre de septiembre de 2026" });
     expect(detail).toHaveTextContent("Estas cifras no cambian");
-    expect(screen.getByRole("button", { name: "Ver cierre de septiembre de 2026" })).toHaveAttribute("aria-current", "true");
+    expect(screen.getByRole("button", { name: "Ver cierre de septiembre de 2026" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("explains the empty history and the failure with a retry", async () => {

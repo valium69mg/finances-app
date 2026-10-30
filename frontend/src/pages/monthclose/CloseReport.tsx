@@ -1,5 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import type { CloseSuggestion, MonthClose } from "../../api/monthClose";
+import { Collapsible } from "../../components/Collapsible";
 import { formatMoney } from "../expenses/money";
 import { BudgetTable } from "../dashboard/BudgetTable";
 import { TotalsCards } from "../dashboard/TotalsCards";
@@ -81,8 +82,18 @@ function Adjustments({ close }: { close: MonthClose }) {
 
 const h3 = "mb-3 text-base font-semibold tracking-tight";
 
-/** The figures of a close, shared by the preview and the stored snapshot: totals, over-budget list, budget table, emergency fund, suggestion, hints and filing status. */
-export function CloseReport({ close }: { close: MonthClose }) {
+interface ReportProps {
+  close: MonthClose;
+  /** Start with the long sections (budget table, filing, suggestion, adjustments) expanded. Collapsed by default. */
+  expanded?: boolean;
+}
+
+/**
+ * The figures of a close, shared by the preview and the stored snapshot. The summary (totals, over-budget categories
+ * and the emergency fund) is always visible; the long sections sit behind collapsibles so the page stays scannable.
+ */
+export function CloseReport({ close, expanded = false }: ReportProps) {
+  const spending = close.categories.length;
   return (
     <div className="space-y-6">
       <section aria-label="Resumen del mes">
@@ -94,37 +105,34 @@ export function CloseReport({ close }: { close: MonthClose }) {
         <OverBudget close={close} />
       </section>
 
-      <section aria-label="Presupuesto por categoría">
-        <h3 className={h3}>Presupuesto por categoría</h3>
-        {close.categories.length === 0 ? (
-          <p className="text-sm text-muted">No hay categorías de gasto en Configuración.</p>
-        ) : (
-          <BudgetTable categories={close.categories} />
-        )}
-      </section>
+      <EmergencyCard emergency={close.emergency} />
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <EmergencyCard emergency={close.emergency} />
+      <div className="space-y-3">
+        <Collapsible title="Presupuesto por categoría" summary={spending === 0 ? undefined : `${spending} ${spending === 1 ? "categoría" : "categorías"}`} defaultOpen={expanded}>
+          {spending === 0 ? <p className="text-sm text-muted">No hay categorías de gasto en Configuración.</p> : <BudgetTable categories={close.categories} />}
+        </Collapsible>
+
         {close.tax_filing_status !== null && (
-          <section aria-label="Declaración del mes" className="rounded-lg border border-border p-4">
-            <h3 className="font-semibold">Declaración de {periodLabel(close.period)}</h3>
-            <p className="mt-2">
+          <Collapsible title={`Declaración de ${periodLabel(close.period)}`} defaultOpen={expanded}>
+            <p>
               <FilingStatusBadge status={close.tax_filing_status} />
             </p>
             <p className="mt-2 text-xs text-muted">Estado de la declaración de este periodo {close.closed_at === null ? "hoy" : "al generar el cierre"}.</p>
-          </section>
+          </Collapsible>
         )}
+
+        <Collapsible title="¿Dónde poner el dinero disponible?" defaultOpen={expanded}>
+          <Suggestion suggestion={close.suggestion} goal={close.emergency.goal} />
+        </Collapsible>
+
+        <Collapsible
+          title="Ajustes de presupuesto sugeridos"
+          summary={close.adjustments.length === 0 ? undefined : `${close.adjustments.length} ${close.adjustments.length === 1 ? "sugerencia" : "sugerencias"}`}
+          defaultOpen={expanded}
+        >
+          <Adjustments close={close} />
+        </Collapsible>
       </div>
-
-      <section aria-label="Dinero disponible">
-        <h3 className={h3}>¿Dónde poner el dinero disponible?</h3>
-        <Suggestion suggestion={close.suggestion} goal={close.emergency.goal} />
-      </section>
-
-      <section aria-label="Ajustes de presupuesto">
-        <h3 className={h3}>Ajustes de presupuesto sugeridos</h3>
-        <Adjustments close={close} />
-      </section>
     </div>
   );
 }

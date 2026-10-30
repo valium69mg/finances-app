@@ -26,7 +26,7 @@ export function Collapsible({ title, summary, defaultOpen = false, open, onOpenC
   const [inner, setInner] = useState(defaultOpen);
   const expanded = open ?? inner;
   const regionId = useId();
-  const buttonId = useId();
+  const titleId = useId();
 
   function toggle() {
     if (open === undefined) setInner(!expanded);
@@ -38,14 +38,15 @@ export function Collapsible({ title, summary, defaultOpen = false, open, onOpenC
       <Heading>
         <button
           type="button"
-          id={buttonId}
           onClick={toggle}
           aria-expanded={expanded}
           aria-controls={regionId}
           className="focus-ring flex min-h-11 w-full items-center justify-between gap-3 rounded-xl px-4 py-2 text-left transition-colors duration-200 hover:bg-primary/5"
         >
           <span className="min-w-0">
-            <span className="block break-words text-base font-semibold tracking-tight">{title}</span>
+            <span id={titleId} className="block break-words text-base font-semibold tracking-tight">
+              {title}
+            </span>
             {summary && <span className="block text-sm font-normal text-muted">{summary}</span>}
           </span>
           <ChevronDown
@@ -54,7 +55,7 @@ export function Collapsible({ title, summary, defaultOpen = false, open, onOpenC
           />
         </button>
       </Heading>
-      <div id={regionId} role="region" aria-labelledby={buttonId} hidden={!expanded} className="border-t border-border p-4">
+      <div id={regionId} role="region" aria-labelledby={titleId} hidden={!expanded} className="border-t border-border p-4">
         {expanded && children}
       </div>
     </div>
