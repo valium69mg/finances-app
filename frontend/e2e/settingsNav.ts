@@ -22,6 +22,12 @@ export async function switchSection(page: Page, label: string) {
   else await page.getByLabel("Sección").selectOption({ label });
 }
 
+/** Asserts which section is current: the selected sidebar tab on wide screens, the chosen option of the select below. */
+export async function expectSection(page: Page, label: string) {
+  if (hasSidebar(page)) await expect(page.getByRole("tab", { name: label, exact: true })).toHaveAttribute("aria-selected", "true");
+  else await expect(page.getByLabel("Sección").locator("option:checked")).toHaveText(label);
+}
+
 export async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, clientWidth: document.documentElement.clientWidth }));
   expect(size.scrollWidth, `page overflows on ${where}`).toBeLessThanOrEqual(size.clientWidth);

@@ -5,6 +5,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { listUsers, usersKeys, type UserAccount } from "../api/users";
 import { EmptyNote } from "../components/EmptyNote";
 import { PageTitle } from "../components/PageTitle";
+import { SectionNav } from "../components/SectionNav";
 import { moduleIcon } from "../modules";
 import { FutureBackendProvider, viewFutureBackend } from "./futureexpenses/backend";
 import { FutureExpensesView } from "./futureexpenses/FutureExpensesView";
@@ -40,6 +41,12 @@ export function Hogar() {
     // The category filter belongs to the previous person, so it is dropped; the section and month are kept.
     const to = new URL(hogarLink(id, section, { mes: month }), window.location.origin);
     setParams(to.searchParams, { replace: true });
+  }
+
+  function pickSection(id: HogarSection) {
+    if (!selected) return;
+    const to = new URL(hogarLink(selected.id, id, { mes: month }), window.location.origin);
+    setParams(to.searchParams);
   }
 
   return (
@@ -88,26 +95,9 @@ export function Hogar() {
 
         {selected && (
           <PersonalScopeProvider value={{ userId: selected.id }}>
-            <nav aria-label="Secciones de las finanzas" className="flex flex-wrap gap-2">
-              {HOGAR_SECTIONS.map((s) => {
-                const current = s.id === section;
-                return (
-                  <Link
-                    key={s.id}
-                    to={hogarLink(selected.id, s.id, { mes: month })}
-                    aria-current={current ? "page" : undefined}
-                    className={`focus-ring inline-flex min-h-11 items-center rounded-lg border px-4 py-2 text-sm transition-colors duration-200 ${
-                      current ? "border-primary bg-primary/10 font-semibold text-primary" : "border-border bg-surface text-muted hover:bg-primary/5 hover:text-foreground"
-                    }`}
-                  >
-                    {s.label}
-                  </Link>
-                );
-              })}
-            </nav>
-            <div className="rounded-xl border border-border bg-surface p-4 sm:p-6">
+            <SectionNav items={HOGAR_SECTIONS} active={section} onSelect={pickSection} label="Secciones de las finanzas">
               <SectionBody section={section} userId={selected.id} />
-            </div>
+            </SectionNav>
           </PersonalScopeProvider>
         )}
       </div>

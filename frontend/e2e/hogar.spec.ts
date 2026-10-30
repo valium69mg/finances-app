@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { OWNER_USER } from "./usersMock";
+import { expectSection, switchSection } from "./settingsNav";
 import { mockApi, seedSession, type MockPersonalFuture, type MockPersonalMovement, type MockPersonalWish, type MockUser } from "./helpers";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -71,7 +72,7 @@ test.describe("owner: Hogar", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Finanzas de luz@example.com" })).toBeVisible();
     await expect(page).toHaveURL(/\/hogar\?usuario=u-luz$/);
 
-    await page.getByRole("navigation", { name: "Secciones de las finanzas" }).getByRole("link", { name: "Gastos", exact: true }).click();
+    await switchSection(page, "Gastos");
     await expect(page).toHaveURL(/usuario=u-luz&seccion=gastos/);
     await page.getByLabel("Mes").fill("2026-09");
     await expect(page).toHaveURL(/seccion=gastos&mes=2026-09/);
@@ -107,7 +108,7 @@ test.describe("owner: Hogar", () => {
     await expect(page.getByText("Quincena")).toBeVisible();
     await expect(page.getByTestId("personal-total")).toHaveText("$9,000.00 MXN");
     await expectReadOnly(page);
-    await page.getByRole("navigation", { name: "Secciones de las finanzas" }).getByRole("link", { name: "Ahorros" }).click();
+    await switchSection(page, "Ahorros");
     await expect(page.getByText("Aporte")).toBeVisible();
     await expectReadOnly(page);
   });
@@ -138,8 +139,8 @@ test.describe("owner: Hogar", () => {
   test("never sends a write on her behalf", async ({ page }) => {
     const api = await open(page, "/hogar");
     for (const section of ["Ingresos", "Gastos", "Ahorros", "Gastos futuros", "Lista de deseos"]) {
-      await page.getByRole("navigation", { name: "Secciones de las finanzas" }).getByRole("link", { name: section, exact: true }).click();
-      await expect(page.getByRole("navigation", { name: "Secciones de las finanzas" }).getByRole("link", { name: section, exact: true })).toHaveAttribute("aria-current", "page");
+      await switchSection(page, section);
+      await expectSection(page, section);
     }
     expect(api.personalWrites).toHaveLength(0);
     expect(api.personalFutureWrites).toHaveLength(0);

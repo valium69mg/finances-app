@@ -174,13 +174,16 @@ describe("Hogar", () => {
     expect(api.getPersonalDashboard).toHaveBeenCalledWith("2026-10", "u1");
   });
 
-  it("the section tabs keep the person and the month and mark the current one", async () => {
+  it("the section nav lists the six sections, marks the current one and keeps the person and the month when it changes", async () => {
     renderHogar("/hogar?usuario=u1&seccion=gastos&mes=2026-10&categoria=5");
-    const nav = await screen.findByRole("navigation", { name: "Secciones de las finanzas" });
-    expect(within(nav).getAllByRole("link").map((a) => a.textContent)).toEqual(["Resumen", "Ingresos", "Gastos", "Ahorros", "Gastos futuros", "Lista de deseos"]);
-    expect(within(nav).getByRole("link", { name: "Gastos" })).toHaveAttribute("aria-current", "page");
-    expect(within(nav).getByRole("link", { name: "Ahorros" })).toHaveAttribute("href", "/hogar?usuario=u1&seccion=ahorros&mes=2026-10");
-    expect(within(nav).getByRole("link", { name: "Resumen" })).toHaveAttribute("href", "/hogar?usuario=u1&mes=2026-10");
+    const tabs = await screen.findByRole("tablist", { name: "Secciones de las finanzas" });
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Resumen", "Ingresos", "Gastos", "Ahorros", "Gastos futuros", "Lista de deseos"]);
+    expect(within(tabs).getByRole("tab", { name: "Gastos" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("combobox", { name: "Sección" })).toHaveValue("gastos");
+
+    fireEvent.click(within(tabs).getByRole("tab", { name: "Ahorros" }));
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/hogar?usuario=u1&seccion=ahorros&mes=2026-10"));
+    expect(within(tabs).getByRole("tab", { name: "Ahorros" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("Gastos lists her expenses read-only with the category chip filter", async () => {
