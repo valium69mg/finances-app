@@ -27,8 +27,9 @@ const expense = (over: Partial<MockExpense>): MockExpense => ({
   ...over,
 });
 
+// movements is one shared table, so ids are unique across kinds (the Panel keys its recent list by id).
 const salary: MockIncome = {
-  id: 1,
+  id: 11,
   date: today(),
   description: "Sueldo",
   category: "Sueldo",
@@ -40,7 +41,7 @@ const salary: MockIncome = {
 };
 
 const emergencySaving: MockSaving = {
-  id: 1,
+  id: 21,
   date: today(),
   description: "Fondo inicial",
   category: "Fondo de emergencia",
