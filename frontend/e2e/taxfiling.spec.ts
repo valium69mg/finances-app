@@ -87,11 +87,13 @@ async function expectNoHorizontalOverflow(page: Page, where: string) {
   expect(size.scrollWidth, `page overflows on ${where}`).toBeLessThanOrEqual(size.clientWidth);
 }
 
-async function openTaxFiling(page: Page, opts: Parameters<typeof mockApi>[1] = {}, path = `/declaracion?period=${PERIOD}`) {
+/** Opens the page; the register form is collapsed, so it is expanded unless `expanded` is false. */
+async function openTaxFiling(page: Page, opts: Parameters<typeof mockApi>[1] = {}, path = `/declaracion?period=${PERIOD}`, { expanded = true } = {}) {
   const api = await mockApi(page, { invoices: OCTOBER, ...opts });
   await seedSession(page);
   await page.goto(path);
   await expect(page.getByRole("heading", { level: 1, name: "Declaración" })).toBeVisible();
+  if (expanded) await page.getByRole("button", { name: "Registrar declaración presentada" }).click();
   return api;
 }
 
@@ -138,7 +140,7 @@ test.describe("tax filing page", () => {
     await openTaxFiling(page, {}, "/declaracion?period=2026-01");
     await expect(page.getByText("No hay facturas emitidas en este periodo")).toBeVisible();
     await expect(breakdown(page, "Ingresos e ISR")).toContainText("Ingresos cobrados (sin IVA)$0.00");
-    await expect(page.getByRole("button", { name: "Registrar declaración" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Registrar declaración", exact: true })).toBeVisible();
   });
 
   test("recalculates with the creditable IVA and validates the fields", async ({ page }) => {
@@ -164,10 +166,24 @@ test.describe("tax filing page", () => {
     await expect(page.getByText("Elige el periodo (mes y año) que vas a declarar.")).toBeVisible();
   });
 
+  test("the register form is collapsed behind a button: only the calculator is open on arrival", async ({ page }) => {
+    await openTaxFiling(page, {}, undefined, { expanded: false });
+    const toggle = page.getByRole("button", { name: "Registrar declaración presentada" });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByRole("form")).toHaveCount(1);
+    await expect(page.getByRole("form", { name: "Calcular declaración" })).toBeVisible();
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByRole("form", { name: "Registrar declaración presentada" })).toBeVisible();
+    // The file picker uses 16px text so iOS does not zoom the page when it is focused.
+    const size = await page.getByLabel("Acuse (PDF)").evaluate((el) => getComputedStyle(el).fontSize);
+    expect(size).toBe("16px");
+  });
+
   test("registers the filing with the payment pending and links the invoices", async ({ page }) => {
     const api = await openTaxFiling(page);
     await page.getByLabel("Folio del acuse (opcional)").fill("ACUSE-123");
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "registrada con el pago pendiente" })).toBeVisible();
     const write = api.taxWrites.find((w) => w.method === "POST" && w.path === "/tax-filing");
@@ -179,7 +195,7 @@ test.describe("tax filing page", () => {
     expect(api.expenses).toHaveLength(0);
 
     // The page now shows the period as filed instead of the register form.
-    await expect(page.getByRole("button", { name: "Registrar declaración" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Registrar declaración", exact: true })).toHaveCount(0);
     await expect(page.getByText(/Este periodo se presentó el/)).toBeVisible();
     await expect(page.getByRole("link", { name: "Ver en Declaraciones presentadas" })).toBeVisible();
   });
@@ -191,7 +207,7 @@ test.describe("tax filing page", () => {
     await expect(page.getByLabel("ISR pagado (MXN)")).toHaveValue("591.25");
     await expect(page.getByLabel("IVA pagado (MXN)")).toHaveValue("1600.00");
     await expect(page.getByRole("checkbox", { name: /Registrar el pago como gasto/ })).not.toBeChecked();
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "registrada y pagada" })).toBeVisible();
     const body = api.taxWrites.find((w) => w.path === "/tax-filing")?.body as { payment: Record<string, unknown> };
@@ -205,7 +221,7 @@ test.describe("tax filing page", () => {
     await page.getByRole("checkbox", { name: "Ya pagué esta declaración al SAT" }).check();
     await page.getByLabel("ISR pagado (MXN)").fill("600");
     await page.getByRole("checkbox", { name: /Registrar el pago como gasto/ }).check();
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "Se registró el gasto de Impuestos" })).toBeVisible();
     const body = api.taxWrites.find((w) => w.path === "/tax-filing")?.body as { payment: Record<string, unknown> };
@@ -219,7 +235,7 @@ test.describe("tax filing page", () => {
     const api = await openTaxFiling(page);
     await page.getByRole("checkbox", { name: "Ya pagué esta declaración al SAT" }).check();
     await page.getByLabel("ISR pagado (MXN)").fill("-5");
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
     await expect(page.getByText("Escribe un monto de cero o más")).toBeVisible();
     expect(api.taxWrites).toHaveLength(0);
 
@@ -227,17 +243,17 @@ test.describe("tax filing page", () => {
     await page.getByLabel("ISR pagado (MXN)").fill("0");
     await page.getByLabel("IVA pagado (MXN)").fill("0");
     await page.getByRole("checkbox", { name: /Registrar el pago como gasto/ }).check();
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
     await expect(page.getByText("Para registrar el gasto, el ISR o el IVA pagado debe ser mayor a cero.")).toBeVisible();
     expect(api.taxWrites).toHaveLength(0);
   });
 
   test("a filed period shows its status instead of the register form", async ({ page }) => {
-    await openTaxFiling(page, { filings: [filing({ status: "pagada", payment: { date: "2026-11-12", isr_paid: "591.25", iva_paid: "1600.00", total_paid: "2191.25" } })] });
+    await openTaxFiling(page, { filings: [filing({ status: "pagada", payment: { date: "2026-11-12", isr_paid: "591.25", iva_paid: "1600.00", total_paid: "2191.25" } })] }, undefined, { expanded: false });
     await expect(page.getByText("Pagada", { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/ya fue declarado/)).toBeVisible();
     await expect(page.getByText(/folio ACUSE-2026-10/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Registrar declaración" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Registrar declaración", exact: true })).toHaveCount(0);
   });
 
   test("defaults to the previous month without a period in the link", async ({ page }) => {
@@ -250,13 +266,13 @@ test.describe("tax filing page", () => {
   });
 
   test("shows the error with a retry when the calculation fails", async ({ page }) => {
-    await openTaxFiling(page, { taxFilingFail: "preview" });
+    await openTaxFiling(page, { taxFilingFail: "preview" }, undefined, { expanded: false });
     await expect(page.getByText("El servidor tuvo un problema")).toBeVisible();
     await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
   });
 
   test("points to Configuración when the tax settings are incomplete", async ({ page }) => {
-    await openTaxFiling(page, { taxFilingFail: "incomplete" });
+    await openTaxFiling(page, { taxFilingFail: "incomplete" }, undefined, { expanded: false });
     await expect(page.getByText("Faltan parámetros fiscales")).toBeVisible();
     await page.getByRole("link", { name: "Ir a Configuración" }).click();
     await expect(page).toHaveURL(/\/configuracion$/);
@@ -268,13 +284,13 @@ test.describe("tax filing page", () => {
     await expectNoHorizontalOverflow(page, "tax filing preview");
     await page.getByRole("checkbox", { name: "Ya pagué esta declaración al SAT" }).check();
     await page.getByLabel("ISR pagado (MXN)").fill("-1");
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
     await expect(page.getByText("Escribe un monto de cero o más")).toBeVisible();
     await expectNoHorizontalOverflow(page, "tax filing with payment errors");
   });
 
   test("has no horizontal overflow in the error state", async ({ page }) => {
-    await openTaxFiling(page, { taxFilingFail: "incomplete" });
+    await openTaxFiling(page, { taxFilingFail: "incomplete" }, undefined, { expanded: false });
     await expect(page.getByText("Faltan parámetros fiscales")).toBeVisible();
     await expectNoHorizontalOverflow(page, "tax filing error");
   });
@@ -341,33 +357,33 @@ test.describe("filed records page", () => {
     await openRecords(page, { invoices: OCTOBER, filings: [filing(), paidFiling(), paidFiling({ period: "2025-12", filing_date: "2026-01-10" })] });
     const table = page.getByRole("table", { name: "Historial de declaraciones presentadas" });
     await expect(table.getByRole("row")).toHaveCount(4); // header + 3
-    const pending = row(page, /octubre de 2026/);
+    const pending = row(page, /octubre de 2026/i);
     await expect(pending).toContainText("Pago pendiente");
     await expect(pending).toContainText("ACUSE-2026-10");
     await expect(pending).toContainText("$591.25");
     await expect(pending).toContainText("$1,600.00");
     await expect(pending.getByRole("button", { name: /Registrar pago de octubre de 2026/ })).toBeVisible();
-    const paid = row(page, /septiembre de 2026/);
+    const paid = row(page, /septiembre de 2026/i);
     await expect(paid).toContainText("Pagada");
     await expect(paid).toContainText("$600.00");
     await expect(paid.getByRole("button", { name: /Registrar pago/ })).toHaveCount(0);
 
     await page.getByLabel("Estado del pago").selectOption({ label: "Pago pendiente" });
     await expect(table.getByRole("row")).toHaveCount(2);
-    await expect(table).toContainText("octubre de 2026");
+    await expect(table).toContainText("Octubre de 2026");
     await page.getByRole("button", { name: "Quitar filtros" }).click();
     await expect(table.getByRole("row")).toHaveCount(4);
 
     await page.getByLabel("Año").fill("2025");
     await expect(table.getByRole("row")).toHaveCount(2);
-    await expect(table).toContainText("diciembre de 2025");
+    await expect(table).toContainText("Diciembre de 2025");
     await page.getByLabel("Año").fill("2019");
     await expect(page.getByText("No hay declaraciones con estos filtros.")).toBeVisible();
   });
 
   test("marks a filing as paid without creating an expense by default", async ({ page }) => {
     const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()] });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
 
     const dialog = page.getByRole("dialog", { name: "Registrar pago de octubre de 2026" });
     await expect(dialog).toBeVisible();
@@ -384,7 +400,7 @@ test.describe("filed records page", () => {
     const write = api.taxWrites.find((w) => w.path === `/tax-filing/${PERIOD}/payment`);
     expect(write?.body).toEqual({ date: today(), isr_paid: "590.50", iva_paid: "1600.00" });
     expect(api.expenses).toHaveLength(0);
-    const paid = row(page, /octubre de 2026/);
+    const paid = row(page, /octubre de 2026/i);
     await expect(paid).toContainText("Pagada");
     await expect(paid).toContainText("$2,190.50");
     await expect(paid.getByRole("button", { name: /Registrar pago/ })).toHaveCount(0);
@@ -392,7 +408,7 @@ test.describe("filed records page", () => {
 
   test("records the payment as an Impuestos expense only when the box is checked", async ({ page }) => {
     const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()] });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("checkbox", { name: /Registrar el pago como gasto/ }).check();
     await dialog.getByRole("button", { name: "Registrar pago" }).click();
@@ -407,7 +423,7 @@ test.describe("filed records page", () => {
 
   test("validates the payment dialog and closes it with Escape, restoring focus", async ({ page }) => {
     const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()] });
-    const opener = row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ });
+    const opener = row(page, /octubre de 2026/i).getByRole("button", { name: /Registrar pago de octubre de 2026/ });
     await opener.click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("IVA pagado (MXN)").fill("1,600");
@@ -422,7 +438,7 @@ test.describe("filed records page", () => {
 
   test("shows the API error inside the dialog and keeps it open", async ({ page }) => {
     await openRecords(page, { invoices: OCTOBER, filings: [filing()], taxFilingFail: "pay" });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Registrar pago" }).click();
     await expect(dialog.getByText("El servidor tuvo un problema")).toBeVisible();
@@ -431,7 +447,7 @@ test.describe("filed records page", () => {
 
   test("opening a filing detail scrolls to it and flashes the highlight", async ({ page }) => {
     await openRecords(page, { filings: [filing()] });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
     const detail = page.getByRole("region", { name: "Detalle de la declaración de octubre de 2026" });
     await expect(detail).toBeInViewport();
     const panel = detail.locator("xpath=..");
@@ -441,7 +457,7 @@ test.describe("filed records page", () => {
 
   test("shows the detail of a pending filing and deletes it after confirming", async ({ page }) => {
     const api = await openRecords(page, { invoices: [{ ...OCTOBER[0], declaration_period: PERIOD }, { ...OCTOBER[1], declaration_period: PERIOD }], filings: [filing()] });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
     const detail = page.getByRole("region", { name: "Detalle de la declaración de octubre de 2026" });
     await expect(detail).toContainText("ACUSE-2026-10");
     await expect(detail).toContainText("Pendiente: aún no registras el pago al SAT.");
@@ -460,12 +476,12 @@ test.describe("filed records page", () => {
     expect(api.filings).toHaveLength(0);
     expect(api.invoices.every((i) => i.declaration_period === null)).toBe(true);
     // Its invoices are pending to file again.
-    await expect(page.getByRole("list", { name: "Periodos pendientes de declarar" })).toContainText("octubre de 2026");
+    await expect(page.getByRole("list", { name: "Periodos pendientes de declarar" })).toContainText("Octubre de 2026");
   });
 
   test("a paid filing shows its payment and expense and cannot be deleted", async ({ page }) => {
     await openRecords(page, { filings: [paidFiling({ expense_movement_id: 12 })] });
-    await row(page, /septiembre de 2026/).getByRole("button", { name: /Ver declaración/ }).click();
+    await row(page, /septiembre de 2026/i).getByRole("button", { name: /Ver declaración/ }).click();
     const detail = page.getByRole("region", { name: "Detalle de la declaración de septiembre de 2026" });
     await expect(detail).toContainText("ISR pagado$500.00");
     await expect(detail).toContainText("IVA pagado$100.00");
@@ -489,10 +505,10 @@ test.describe("filed records page", () => {
     await openRecords(page, { invoices: OCTOBER, filings: [filing(), paidFiling()] });
     await expect(page.getByRole("table")).toBeVisible();
     await expectNoHorizontalOverflow(page, "filed records");
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Ver declaración/ }).click();
     await expect(page.getByRole("region", { name: /Detalle de la declaración/ })).toBeVisible();
     await expectNoHorizontalOverflow(page, "filed records detail");
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
     await expectNoHorizontalOverflow(page, "filed records dialog");
   });
@@ -535,7 +551,7 @@ test.describe("tax filing documents", () => {
     await page.getByRole("checkbox", { name: "Ya pagué esta declaración al SAT" }).check();
     await expect(page.getByLabel("Comprobante de pago (imagen o PDF)")).toHaveAttribute("accept", /image\/heic/);
     await page.getByLabel("Comprobante de pago (imagen o PDF)").setInputFiles(photoFile());
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "registrada y pagada" })).toBeVisible();
     // The filing request stays JSON; the files go in their own calls afterwards.
@@ -551,7 +567,7 @@ test.describe("tax filing documents", () => {
   test("keeps the saved declaration and says the file was not uploaded", async ({ page }) => {
     const api = await openTaxFiling(page, { taxFilingFail: "upload" });
     await page.getByLabel("Acuse (PDF)").setInputFiles(pdfFile());
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
 
     await expect(page.getByRole("status").filter({ hasText: "registrada con el pago pendiente" })).toBeVisible();
     const alert = page.getByRole("alert");
@@ -565,14 +581,14 @@ test.describe("tax filing documents", () => {
   test("rejects a wrong file type before registering anything", async ({ page }) => {
     const api = await openTaxFiling(page);
     await page.getByLabel("Acuse (PDF)").setInputFiles(photoFile("foto.jpg"));
-    await page.getByRole("button", { name: "Registrar declaración" }).click();
+    await page.getByRole("button", { name: "Registrar declaración", exact: true }).click();
     await expect(page.getByText("El acuse debe ser un PDF (extensión .pdf).")).toBeVisible();
     expect(api.filings).toHaveLength(0);
   });
 
   test("uploads, downloads and replaces the acuse of a pending filing in Declaraciones presentadas", async ({ page }) => {
     const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()] });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
     const docs = page.getByRole("region", { name: "Documentos" });
     await expect(docs).toContainText("Acuse del SAT");
     await expect(docs.getByRole("button", { name: "Subir acuse" })).toBeVisible();
@@ -596,12 +612,12 @@ test.describe("tax filing documents", () => {
     expect(api.taxUploads.map((u) => u.filename)).toEqual(["acuse-oct.pdf", "acuse-corregido.pdf"]);
     expect(api.filings[0].documents).toHaveLength(1);
     // The history lists which documents each filing has.
-    await expect(row(page, /octubre de 2026/).last()).toContainText("Acuse del SAT");
+    await expect(row(page, /octubre de 2026/i).last()).toContainText("Acuse del SAT");
   });
 
   test("attaches the payment proof to a paid filing", async ({ page }) => {
     const api = await openRecords(page, { filings: [paidFiling()] });
-    await row(page, /septiembre de 2026/).getByRole("button", { name: /Ver declaración de septiembre de 2026/ }).click();
+    await row(page, /septiembre de 2026/i).getByRole("button", { name: /Ver declaración de septiembre de 2026/ }).click();
     const docs = page.getByRole("region", { name: "Documentos" });
     // A paid filing is immutable for its figures, not for its documents.
     await expect(page.getByRole("button", { name: "Eliminar registro" })).toHaveCount(0);
@@ -612,7 +628,7 @@ test.describe("tax filing documents", () => {
 
   test("uploads the payment proof together with the payment", async ({ page }) => {
     const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()] });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
     const dialog = page.getByRole("dialog", { name: "Registrar pago de octubre de 2026" });
     await dialog.getByLabel("Comprobante de pago (opcional)").setInputFiles(photoFile());
     await dialog.getByRole("button", { name: "Registrar pago" }).click();
@@ -624,7 +640,7 @@ test.describe("tax filing documents", () => {
 
   test("keeps the payment and says the proof was not uploaded", async ({ page }) => {
     const api = await openRecords(page, { invoices: OCTOBER, filings: [filing()], taxFilingFail: "upload" });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Registrar pago de octubre de 2026/ }).click();
     const dialog = page.getByRole("dialog", { name: "Registrar pago de octubre de 2026" });
     await dialog.getByLabel("Comprobante de pago (opcional)").setInputFiles(photoFile());
     await dialog.getByRole("button", { name: "Registrar pago" }).click();
@@ -639,7 +655,7 @@ test.describe("tax filing documents", () => {
       filings: [filing({ documents: [{ kind: "acuse", filename: "acuse.pdf", content_type: "application/pdf", size: 12, uploaded_at: "2026-11-06T09:00:00Z", content: "%PDF" }] })],
       taxFilingFail: "download",
     });
-    await row(page, /octubre de 2026/).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
+    await row(page, /octubre de 2026/i).getByRole("button", { name: /Ver declaración de octubre de 2026/ }).click();
     await page.getByRole("region", { name: "Documentos" }).getByRole("button", { name: "Descargar acuse" }).click();
     await expect(page.getByRole("alert")).toContainText("almacenamiento de documentos no está disponible");
   });

@@ -6,6 +6,7 @@ import { ApiError } from "../api/client";
 import { previewTaxFiling, taxFilingKeys, type FilingResult, type TaxPreview } from "../api/taxFiling";
 import { getSettings, settingsKeys } from "../api/settings";
 import { TextField } from "../components/AuthCard";
+import { InlineFormPanel } from "../components/InlineFormPanel";
 import { todayISO } from "./expenses/money";
 import { ErrorBanner, primaryButton, secondaryButton } from "./settings/ui";
 import { Breakdown } from "./taxfiling/Breakdown";
@@ -34,6 +35,8 @@ interface Registered {
 function PreviewBody({ preview, onRegistered }: { preview: TaxPreview; onRegistered: (r: FilingResult, failures: UploadFailure[]) => void }) {
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
   const clients = settings.data?.clients ?? [];
+  // Collapsed until asked for, so the page does not open with two forms (the calculator and this one).
+  const [registerOpen, setRegisterOpen] = useState(false);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -65,7 +68,9 @@ function PreviewBody({ preview, onRegistered }: { preview: TaxPreview; onRegiste
         </div>
       ) : (
         // A new calculation (period or creditable IVA) starts a fresh form with matching amounts.
-        <RegisterForm key={`${preview.period}-${preview.iva_acreditable}`} preview={preview} onRegistered={onRegistered} />
+        <InlineFormPanel id="register-form-panel" label="Registrar declaración presentada" open={registerOpen} onToggle={() => setRegisterOpen((o) => !o)} editing={false}>
+          <RegisterForm key={`${preview.period}-${preview.iva_acreditable}`} preview={preview} onRegistered={onRegistered} />
+        </InlineFormPanel>
       )}
     </div>
   );

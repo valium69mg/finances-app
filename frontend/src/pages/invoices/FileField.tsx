@@ -13,7 +13,7 @@ interface Props {
 }
 
 const inputClass =
-  "focus-ring block min-h-11 w-full min-w-0 rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-on-primary aria-[invalid=true]:border-destructive disabled:cursor-not-allowed disabled:opacity-60";
+  "focus-ring block min-h-11 w-full min-w-0 rounded-lg border border-border bg-surface px-3 py-2 text-base text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-primary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-on-primary aria-[invalid=true]:border-destructive disabled:cursor-not-allowed disabled:opacity-60";
 
 /** Labelled file picker that matches TextField's look and error handling. */
 export function FileField({ label, accept, onChange, error, hint, disabled, inputRef }: Props) {
