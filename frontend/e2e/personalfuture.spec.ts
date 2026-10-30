@@ -33,6 +33,12 @@ async function open(page: Page, personalFuture: MockPersonalFuture[] = [], perso
 
 const activeList = (page: Page) => page.getByRole("list", { name: "Gastos futuros activos" });
 const rowOf = (page: Page, name: string) => activeList(page).getByRole("listitem").filter({ hasText: name }).first();
+/** Opens the detail dialog of an active item (its card is one button). */
+async function openDetail(page: Page, name: string) {
+  await page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("button", { name: `Ver ${name}` }).click();
+  await expect(page.getByRole("dialog", { name })).toBeVisible();
+}
+
 const dialog = (page: Page) => page.getByRole("dialog");
 const freeBalance = (page: Page) => page.getByRole("region", { name: "Saldo libre" });
 
@@ -74,6 +80,7 @@ test.describe("household: Mis gastos futuros", () => {
 
   test("adds a saving to an item", async ({ page }) => {
     const api = await open(page, [VIAJE]);
+    await openDetail(page, "Viaje");
     await page.getByRole("button", { name: "Agregar ahorro a Viaje" }).click();
     await dialog(page).getByLabel("Monto (MXN)").fill("500");
     await dialog(page).getByRole("button", { name: "Agregar ahorro" }).click();
@@ -84,6 +91,7 @@ test.describe("household: Mis gastos futuros", () => {
 
   test("assigns from the free balance, only while there is one", async ({ page }) => {
     const api = await open(page, [VIAJE], [FREE]);
+    await openDetail(page, "Viaje");
     await page.getByRole("button", { name: "Asignar saldo libre a Viaje" }).click();
     await dialog(page).getByLabel("Monto (MXN)").fill("500");
     await dialog(page).getByRole("button", { name: "Asignar", exact: true }).click();
@@ -99,12 +107,15 @@ test.describe("household: Mis gastos futuros", () => {
   test("hides the assign action when there is no free balance", async ({ page }) => {
     await open(page, [VIAJE]);
     await expect(freeBalance(page)).toContainText("$0.00");
+    await openDetail(page, "Viaje");
+    await expect(page.getByRole("button", { name: "Marcar pagado Viaje" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Asignar saldo libre a Viaje" })).toHaveCount(0);
   });
 
   test("pays with one of her categories, the remainder returns to the free balance", async ({ page }) => {
     const api = await open(page, [VIAJE], [FREE]);
     await expect(freeBalance(page)).toContainText("$400.00");
+    await openDetail(page, "Viaje");
     await page.getByRole("button", { name: "Marcar pagado Viaje" }).click();
     await expect(dialog(page).getByLabel("Monto pagado (MXN)")).toHaveValue("6000.00");
     await expect(dialog(page).getByLabel("Fecha de pago")).toHaveValue(day(0));
@@ -140,12 +151,14 @@ test.describe("household: Mis gastos futuros", () => {
 
   test("edits an item and deletes it with the savings returning to the free balance", async ({ page }) => {
     const api = await open(page, [VIAJE]);
+    await openDetail(page, "Viaje");
     await page.getByRole("button", { name: "Editar Viaje" }).click();
     await page.getByLabel("Monto a juntar (MXN)").fill("7000");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
     await expect(rowOf(page, "Viaje")).toContainText("de $7,000.00");
     expect((await api).personalFutureWrites.at(-1)).toMatchObject({ method: "PUT", path: "/personal/future-expenses/1" });
 
+    await openDetail(page, "Viaje");
     await page.getByRole("button", { name: "Eliminar Viaje" }).click();
     await expect(page.getByText("Su ahorro no se borra: vuelve al saldo libre.")).toBeVisible();
     await page.getByRole("button", { name: "Sí, eliminar" }).click();

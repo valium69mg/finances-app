@@ -34,6 +34,14 @@ async function openSection(page: Page, opts: Parameters<typeof mockApi>[1] = {})
   return api;
 }
 
+/** Opens the detail dialog of an active item (its card is one button) and returns it. */
+async function openDetail(page: Page, name: string) {
+  await page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("button", { name: `Ver ${name}` }).click();
+  const detail = page.getByRole("dialog", { name });
+  await expect(detail).toBeVisible();
+  return detail;
+}
+
 const rowOf = (page: Page, name: string) => page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("listitem").filter({ hasText: name }).first();
 
 test.describe("future expenses module", () => {
@@ -76,13 +84,15 @@ test.describe("future expenses module", () => {
     await expectNoHorizontalOverflow(page, "375px future expenses");
   });
 
-  test("the create form is collapsed, validates and sends the decimal string", async ({ page }) => {
+  test("the header button opens the create dialog, which validates and sends the decimal string", async ({ page }) => {
     const api = await openSection(page);
-    const toggle = page.getByRole("button", { name: "Nuevo gasto futuro" });
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    const header = page.locator("section > div").filter({ has: page.getByRole("heading", { level: 1 }) }).first();
+    const toggle = header.getByRole("button", { name: "Nuevo gasto futuro" });
+    await expect(page.getByLabel("Nombre")).toHaveCount(0);
     await expect(page.getByText("Aún no tienes gastos futuros")).toBeVisible();
     await toggle.click();
-    await expectNoHorizontalOverflow(page, "create form open");
+    await expect(page.getByRole("dialog", { name: "Nuevo gasto futuro" })).toBeVisible();
+    await expectNoHorizontalOverflow(page, "create dialog open");
 
     await page.getByRole("button", { name: "Agregar gasto futuro" }).click();
     await expect(page.getByLabel("Nombre")).toBeFocused();
@@ -94,13 +104,35 @@ test.describe("future expenses module", () => {
     await page.getByLabel("Fecha de vencimiento").fill(day(120));
     await page.getByRole("button", { name: "Agregar gasto futuro" }).click();
     await expect(page.getByRole("status").filter({ hasText: "Laptop agregado" })).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(toggle).toBeFocused();
     expect(api.futureWrites).toEqual([{ method: "POST", path: "/future-expenses", body: { name: "Laptop", target_amount: "8000.50", due_date: day(120) } }]);
     await expect(rowOf(page, "Laptop")).toContainText("$0.00 de $8,000.50 (0%)");
   });
 
+  test("each item is one summary card; the detail dialog holds the actions and Escape returns the focus to the card", async ({ page }) => {
+    await openSection(page, { futureExpenses: [LAPTOP, TRIP], futureFreeBalance: "350.25" });
+    const card = page.getByRole("list", { name: "Gastos futuros activos" }).getByRole("button", { name: "Ver Laptop" });
+    await expect(card).toContainText("Laptop");
+    await expect(card).toContainText("Vence el");
+    await expect(card.getByRole("progressbar")).toBeVisible();
+    // No action buttons live on the page itself.
+    for (const name of [/Agregar ahorro/, /Asignar saldo libre/, /Marcar pagado/, /^Editar/, /^Eliminar/]) await expect(page.getByRole("button", { name })).toHaveCount(0);
+
+    await card.click();
+    const detail = page.getByRole("dialog", { name: "Laptop" });
+    for (const name of ["Agregar ahorro a Laptop", "Asignar saldo libre a Laptop", "Marcar pagado Laptop", "Editar Laptop", "Eliminar Laptop"]) {
+      await expect(detail.getByRole("button", { name })).toBeVisible();
+    }
+    await expectNoHorizontalOverflow(page, "future expense detail");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(card).toBeFocused();
+  });
+
   test("edits an item", async ({ page }) => {
     const api = await openSection(page, { futureExpenses: [LAPTOP] });
-    await rowOf(page, "Laptop").getByRole("button", { name: "Editar Laptop" }).click();
+    await (await openDetail(page, "Laptop")).getByRole("button", { name: "Editar Laptop" }).click();
     await expect(page.getByLabel("Nombre")).toHaveValue("Laptop");
     await page.getByLabel("Monto a juntar (MXN)").fill("9000");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
@@ -111,7 +143,7 @@ test.describe("future expenses module", () => {
 
   test("adds a saving to an item", async ({ page }) => {
     const api = await openSection(page, { futureExpenses: [LAPTOP] });
-    await rowOf(page, "Laptop").getByRole("button", { name: "Agregar ahorro a Laptop" }).click();
+    await (await openDetail(page, "Laptop")).getByRole("button", { name: "Agregar ahorro a Laptop" }).click();
     const dialog = page.getByRole("dialog", { name: "Agregar ahorro a Laptop" });
     await dialog.getByLabel("Monto (MXN)").fill("500");
     await dialog.getByRole("button", { name: "Agregar ahorro" }).click();
@@ -126,7 +158,7 @@ test.describe("future expenses module", () => {
     await expect(rowOf(page, "Laptop")).toContainText("$2,000.00 de $8,000.00");
     await expect(page.getByRole("region", { name: "Saldo libre" })).toContainText("$350.25");
 
-    await rowOf(page, "Laptop").getByRole("button", { name: "Asignar saldo libre a Laptop" }).click();
+    await (await openDetail(page, "Laptop")).getByRole("button", { name: "Asignar saldo libre a Laptop" }).click();
     const dialog = page.getByRole("dialog", { name: "Asignar saldo libre a Laptop" });
     await dialog.getByLabel("Monto (MXN)").fill("400");
     await dialog.getByRole("button", { name: "Asignar" }).click();
@@ -143,13 +175,14 @@ test.describe("future expenses module", () => {
 
   test("the assign action is hidden while there is no free balance", async ({ page }) => {
     await openSection(page, { futureExpenses: [LAPTOP] });
-    await expect(rowOf(page, "Laptop").getByRole("button", { name: "Agregar ahorro a Laptop" })).toBeVisible();
+    const detail = await openDetail(page, "Laptop");
+    await expect(detail.getByRole("button", { name: "Agregar ahorro a Laptop" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Asignar saldo libre/ })).toHaveCount(0);
   });
 
   test("Marcar pagado registers the expense with the real amount and releases the saving", async ({ page }) => {
     const api = await openSection(page, { futureExpenses: [LAPTOP], futureFreeBalance: "0" });
-    await rowOf(page, "Laptop").getByRole("button", { name: "Marcar pagado Laptop" }).click();
+    await (await openDetail(page, "Laptop")).getByRole("button", { name: "Marcar pagado Laptop" }).click();
     const dialog = page.getByRole("dialog", { name: "Marcar pagado Laptop" });
     await expect(dialog.getByLabel("Monto pagado (MXN)")).toHaveValue("8000.00"); // the target by default
     await expect(dialog).toContainText("la diferencia vuelve al saldo libre");
@@ -171,7 +204,7 @@ test.describe("future expenses module", () => {
 
   test("Marcar pagado validates the amount before sending", async ({ page }) => {
     const api = await openSection(page, { futureExpenses: [LAPTOP] });
-    await rowOf(page, "Laptop").getByRole("button", { name: "Marcar pagado Laptop" }).click();
+    await (await openDetail(page, "Laptop")).getByRole("button", { name: "Marcar pagado Laptop" }).click();
     const dialog = page.getByRole("dialog", { name: "Marcar pagado Laptop" });
     await dialog.getByLabel("Monto pagado (MXN)").fill("0");
     await dialog.getByRole("button", { name: "Confirmar pago" }).click();
@@ -181,7 +214,7 @@ test.describe("future expenses module", () => {
 
   test("deleting asks first and explains the savings return to the free balance", async ({ page }) => {
     const api = await openSection(page, { futureExpenses: [LAPTOP], futureFreeBalance: "10.00" });
-    await rowOf(page, "Laptop").getByRole("button", { name: "Eliminar Laptop" }).click();
+    await (await openDetail(page, "Laptop")).getByRole("button", { name: "Eliminar Laptop" }).click();
     await expect(page.getByText("Su ahorro no se borra: vuelve al saldo libre.")).toBeVisible();
     expect(api.futureWrites).toHaveLength(0);
     await page.getByRole("button", { name: "Sí, eliminar" }).click();
@@ -202,7 +235,8 @@ test.describe("future expenses module", () => {
     await expectNoHorizontalOverflow(page, "long names");
     await page.getByRole("button", { name: "Nuevo gasto futuro" }).click();
     await expectNoHorizontalOverflow(page, "create form");
-    await rowOf(page, "Compra muy grande").getByRole("button", { name: /Asignar saldo libre/ }).click();
+    await page.keyboard.press("Escape");
+    await (await openDetail(page, "Compra muy grande")).getByRole("button", { name: /Asignar saldo libre/ }).click();
     await expectNoHorizontalOverflow(page, "assign dialog");
   });
 });
