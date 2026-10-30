@@ -16,6 +16,9 @@ const dateLayout = "2006-01-02"
 //   - 1..31: cycle M starts on day StartDay of month M-1, clamped to that
 //     month's length (31 means its last day), and ends the day before cycle
 //     M+1 starts, inclusive.
+//   - 32 (LastWeekdayStartDay): same as above, but the start day is the last
+//     weekday (Mon-Fri) of the month. A month ending on Saturday or Sunday
+//     shifts back to its Friday. Holidays are ignored.
 //
 // Example with StartDay 31: cycle 2026-10 runs from 2026-09-30 to 2026-10-30
 // and 2026-10-31 already belongs to cycle 2026-11. February clamps to 28/29.
@@ -38,6 +41,14 @@ const dateLayout = "2006-01-02"
 //	StartDay 15: Of 2026-10-14 -> 2026-10     Of 2026-10-15 -> 2026-11
 //	StartDay 15: Range 2026-10 -> 2026-09-15..2026-10-14
 //	StartDay 1:  Of 2026-10-01 -> 2026-11     Range 2026-10 -> 2026-09-01..2026-09-30 (day 1 ends before the label month)
+//	StartDay 32: Of 2026-10-29 -> 2026-10     Of 2026-10-30 -> 2026-11 (Oct 31 is Saturday)
+//	StartDay 32: Of 2026-10-31 -> 2026-11     Of 2026-11-29 -> 2026-11
+//	StartDay 32: Of 2026-11-30 -> 2026-12     Of 2026-12-31 -> 2027-01
+//	StartDay 32: Of 2026-05-28 -> 2026-05     Of 2026-05-29 -> 2026-06 (May 31 is Sunday)
+//	StartDay 32: Range 2026-11 -> 2026-10-30..2026-11-29
+//	StartDay 32: Range 2026-12 -> 2026-11-30..2026-12-30
+//	StartDay 32: Range 2026-06 -> 2026-05-29..2026-06-29
+//	StartDay 32: Range 2027-01 -> 2026-12-31..2027-01-28 (Jan 31 2027 is Sunday)
 //	StartDay 0:  Of 2026-10-31 -> 2026-10     Range 2026-02 -> 2026-02-01..2026-02-28
 //	StartDay 0:  Range 2028-02 -> 2028-02-01..2028-02-29
 //
@@ -46,12 +57,23 @@ type Cycle struct {
 	StartDay int
 }
 
-// Valid reports whether StartDay is in 0..31.
-func (c Cycle) Valid() bool { return c.StartDay >= 0 && c.StartDay <= 31 }
+// LastWeekdayStartDay is the StartDay value meaning "the last weekday
+// (Mon-Fri) of the month", for owners paid on that day.
+const LastWeekdayStartDay = 32
+
+// Valid reports whether StartDay is in 0..32.
+func (c Cycle) Valid() bool { return c.StartDay >= 0 && c.StartDay <= LastWeekdayStartDay }
 
 // startIn returns the day of the given year and month on which a cycle starts.
 func (c Cycle) startIn(year int, month time.Month) time.Time {
-	last := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC)
+	if c.StartDay == LastWeekdayStartDay {
+		for lastDay.Weekday() == time.Saturday || lastDay.Weekday() == time.Sunday {
+			lastDay = lastDay.AddDate(0, 0, -1)
+		}
+		return lastDay
+	}
+	last := lastDay.Day()
 	day := c.StartDay
 	if day > last {
 		day = last

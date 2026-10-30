@@ -28,6 +28,14 @@ func TestCycleOf(t *testing.T) {
 		{"15 day before start", 15, "2026-10-14", "2026-10"},
 		{"15 start day", 15, "2026-10-15", "2026-11"},
 		{"1 first day opens next label", 1, "2026-10-01", "2026-11"},
+		{"32 day before the last weekday", 32, "2026-10-29", "2026-10"},
+		{"32 last weekday opens next label (Oct 31 is Saturday)", 32, "2026-10-30", "2026-11"},
+		{"32 Saturday belongs to next label", 32, "2026-10-31", "2026-11"},
+		{"32 day before November last weekday", 32, "2026-11-29", "2026-11"},
+		{"32 November last weekday (Monday)", 32, "2026-11-30", "2026-12"},
+		{"32 December 31 rolls to January", 32, "2026-12-31", "2027-01"},
+		{"32 month ending on Sunday, day before", 32, "2026-05-28", "2026-05"},
+		{"32 month ending on Sunday, Friday opens next", 32, "2026-05-29", "2026-06"},
 		{"0 is the calendar month", 0, "2026-10-31", "2026-10"},
 		{"0 first day", 0, "2026-10-01", "2026-10"},
 		{"0 leap day", 0, "2028-02-29", "2028-02"},
@@ -54,6 +62,10 @@ func TestCycleRange(t *testing.T) {
 		{"31 February non-leap", 31, "2027-02", "2027-01-31", "2027-02-27"},
 		{"15 October", 15, "2026-10", "2026-09-15", "2026-10-14"},
 		{"1 October", 1, "2026-10", "2026-09-01", "2026-09-30"},
+		{"32 November", 32, "2026-11", "2026-10-30", "2026-11-29"},
+		{"32 December", 32, "2026-12", "2026-11-30", "2026-12-30"},
+		{"32 June after a Sunday month end", 32, "2026-06", "2026-05-29", "2026-06-29"},
+		{"32 January rollover", 32, "2027-01", "2026-12-31", "2027-01-28"},
 		{"0 February non-leap", 0, "2026-02", "2026-02-01", "2026-02-28"},
 		{"0 February leap", 0, "2028-02", "2028-02-01", "2028-02-29"},
 		{"0 December", 0, "2026-12", "2026-12-01", "2026-12-31"},
@@ -73,7 +85,7 @@ func TestCycleRange(t *testing.T) {
 // of a range belong to the label, the days just outside do not, and ranges of
 // consecutive labels tile the calendar without gaps or overlaps.
 func TestCycleRangeOfRoundTrip(t *testing.T) {
-	for start := 0; start <= 31; start++ {
+	for start := 0; start <= LastWeekdayStartDay; start++ {
 		c := Cycle{StartDay: start}
 		label := "2025-12"
 		prevTo := ""
@@ -121,12 +133,12 @@ func TestCycleCurrentAndPrevious(t *testing.T) {
 }
 
 func TestCycleValid(t *testing.T) {
-	for _, d := range []int{0, 1, 31} {
+	for _, d := range []int{0, 1, 31, 32} {
 		if !(Cycle{StartDay: d}).Valid() {
 			t.Errorf("StartDay %d should be valid", d)
 		}
 	}
-	for _, d := range []int{-1, 32} {
+	for _, d := range []int{-1, 33} {
 		if (Cycle{StartDay: d}).Valid() {
 			t.Errorf("StartDay %d should be invalid", d)
 		}
