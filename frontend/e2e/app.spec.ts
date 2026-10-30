@@ -89,6 +89,15 @@ test.describe("layout", () => {
     await expect((isDesktop(page) ? page.locator("header") : moreSheet(page)).getByText("admin@example.com")).toBeVisible();
     await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
+    // It asks first; Cancelar has the focus and leaves the session alone.
+    const confirm = page.getByRole("dialog", { name: "¿Cerrar sesión?" });
+    await expect(confirm).toBeVisible();
+    await expect(confirm.getByRole("button", { name: "Cancelar" })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(confirm).toBeHidden();
+    await expect(page).not.toHaveURL(/\/login$/);
+    await page.getByRole("button", { name: "Cerrar sesión" }).click();
+    await page.getByRole("dialog", { name: "¿Cerrar sesión?" }).getByRole("button", { name: "Cerrar sesión" }).click();
     await expect(page).toHaveURL(/\/login$/);
   });
 
