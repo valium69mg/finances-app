@@ -79,6 +79,59 @@ test.describe("bottom dock", () => {
     await expect(page).toHaveURL(/\/ingresos$/);
   });
 
+  test("the plus button is a compact circle whose label shares the other labels' line", async ({ page }) => {
+    await open(page, "owner");
+    const circle = (await quickExpenseButton(page).locator("span.rounded-full").boundingBox())!;
+    expect(circle.width).toBeLessThanOrEqual(48);
+    expect(circle.width).toBeGreaterThanOrEqual(44);
+    const plusLabel = (await quickExpenseButton(page).getByText("Gasto").boundingBox())!;
+    const otherLabel = (await dock(page).getByRole("link", { name: "Panel" }).locator("span").boundingBox())!;
+    expect(Math.abs(plusLabel.y - otherLabel.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(plusLabel.height - otherLabel.height)).toBeLessThanOrEqual(1);
+  });
+
+  test("a new page opens at the top with its title below the sticky header", async ({ page }) => {
+    await open(page, "owner", "/configuracion");
+    await page.evaluate(() => window.scrollTo(0, 900));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
+    await dock(page).getByRole("link", { name: "Panel" }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    const title = (await page.getByRole("heading", { level: 1 }).boundingBox())!;
+    const header = (await page.locator("header").boundingBox())!;
+    expect(title.y).toBeGreaterThanOrEqual(header.y + header.height);
+
+    // Through the Más sheet too.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const nav = await openMore(page);
+    await nav.getByRole("link", { name: "Configuración" }).click();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    expect((await page.getByRole("heading", { level: 1 }).boundingBox())!.y).toBeGreaterThanOrEqual(header.y + header.height);
+  });
+
+  test("tapping the item of the page you are on scrolls it to the top without navigating", async ({ page }) => {
+    await open(page, "owner", "/configuracion");
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => window.scrollTo(0, 900));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+    const historyLength = await page.evaluate(() => history.length);
+    await dock(page).getByRole("link", { name: "Panel" }).click();
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(page).toHaveURL(/\/$/);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  });
+
+  test("changing the Configuración section starts at the top", async ({ page }) => {
+    await open(page, "owner", "/configuracion");
+    await page.evaluate(() => window.scrollTo(0, 600));
+    await page.getByLabel("Sección").selectOption({ index: 1 });
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  });
+
   test("the content is not hidden behind the dock", async ({ page }) => {
     await open(page, "owner", "/configuracion");
     await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
@@ -108,6 +161,30 @@ test.describe("bottom dock", () => {
       await page.keyboard.press("Escape");
       await expect(moreSheet(page)).toBeHidden();
       await expect(moreButton(page)).toBeFocused();
+    });
+
+    test("the session control is small, sits apart from the grid and the theme, and asks before logging out", async ({ page }) => {
+      await open(page, "owner");
+      await openMore(page);
+      const panel = moreSheet(page).locator("div.relative");
+      const vh = page.viewportSize()!.height;
+      await expect.poll(async () => { const b = (await panel.boundingBox())!; return Math.round(b.y + b.height); }).toBe(vh);
+      const logout = moreSheet(page).getByRole("button", { name: "Cerrar sesión" });
+      const box = (await logout.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(44);
+      expect(box.width).toBeLessThan(160);
+      const theme = (await moreSheet(page).getByRole("radiogroup", { name: "Tema" }).boundingBox())!;
+      expect(box.y).toBeGreaterThanOrEqual(theme.y + theme.height);
+      // Same row as the email.
+      const email = (await moreSheet(page).getByText("admin@example.com").boundingBox())!;
+      expect(Math.abs(email.y + email.height / 2 - (box.y + box.height / 2))).toBeLessThan(12);
+      await logout.click();
+      const confirm = page.getByRole("dialog", { name: "¿Cerrar sesión?" });
+      await expect(confirm.getByRole("button", { name: "Cancelar" })).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(confirm).toBeHidden();
+      await expect(moreSheet(page)).toBeVisible();
+      await expect(logout).toBeFocused();
     });
 
     test("household: lists her remaining modules", async ({ page }) => {
