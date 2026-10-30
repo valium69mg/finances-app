@@ -86,7 +86,7 @@ export function validateGeneral(g: GeneralDraft): Errors {
   decimal(e, "morse_fee_rate", g.morse_fee_rate);
   decimal(e, "emergency_months", g.emergency_months);
   decimal(e, "extra_income_estimate_mxn", g.extra_income_estimate_mxn);
-  if (!Number.isInteger(g.cycle_start_day) || g.cycle_start_day < 0 || g.cycle_start_day > 31) e["cycle_start_day"] = MSG.cycleStartDay;
+  if (!Number.isInteger(g.cycle_start_day) || g.cycle_start_day < 0 || g.cycle_start_day > 32) e["cycle_start_day"] = MSG.cycleStartDay;
   for (const [k, v] of Object.entries(g.extra_income_split)) percent(e, `split.${k}`, v);
   g.investment_allocation.forEach((w, i) => percent(e, `alloc.${i}`, w.value));
   const splitOk = !Object.keys(e).some((k) => k.startsWith("split."));

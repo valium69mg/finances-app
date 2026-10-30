@@ -5,6 +5,8 @@
  *  - 0: the cycle is the calendar month (default).
  *  - 1..31: cycle M starts on day `startDay` of month M-1 (clamped to that month's
  *    length, so 31 means its last day) and ends the day before cycle M+1 starts.
+ *  - 32 (LAST_WEEKDAY_START_DAY): same, but the start day is the last weekday (Mon-Fri)
+ *    of the month; Saturday/Sunday month ends shift back to Friday. Holidays are ignored.
  *
  * Only personal views use it; fiscal periods stay on calendar months.
  */
@@ -18,9 +20,16 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 const isoOf = (t: Date) => `${t.getUTCFullYear()}-${p2(t.getUTCMonth() + 1)}-${p2(t.getUTCDate())}`;
 const labelOf = (t: Date) => `${t.getUTCFullYear()}-${p2(t.getUTCMonth() + 1)}`;
 
-/** Day of (year, month0) on which a cycle starts: startDay clamped to the month length. */
+export const LAST_WEEKDAY_START_DAY = 32;
+
+/** Day of (year, month0) on which a cycle starts: startDay clamped to the month length, or the last weekday. */
 function startIn(year: number, month0: number, startDay: number): Date {
-  const last = new Date(Date.UTC(year, month0 + 1, 0)).getUTCDate();
+  const lastDate = new Date(Date.UTC(year, month0 + 1, 0));
+  if (startDay === LAST_WEEKDAY_START_DAY) {
+    while (lastDate.getUTCDay() === 0 || lastDate.getUTCDay() === 6) lastDate.setUTCDate(lastDate.getUTCDate() - 1);
+    return lastDate;
+  }
+  const last = lastDate.getUTCDate();
   return new Date(Date.UTC(year, month0, Math.min(startDay, last)));
 }
 

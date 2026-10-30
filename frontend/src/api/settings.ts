@@ -19,7 +19,7 @@ export interface General {
   budget_includes_extra_income: boolean;
   extra_income_split: Record<string, string>;
   investment_allocation: Weight[];
-  /** 0 = calendar month, 31 = cycle starts on the last day of the previous month. */
+  /** 0 = calendar month, 31 = cycle starts on the last day of the previous month, 32 = on its last weekday (Mon-Fri). */
   cycle_start_day: number;
 }
 

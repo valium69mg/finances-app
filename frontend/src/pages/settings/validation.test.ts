@@ -91,8 +91,8 @@ describe("general", () => {
     ...over,
   });
 
-  it.each([0, 31])("accepts cycle_start_day %i", (d) => expect(validateGeneral(general({ cycle_start_day: d }))).toEqual({}));
-  it.each([-1, 32, 1.5])("rejects cycle_start_day %j", (d) => expect(validateGeneral(general({ cycle_start_day: d }))).toHaveProperty("cycle_start_day"));
+  it.each([0, 31, 32])("accepts cycle_start_day %i", (d) => expect(validateGeneral(general({ cycle_start_day: d }))).toEqual({}));
+  it.each([-1, 33, 1.5])("rejects cycle_start_day %j", (d) => expect(validateGeneral(general({ cycle_start_day: d }))).toHaveProperty("cycle_start_day"));
 });
 
 describe("general percentages", () => {

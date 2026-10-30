@@ -68,13 +68,14 @@ export function GeneralSection({ data }: { data: General }) {
       <div className={fieldGrid}>
         <SelectField
           label="Inicio del periodo"
-          hint="Con “Último día del mes”, el periodo de octubre va del 30 de septiembre al 30 de octubre. Gastos, ingresos, ahorros y cierre de mes usan este periodo; las facturas y la declaración siguen por mes calendario."
+          hint="Con “Último día del mes”, el periodo de octubre va del 30 de septiembre al 30 de octubre; con “Último día hábil”, el periodo empieza el último día de lunes a viernes del mes. Gastos, ingresos, ahorros y cierre de mes usan este periodo; las facturas y la declaración siguen por mes calendario."
           value={String(draft.cycle_start_day)}
           onChange={(e) => setDraft({ ...draft, cycle_start_day: Number(e.target.value) })}
         >
           <option value="0">Mes calendario</option>
           <option value="31">Último día del mes</option>
-          {![0, 31].includes(draft.cycle_start_day) && <option value={draft.cycle_start_day}>{`Día ${draft.cycle_start_day} (configurado)`}</option>}
+          <option value="32">Último día hábil (lun–vie)</option>
+          {![0, 31, 32].includes(draft.cycle_start_day) && <option value={draft.cycle_start_day}>{`Día ${draft.cycle_start_day} (configurado)`}</option>}
         </SelectField>
       </div>
       <Checkbox
