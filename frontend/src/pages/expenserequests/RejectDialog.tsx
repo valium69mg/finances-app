@@ -68,7 +68,7 @@ export function RejectDialog({ request, onClose, onRejected }: Props) {
             maxLength={MAX_COMMENT_LENGTH + 50}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? errorId : undefined}
-            className="focus-ring block min-h-24 w-full rounded-lg border border-border bg-surface px-3 py-2 text-foreground transition-colors duration-200 aria-[invalid=true]:border-destructive"
+            className="focus-ring block min-h-24 w-full rounded-lg border border-input bg-surface px-3 py-2 text-foreground transition-colors duration-200 aria-[invalid=true]:border-destructive"
           />
           {error && <FieldError id={errorId}>{error}</FieldError>}
         </div>

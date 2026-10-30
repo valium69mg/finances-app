@@ -20,7 +20,7 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
 }
 
 const inputClass =
-  "focus-ring block min-h-11 w-full rounded-lg border border-border bg-surface px-3 py-2 text-foreground transition-colors duration-200 aria-[invalid=true]:border-destructive";
+  "focus-ring block min-h-11 w-full rounded-lg border border-input bg-surface px-3 py-2 text-foreground transition-colors duration-200 aria-[invalid=true]:border-destructive";
 
 export const buttonClass =
   "focus-ring inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 font-medium text-on-primary transition-colors duration-200 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60";

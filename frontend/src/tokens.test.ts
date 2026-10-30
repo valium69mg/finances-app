@@ -33,7 +33,7 @@ const kinds = ["income", "expense", "saving"] as const;
 
 describe("kind color tokens", () => {
   it("the two dark blocks hold the same values", () => {
-    for (const k of kinds) for (const t of [k, `${k}-soft`]) expect(themes["dark (explicit)"][t]).toEqual(themes["dark (prefers-color-scheme)"][t]);
+    for (const name of [...kinds.flatMap((k) => [k, `${k}-soft`]), "border-input"]) expect(themes["dark (explicit)"][name]).toEqual(themes["dark (prefers-color-scheme)"][name]);
   });
 
   describe.each(Object.entries(themes))("%s", (_name, t) => {
@@ -59,6 +59,13 @@ describe("kind color tokens", () => {
 
     it("primary and the reserved red and amber stay readable as icons (3:1) on the surface", () => {
       for (const k of ["primary", "destructive", "warning"]) expect(contrast(t[k], t.surface)).toBeGreaterThanOrEqual(3);
+    });
+
+    it("field outlines (border-input) reach 3:1 against the surface and the page background (WCAG 1.4.11)", () => {
+      expect(contrast(t["border-input"], t.surface)).toBeGreaterThanOrEqual(3);
+      expect(contrast(t["border-input"], t.background)).toBeGreaterThanOrEqual(3);
+      // Still a quiet outline: softer than the text colors.
+      expect(contrast(t["border-input"], t.surface)).toBeLessThan(contrast(t.muted, t.surface));
     });
 
     it("kind colors stay distinguishable from the reserved destructive and warning tokens", () => {

@@ -11,7 +11,7 @@ interface Props extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "id"> {
 }
 
 const selectClass =
-  "focus-ring block min-h-11 w-full rounded-lg border border-border bg-surface px-3 py-2 text-foreground transition-colors duration-200";
+  "focus-ring block min-h-11 w-full rounded-lg border border-input bg-surface px-3 py-2 text-foreground transition-colors duration-200";
 
 /** Labelled native select that matches TextField's look. */
 export function SelectField({ label, hint, error, selectRef, children, ...select }: Props) {

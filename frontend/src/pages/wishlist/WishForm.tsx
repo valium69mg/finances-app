@@ -114,7 +114,7 @@ export function WishForm({ categories, editing, onSaved, onCancel }: Props) {
           maxLength={MAX_NOTE_LENGTH + 50}
           aria-invalid={errors.note ? true : undefined}
           aria-describedby={errors.note ? noteErrorId : undefined}
-          className="focus-ring block min-h-16 w-full rounded-lg border border-border bg-surface px-3 py-2 text-foreground transition-colors duration-200 aria-[invalid=true]:border-destructive"
+          className="focus-ring block min-h-16 w-full rounded-lg border border-input bg-surface px-3 py-2 text-foreground transition-colors duration-200 aria-[invalid=true]:border-destructive"
         />
         {errors.note && <FieldError id={noteErrorId}>{errors.note}</FieldError>}
       </div>

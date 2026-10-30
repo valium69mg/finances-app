@@ -74,3 +74,25 @@ test.describe("theme selector", () => {
     await expect(html(page)).toHaveAttribute("data-theme", "dark");
   });
 });
+
+test.describe("field outlines", () => {
+  for (const [scheme, rgb] of [
+    ["light", "rgb(128, 143, 165)"],
+    ["dark", "rgb(110, 125, 148)"],
+  ] as const) {
+    test(`inputs and selects use the stronger outline token in ${scheme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme });
+      await mockApi(page);
+      await seedSession(page);
+      await page.goto("/gastos");
+      await expect(page.getByRole("heading", { level: 1, name: "Gastos" })).toBeVisible();
+      await page.getByLabel("Mes", { exact: true }).waitFor();
+      const colors = await page.locator("main input, main select").evaluateAll((els) => els.map((e) => getComputedStyle(e).borderTopColor));
+      expect(colors.length).toBeGreaterThan(0);
+      for (const c of colors) expect(c).toBe(rgb);
+      // Decorative dividers keep the quiet border token.
+      const divider = await page.locator("main > section > div").first().evaluate((e) => getComputedStyle(e).borderTopColor);
+      expect(divider).not.toBe(rgb);
+    });
+  }
+});

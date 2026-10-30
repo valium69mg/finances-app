@@ -11,6 +11,7 @@ export default {
         foreground: token("foreground"),
         muted: token("muted"),
         border: token("border"),
+        input: token("border-input"),
         primary: token("primary"),
         "on-primary": token("on-primary"),
         secondary: token("secondary"),
