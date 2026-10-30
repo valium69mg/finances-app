@@ -3,7 +3,7 @@ import { AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { listUnfiledInvoices, taxFilingKeys } from "../../api/taxFiling";
 import { formatMoney } from "../expenses/money";
-import { periodLabel } from "./labels";
+import { periodTitle } from "./labels";
 
 /**
  * Alert for issued invoices that no filing includes although their period was
@@ -39,7 +39,7 @@ export function UnfiledInvoices() {
               · {inv.client_id} · cobro {inv.collection_date}
             </span>
             <span className="tabular-nums">
-              {formatMoney(inv.subtotal_mxn)} MXN · <span className="capitalize">{periodLabel(inv.period)}</span>
+              {formatMoney(inv.subtotal_mxn)} MXN · {periodTitle(inv.period)}
             </span>
           </li>
         ))}

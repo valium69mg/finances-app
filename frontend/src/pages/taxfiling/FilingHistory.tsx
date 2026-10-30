@@ -5,7 +5,7 @@ import { formatMoney } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
 import { DOCUMENT_LABEL } from "./documents";
 import { describeTaxFilingError } from "./errors";
-import { periodLabel } from "./labels";
+import { periodLabel, periodTitle } from "./labels";
 import { FilingStatusBadge } from "./StatusBadge";
 
 const th = "px-3 py-2 text-left text-sm font-medium text-muted";
@@ -95,7 +95,7 @@ export function FilingHistory({ filter, selectedPeriod, onSelect, onPay }: Props
           {list.data.map((f) => (
             <tr key={f.period} className={selectedPeriod === f.period ? "bg-primary/5" : undefined}>
               <th scope="row" className={`${td} text-left font-medium`}>
-                <span className="capitalize">{periodLabel(f.period)}</span>
+                {periodTitle(f.period)}
                 <span className="block text-xs font-normal text-muted">{f.period}</span>
               </th>
               <td className={td}>

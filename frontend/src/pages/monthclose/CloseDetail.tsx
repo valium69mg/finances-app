@@ -35,7 +35,7 @@ export function CloseDetail({ close, onClose, onDeleted }: Props) {
     <section ref={sectionRef} id={`close-detail-${close.period}`} aria-label={`Detalle del cierre de ${label}`} className="space-y-5 border-t border-border bg-surface p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-lg font-semibold capitalize tracking-tight">Cierre de {label}</h3>
+          <h3 className="text-lg font-semibold tracking-tight">Cierre de {label}</h3>
           <p className="mt-0.5 text-sm text-muted">
             Guardado el {close.closed_at ? closedAtLabel(close.closed_at) : "—"}. Estas cifras no cambian aunque edites tus movimientos después.
           </p>

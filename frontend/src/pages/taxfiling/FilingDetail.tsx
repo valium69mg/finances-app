@@ -9,7 +9,7 @@ import { Breakdown } from "./Breakdown";
 import { describeTaxFilingError } from "./errors";
 import { FilingDocuments } from "./FilingDocuments";
 import { InvoiceRefs } from "./InvoiceRefs";
-import { dateLabel, periodLabel } from "./labels";
+import { dateLabel, periodLabel, periodTitle } from "./labels";
 import { FilingStatusBadge } from "./StatusBadge";
 import { useInvalidateAfterFiling } from "./useInvalidate";
 
@@ -39,7 +39,7 @@ export function FilingDetail({ period, onClose, onPay, onDeleted }: Props) {
     <section aria-label={`Detalle de la declaración de ${periodLabel(period)}`} className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex flex-wrap items-center gap-2 text-lg font-semibold tracking-tight">
-          <span className="capitalize">{periodLabel(period)}</span>
+          {periodTitle(period)}
           {filing && <FilingStatusBadge status={filing.status} />}
         </h2>
         <button type="button" onClick={onClose} className={secondaryButton}>

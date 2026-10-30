@@ -15,6 +15,12 @@ export function periodLabel(period: string): string {
   return m ? `${MONTHS[Number(m[2]) - 1]} de ${m[1]}` : period;
 }
 
+/** "2026-09" -> "Septiembre de 2026": the period label for a standalone value, with only its first letter capitalized. */
+export function periodTitle(period: string): string {
+  const label = periodLabel(period);
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
 /** "2026-11-17" -> "17 de noviembre de 2026". */
 export function dateLabel(date: string): string {
   const m = /^(\d{4})-(0[1-9]|1[0-2])-(\d{2})$/.exec(date);

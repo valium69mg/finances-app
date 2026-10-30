@@ -300,7 +300,7 @@ test.describe("filed records page", () => {
     const pending = page.getByRole("list", { name: "Periodos pendientes de declarar" });
     await expect(pending.getByRole("listitem")).toHaveCount(1);
     const item = pending.getByRole("listitem").first();
-    await expect(item).toContainText("enero de 2025");
+    await expect(item).toContainText("Enero de 2025");
     await expect(item).toContainText("Vencido");
     await expect(item).toContainText("17 de febrero de 2025");
     await item.getByRole("link", { name: "Declarar enero de 2025" }).click();
@@ -321,7 +321,7 @@ test.describe("filed records page", () => {
     await expect(alert).toBeVisible();
     await expect(alert.getByRole("listitem")).toHaveCount(1);
     await expect(alert.getByRole("listitem")).toContainText("Factura #2");
-    await expect(alert.getByRole("listitem")).toContainText("octubre de 2026");
+    await expect(alert.getByRole("listitem")).toContainText("Octubre de 2026");
   });
 
   test("shows no unfiled-invoices alert when every invoice is linked to its filing", async ({ page }) => {
@@ -333,7 +333,7 @@ test.describe("filed records page", () => {
   test("a future period is pending without being overdue", async ({ page }) => {
     await openRecords(page, { invoices: [invoice({ period: "2099-01", collection_date: "2099-01-10" })] });
     const item = page.getByRole("list", { name: "Periodos pendientes de declarar" }).getByRole("listitem").first();
-    await expect(item).toContainText("enero de 2099");
+    await expect(item).toContainText("Enero de 2099");
     await expect(item).not.toContainText("Vencido");
   });
 

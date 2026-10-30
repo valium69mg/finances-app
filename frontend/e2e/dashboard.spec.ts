@@ -312,4 +312,31 @@ test.describe("dashboard page", () => {
     expect(income).toBe("52 211 153");
     await expectNoHorizontalOverflow(page, "dashboard in dark mode at 375px");
   });
+
+  for (const width of [375, 320]) {
+    test(`phone: the four totals form a 2x2 grid whose money never wraps or overflows at ${width}px`, async ({ page }) => {
+      test.skip(page.viewportSize()!.width >= 640, "Phone layout only (the project sets the width)");
+      await page.setViewportSize({ width, height: 812 });
+      await open(page, {
+        income: [{ ...salary, amount: "1234567.89", amount_mxn: "1234567.89" }],
+        expenses: [expense({ amount: "987654.32", amount_mxn: "987654.32" })],
+        savings: [emergencySaving],
+      });
+      const cards = page.getByRole("region", { name: "Resumen del mes" }).locator("dl > div");
+      await expect(cards).toHaveCount(4);
+      const boxes = await cards.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ x: r.x, y: r.y, w: r.width })));
+      expect(Math.abs(boxes[0].y - boxes[1].y)).toBeLessThan(2);
+      expect(Math.abs(boxes[2].y - boxes[3].y)).toBeLessThan(2);
+      expect(boxes[2].y).toBeGreaterThan(boxes[0].y + 40);
+      // Every amount is one line and stays inside its card.
+      const fits = await cards.locator("dd").evaluateAll((els) =>
+        els.map((e) => {
+          const lh = parseFloat(getComputedStyle(e).lineHeight);
+          return e.scrollWidth <= e.clientWidth && e.getBoundingClientRect().height <= lh * 1.5;
+        }),
+      );
+      expect(fits).toEqual([true, true, true, true]);
+      await expectNoHorizontalOverflow(page, `totals at ${width}px`);
+    });
+  }
 });

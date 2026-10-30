@@ -218,6 +218,18 @@ test.describe("closing a month", () => {
     await expect(page.getByRole("region", { name: `Detalle del cierre de ${label(PREV)}` })).toBeVisible();
     await expect(page.getByText("Este mes ya está cerrado desde el")).toBeVisible();
     await expect(page.getByRole("button", { name: "Cerrar mes" })).toHaveCount(0);
+
+    // Headings are sentence case; a standalone period label only capitalizes its first letter.
+    await expect(historyRow(page, PREV)).toContainText(label(PREV).replace(/^./, (c) => c.toUpperCase()));
+    // On a phone the banner stacks: the button sits under the text at the banner's full width.
+    if ((page.viewportSize()?.width ?? 1024) < 640) {
+      const banner = (await page.getByRole("status").filter({ hasText: "Este mes ya está cerrado" }).boundingBox())!;
+      const text = (await page.getByText("Este mes ya está cerrado desde el").boundingBox())!;
+      const button = (await page.getByRole("button", { name: "Ver cierre guardado" }).boundingBox())!;
+      expect(button.y).toBeGreaterThanOrEqual(text.y + text.height);
+      expect(button.width).toBeGreaterThan(banner.width - 40);
+      expect(text.width).toBeGreaterThan(banner.width - 60);
+    }
   });
 
   test("a stored close keeps its figures when the movements change afterwards", async ({ page }) => {

@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import { listPendingPeriods, taxFilingKeys } from "../../api/taxFiling";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
 import { describeTaxFilingError } from "./errors";
-import { dateLabel, periodLabel } from "./labels";
+import { dateLabel, periodLabel, periodTitle } from "./labels";
 
 /** Periods with issued invoices and no registered filing, each with a shortcut to declare it. */
 export function PendingPeriods() {
@@ -37,7 +37,7 @@ export function PendingPeriods() {
         <li key={p.period} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="flex flex-wrap items-center gap-2 font-medium">
-              <span className="capitalize">{periodLabel(p.period)}</span>
+              {periodTitle(p.period)}
               {p.overdue && (
                 <span className="inline-block whitespace-nowrap rounded-full border border-destructive/50 bg-destructive/10 px-2.5 py-0.5 text-xs font-medium text-destructive">
                   Vencido

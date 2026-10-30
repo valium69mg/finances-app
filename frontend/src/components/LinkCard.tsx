@@ -54,7 +54,8 @@ interface StatCardProps {
 
 /** A summary figure: label, amount and optional hint, linking to the page that explains it when `to` is given. */
 export function StatCard({ label, hint, negative, icon, tone, to, children }: StatCardProps) {
-  const box = `flex min-w-0 items-start gap-3 rounded-lg border p-4 ${TONES[tone].card}`;
+  // Two per row on a phone (icon above the text, money scaled to fit 320px), icon beside the text from sm up.
+  const box = `flex min-w-0 flex-col items-start gap-2 rounded-lg border p-3 sm:flex-row sm:gap-3 sm:p-4 ${TONES[tone].card}`;
   return (
     <div className={to ? `${box} group relative transition duration-200 hover:border-foreground/30 hover:shadow-sm` : box}>
       <IconChip icon={icon} tone={tone} onSoft />
@@ -68,10 +69,10 @@ export function StatCard({ label, hint, negative, icon, tone, to, children }: St
             label
           )}
         </dt>
-        <dd className={`mt-1 break-words text-xl font-semibold tabular-nums ${negative ? "text-destructive" : ""}`}>{children}</dd>
+        <dd className={`mt-1 break-words text-sm font-semibold tabular-nums min-[360px]:text-base min-[420px]:text-lg sm:text-xl ${negative ? "text-destructive" : ""}`}>{children}</dd>
         {hint && <p className="mt-1 text-xs text-muted">{hint}</p>}
       </div>
-      {to && <Chevron className="mt-1" />}
+      {to && <Chevron className="absolute right-2 top-3 sm:static sm:mt-1" />}
     </div>
   );
 }

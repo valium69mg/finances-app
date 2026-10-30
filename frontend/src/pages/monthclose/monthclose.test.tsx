@@ -251,7 +251,7 @@ describe("History and CloseDetail", () => {
 
     const items = within(await screen.findByRole("list", { name: "Cierres guardados" })).getAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(items[0]).toHaveTextContent("septiembre de 2026");
+    expect(items[0]).toHaveTextContent("Septiembre de 2026");
     expect(items[0]).toHaveTextContent("1 categoría excedida");
     expect(items[1]).toHaveTextContent("-$150.00");
     fireEvent.click(screen.getByRole("button", { name: "Ver cierre de septiembre de 2026" }));

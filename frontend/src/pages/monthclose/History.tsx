@@ -4,7 +4,7 @@ import { AlertTriangle, CalendarCheck, ChevronDown, Loader2 } from "lucide-react
 import { listMonthCloses, monthCloseKeys, type MonthClose } from "../../api/monthClose";
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
-import { periodLabel } from "../taxfiling/labels";
+import { periodLabel, periodTitle } from "../taxfiling/labels";
 import { CloseDetail } from "./CloseDetail";
 import { describeMonthCloseError } from "./errors";
 import { closedAtLabel, overBudgetOf } from "./labels";
@@ -31,7 +31,7 @@ function Row({ close, selected, onSelect, children }: { close: MonthClose; selec
         className="focus-ring flex w-full flex-col gap-2 p-4 text-left transition-colors duration-200 hover:bg-primary/5 sm:flex-row sm:items-center sm:justify-between"
       >
         <span className="min-w-0">
-          <span className="block break-words font-medium capitalize">{periodLabel(close.period)}</span>
+          <span className="block break-words font-medium">{periodTitle(close.period)}</span>
           <span className="mt-0.5 block text-sm text-muted">Cerrado el {close.closed_at ? closedAtLabel(close.closed_at) : "—"}</span>
         </span>
         <span className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">

@@ -316,7 +316,7 @@ describe("UnfiledInvoices", () => {
     expect(alert).toHaveTextContent("Facturas emitidas en un periodo ya declarado");
     expect(alert).toHaveTextContent("Factura #9");
     expect(alert).toHaveTextContent("$30,172.41 MXN");
-    expect(alert).toHaveTextContent("octubre de 2026");
+    expect(alert).toHaveTextContent("Octubre de 2026");
     expect(within(alert).getByRole("link", { name: "Factura #9" })).toHaveAttribute("href", "/facturas");
   });
 
@@ -344,7 +344,7 @@ describe("PendingPeriods", () => {
     wrap(<PendingPeriods />);
     const items = await screen.findAllByRole("listitem");
     expect(items).toHaveLength(2);
-    expect(items[0]).toHaveTextContent("agosto de 2026");
+    expect(items[0]).toHaveTextContent("Agosto de 2026");
     expect(items[0]).toHaveTextContent("Vencido");
     expect(items[0]).toHaveTextContent("17 de septiembre de 2026");
     expect(within(items[0]).getByRole("link", { name: "Declarar agosto de 2026" })).toHaveAttribute("href", "/declaracion?period=2026-08");
@@ -371,12 +371,12 @@ describe("FilingHistory", () => {
     const onSelect = vi.fn();
     const onPay = vi.fn();
     wrap(<FilingHistory filter={{}} selectedPeriod={null} onSelect={onSelect} onPay={onPay} />);
-    const pending = await screen.findByRole("row", { name: /octubre de 2026/ });
+    const pending = await screen.findByRole("row", { name: /Octubre de 2026/ });
     expect(pending).toHaveTextContent("Pago pendiente");
     expect(pending).toHaveTextContent("ACUSE-1");
     expect(pending).toHaveTextContent("$591.25");
     expect(pending).toHaveTextContent("$1,600.00");
-    const paid = screen.getByRole("row", { name: /septiembre de 2026/ });
+    const paid = screen.getByRole("row", { name: /Septiembre de 2026/ });
     expect(paid).toHaveTextContent("Pagada");
     expect(paid).toHaveTextContent("$600.00");
     expect(within(paid).queryByRole("button", { name: /Registrar pago/ })).not.toBeInTheDocument();
@@ -390,7 +390,7 @@ describe("FilingHistory", () => {
   it("shows an IVA balance in favor", async () => {
     api.listTaxFilings.mockResolvedValue([{ ...FILING, iva_due: "-172.41" }]);
     wrap(<FilingHistory filter={{}} selectedPeriod={null} onSelect={vi.fn()} onPay={vi.fn()} />);
-    expect(await screen.findByRole("row", { name: /octubre de 2026/ })).toHaveTextContent("A favor $172.41");
+    expect(await screen.findByRole("row", { name: /Octubre de 2026/ })).toHaveTextContent("A favor $172.41");
   });
 
   it("passes the filters to the API and explains the empty results", async () => {
@@ -409,6 +409,6 @@ describe("FilingHistory", () => {
     wrap(<FilingHistory filter={{}} selectedPeriod={null} onSelect={vi.fn()} onPay={vi.fn()} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("El servidor tuvo un problema");
     fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
-    expect(await screen.findByRole("row", { name: /octubre de 2026/ })).toBeInTheDocument();
+    expect(await screen.findByRole("row", { name: /Octubre de 2026/ })).toBeInTheDocument();
   });
 });

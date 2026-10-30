@@ -68,16 +68,18 @@ export function PreviewPanel({ period, currentMonth, onClosed, onOpenStored }: P
   const { preview: close, existing } = preview.data;
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold capitalize tracking-tight">Vista previa del cierre de {label}</h2>
+      <h2 className="text-lg font-semibold tracking-tight">Vista previa del cierre de {label}</h2>
 
       {existing ? (
-        <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm">
-          <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 flex-1">
-            Este mes ya está cerrado desde el {existing.closed_at ? closedAtLabel(existing.closed_at) : "—"}. Lo que ves abajo es un cálculo con tus movimientos de hoy; el
-            cierre guardado no cambia. Para generarlo de nuevo, elimínalo primero.
-          </span>
-          <button type="button" onClick={() => onOpenStored(period)} className={secondaryButton}>
+        <div role="status" className="flex flex-col gap-3 rounded-lg border border-accent/60 bg-accent/15 px-4 py-3 text-sm sm:flex-row sm:items-center">
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="min-w-0">
+              Este mes ya está cerrado desde el {existing.closed_at ? closedAtLabel(existing.closed_at) : "—"}. Lo que ves abajo es un cálculo con tus movimientos de hoy; el
+              cierre guardado no cambia. Para generarlo de nuevo, elimínalo primero.
+            </span>
+          </div>
+          <button type="button" onClick={() => onOpenStored(period)} className={`${secondaryButton} w-full sm:w-auto`}>
             Ver cierre guardado
           </button>
         </div>
