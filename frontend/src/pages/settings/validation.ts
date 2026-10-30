@@ -13,6 +13,8 @@ export const isMonth = (s: string) => MONTH.test(s.trim());
 
 const MSG = {
   required: "Este campo es obligatorio.",
+  categoryName: "Escribe el nombre de la categoría.",
+  categoryDuplicate: "Ya existe una categoría con ese nombre.",
   decimal: "Escribe un número válido, sin signos ni comas (por ejemplo 1500.50).",
   month: "Usa el formato AAAA-MM (por ejemplo 2026-10).",
   postalCode: "El código postal debe tener 5 dígitos o dejarse vacío.",
@@ -105,7 +107,26 @@ export interface CategoryDraft {
   budget: string;
   includes: string;
   keywords: string;
+  /** True for a row added in this form and not saved yet: its name and kind are still editable. */
+  isNew?: boolean;
+  /** Stable React key of a new row (its name is empty or changing while typing). */
+  uid?: string;
 }
+
+export const KINDS = ["Gasto", "Ahorro", "Ingreso"] as const;
+
+let nextUid = 0;
+
+/** An empty row for a category the user is adding. */
+export const newCategoryDraft = (): CategoryDraft => ({
+  name: "",
+  kind: "Gasto",
+  budget: "",
+  includes: "",
+  keywords: "",
+  isNew: true,
+  uid: `new-${++nextUid}`,
+});
 
 export const toCategoryDraft = (c: Category): CategoryDraft => ({
   name: c.name,
@@ -116,7 +137,7 @@ export const toCategoryDraft = (c: Category): CategoryDraft => ({
 });
 
 export const fromCategoryDraft = (d: CategoryDraft): Category => ({
-  name: d.name,
+  name: d.isNew ? d.name.trim() : d.name,
   kind: d.kind,
   budget: d.budget.trim() === "" ? null : d.budget.trim(),
   includes: d.includes,
@@ -127,13 +148,22 @@ export const fromCategoryDraft = (d: CategoryDraft): Category => ({
 });
 
 /**
- * Budgets must be decimals and, when the base monthly income is available, the
+ * New rows need a name that is not taken (ignoring case) by any other row. Budgets
+ * must be decimals and, when the base monthly income is available, the
  * Gasto and Ahorro budgets may not add up to more than it ("total" error). Without
  * a base (null) only the amounts are checked.
  */
 export function validateCategories(cats: CategoryDraft[], base: string | null = null): Errors {
   const e: Errors = {};
-  cats.forEach((c, i) => decimal(e, `${i}.budget`, c.budget, false));
+  const taken = (name: string) => cats.filter((o) => o.name.trim().toLowerCase() === name).length > 1;
+  cats.forEach((c, i) => {
+    if (c.isNew) {
+      const name = c.name.trim().toLowerCase();
+      if (!name) e[`${i}.name`] = MSG.categoryName;
+      else if (taken(name)) e[`${i}.name`] = MSG.categoryDuplicate;
+    }
+    decimal(e, `${i}.budget`, c.budget, false);
+  });
   if (base !== null && Object.keys(e).length === 0) {
     const d = distribution(cats.filter((c) => isBudgetKind(c.kind)), base);
     if (d?.over) e["total"] = MSG.budgetTotal(d.assigned, d.excess, d.base);

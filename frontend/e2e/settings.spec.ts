@@ -37,6 +37,58 @@ test.describe("settings page", () => {
     await expect(page.getByLabel("Presupuesto de Renta")).toHaveValue("13500.75");
   });
 
+  test("adds a category, saves it at the end of the list and keeps the saved ones read-only", async ({ page }) => {
+    const api = await mockApi(page);
+    await seedSession(page);
+    await page.goto("/configuracion");
+    await page.getByRole("tab", { name: "Categorías y presupuestos" }).click();
+
+    // Saved categories have no name or kind inputs.
+    await expect(page.getByLabel("Presupuesto de Renta")).toBeVisible();
+    await expect(page.getByLabel("Nombre")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Agregar categoría" }).click();
+    await page.getByLabel("Nombre").fill("  Donaciones ");
+    await page.getByLabel("Tipo").selectOption("Gasto");
+    await page.getByLabel("Presupuesto de Donaciones").fill("500");
+    await page.getByLabel("Palabras clave (Donaciones)").fill("iglesia, diezmo");
+    await expectNoHorizontalOverflow(page, "categories (new row)");
+
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(page.getByText("Cambios guardados.")).toBeVisible();
+
+    const put = api.writes.find((w) => w.method === "PUT" && w.path === "/settings/categories");
+    const body = put?.body as { name: string; kind: string; budget: string | null; keywords: string[] }[];
+    expect(body[body.length - 1]).toMatchObject({ name: "Donaciones", kind: "Gasto", budget: "500", keywords: ["iglesia", "diezmo"] });
+
+    // Once saved, the new category is read-only like the rest.
+    await expect(page.getByLabel("Nombre")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Donaciones" })).toBeVisible();
+  });
+
+  test("blocks an empty or repeated name and removes an unsaved row", async ({ page }) => {
+    const api = await mockApi(page);
+    await seedSession(page);
+    await page.goto("/configuracion");
+    await page.getByRole("tab", { name: "Categorías y presupuestos" }).click();
+
+    await page.getByRole("button", { name: "Agregar categoría" }).click();
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(page.getByText("Escribe el nombre de la categoría.")).toBeVisible();
+
+    await page.getByLabel("Nombre").fill("renta");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(page.getByText("Ya existe una categoría con ese nombre.")).toBeVisible();
+    expect(api.writes).toHaveLength(0);
+
+    await page.getByRole("button", { name: /^Quitar/ }).click();
+    await expect(page.getByLabel("Nombre")).toHaveCount(0);
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(page.getByText("Cambios guardados.")).toBeVisible();
+    const put = api.writes.find((w) => w.method === "PUT" && w.path === "/settings/categories");
+    expect((put?.body as { name: string }[]).some((c) => c.name.toLowerCase() === "renta" && c.name !== "Renta")).toBe(false);
+  });
+
   test("saves the pay cycle start day as a number", async ({ page }) => {
     const api = await mockApi(page);
     await seedSession(page);

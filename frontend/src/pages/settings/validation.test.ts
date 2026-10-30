@@ -4,6 +4,7 @@ import {
   fromPauseDraft,
   isDecimal,
   isMonth,
+  newCategoryDraft,
   toCategoryDraft,
   allocationTotal,
   fromGeneralDraft,
@@ -47,6 +48,33 @@ describe("categories", () => {
       { name: "C", kind: "k", budget: "", includes: "", keywords: "" },
     ]);
     expect(Object.keys(errors)).toEqual(["1.budget"]);
+  });
+});
+
+describe("new categories", () => {
+  const saved = { name: "Renta", kind: "Gasto", budget: "", includes: "", keywords: "" };
+  const added = (name: string) => ({ ...newCategoryDraft(), name });
+
+  it("starts as an empty Gasto row with a unique key", () => {
+    const a = newCategoryDraft();
+    expect(a).toMatchObject({ name: "", kind: "Gasto", isNew: true });
+    expect(a.uid).not.toBe(newCategoryDraft().uid);
+  });
+
+  it("requires a non-blank name", () => {
+    expect(validateCategories([saved, added("   ")])).toEqual({ "1.name": "Escribe el nombre de la categoría." });
+  });
+
+  it("rejects a name that repeats a saved one or another new row, ignoring case and spaces", () => {
+    expect(validateCategories([saved, added(" renta ")])).toHaveProperty("1.name", "Ya existe una categoría con ese nombre.");
+    const e = validateCategories([saved, added("Donaciones"), added("DONACIONES")]);
+    expect(Object.keys(e).sort()).toEqual(["1.name", "2.name"]);
+  });
+
+  it("accepts a unique name and trims it when saving", () => {
+    const rows = [saved, added("  Donaciones ")];
+    expect(validateCategories(rows)).toEqual({});
+    expect(fromCategoryDraft(rows[1]!).name).toBe("Donaciones");
   });
 });
 
