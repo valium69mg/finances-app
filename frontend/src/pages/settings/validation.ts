@@ -244,3 +244,19 @@ export function validatePause(d: PauseDraft): Errors {
   }
   return e;
 }
+
+/** The General blocks that are edited on their own. */
+export type GeneralBlock = "income" | "extra" | "period" | "split" | "alloc";
+
+const BLOCK_KEYS: Record<GeneralBlock, (key: string) => boolean> = {
+  income: (k) => ["salary_usd", "fx_rate_applied", "morse_fee_rate"].includes(k),
+  extra: (k) => ["emergency_months", "extra_income_estimate_mxn"].includes(k),
+  period: (k) => k === "cycle_start_day",
+  split: (k) => k === "split" || k.startsWith("split."),
+  alloc: (k) => k === "alloc" || k.startsWith("alloc."),
+};
+
+/** Validates the whole General object but keeps only the errors of the fields the block shows (the rest is not on screen). */
+export function validateGeneralBlock(g: GeneralDraft, block: GeneralBlock): Errors {
+  return Object.fromEntries(Object.entries(validateGeneral(g)).filter(([k]) => BLOCK_KEYS[block](k)));
+}
