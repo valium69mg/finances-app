@@ -159,6 +159,11 @@ test("audit screenshots", async ({ page }, info) => {
   test.setTimeout(900_000);
   const fs = await import("node:fs");
   const metrics: Record<string, unknown> = {};
+  // React warns about duplicate keys in the console: the audit data must be as consistent as the real API.
+  const reactWarnings: string[] = [];
+  page.on("console", (m) => {
+    if (m.type() === "error" && /same key|unique "key"/.test(m.text())) reactWarnings.push(m.text().slice(0, 200));
+  });
   const measure = () =>
     page.evaluate(() => {
       const vis = (el: Element) => {
@@ -190,8 +195,9 @@ test("audit screenshots", async ({ page }, info) => {
       { id: 1, date: today_, description: "Renta", category: "Renta", payment_method: "Transferencia", currency: "MXN", amount: "12000.00", exchange_rate: null, amount_mxn: "12000.00" },
       { id: 2, date: today_, description: "Súper", category: "Comida", payment_method: "Débito", currency: "MXN", amount: "1450.00", exchange_rate: null, amount_mxn: "1450.00" },
     ],
-    income: [{ id: 1, date: today_, description: "Sueldo octubre", category: "Sueldo", payment_method: "Transferencia", currency: "MXN", amount: "32000.00", exchange_rate: null, amount_mxn: "32000.00" }],
-    savings: [{ id: 1, date: today_, description: "Aporte", category: "Inversión", instrument: "VOO", payment_method: "Transferencia", currency: "MXN", amount: "2000.00", exchange_rate: null, amount_mxn: "2000.00" }],
+    // movements is one shared table: ids are unique across kinds (the Panel keys its recent list by id).
+    income: [{ id: 11, date: today_, description: "Sueldo octubre", category: "Sueldo", payment_method: "Transferencia", currency: "MXN", amount: "32000.00", exchange_rate: null, amount_mxn: "32000.00" }],
+    savings: [{ id: 21, date: today_, description: "Aporte", category: "Inversión", instrument: "VOO", payment_method: "Transferencia", currency: "MXN", amount: "2000.00", exchange_rate: null, amount_mxn: "2000.00" }],
     bills: [
       { id: 1, name: "Internet", category: "Servicios", amount: "599.00", currency: "MXN", recurrence: "monthly" as const, next_due_date: day(3), reminder_lead_days: 3, active: true, notes: "" },
       { id: 2, name: "Seguro", category: "Seguros", amount: null, currency: "MXN", recurrence: "yearly" as const, next_due_date: day(-2), reminder_lead_days: 7, active: true, notes: "" },
@@ -264,4 +270,27 @@ test("audit screenshots", async ({ page }, info) => {
     }
   }
   fs.writeFileSync(`${shots}/audit/metrics.json`, JSON.stringify(metrics, null, 1));
+  expect(reactWarnings).toEqual([]);
+});
+
+test("dock, Más sheet and logout confirmation", async ({ page }, info) => {
+  test.skip(!shots || info.project.name !== "mobile", "only with SHOTS_DIR, once");
+  const fs = await import("node:fs");
+  fs.mkdirSync(`${shots}/audit`, { recursive: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.emulateMedia({ colorScheme: "light" });
+  await mockApi(page, { role: "owner" });
+  await seedSession(page, "owner");
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Panel" })).toBeVisible();
+  await page.screenshot({ path: `${shots}/audit/dock-375.png` });
+  await page.getByRole("button", { name: "Más", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Más", exact: true });
+  await expect(sheet).toBeVisible();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${shots}/audit/mas-sheet-375.png` });
+  await sheet.getByRole("button", { name: "Cerrar sesión" }).click();
+  await expect(page.getByRole("dialog", { name: "¿Cerrar sesión?" })).toBeVisible();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: `${shots}/audit/logout-confirm-375.png` });
 });
