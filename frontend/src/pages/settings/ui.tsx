@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CheckCircle2, Loader2, Save } from "lucide-react";
+import { AlertCircle } from "lucide-react";
 import { ApiError } from "../../api/client";
 import { settingsKeys } from "../../api/settings";
 
@@ -37,96 +37,12 @@ export function useSave<T>(fn: (value: T) => Promise<void>) {
   });
 }
 
-/**
- * Editable copy of server data. It resets whenever the server data changes
- * (TanStack Query's structural sharing keeps the reference stable when a
- * refetch returns identical data, so unsaved edits survive window refocus).
- */
-export function useDraft<S, D>(source: S, toDraft: (s: S) => D) {
-  const [draft, setDraft] = useState<D>(() => toDraft(source));
-  const [prev, setPrev] = useState(source);
-  if (prev !== source) {
-    setPrev(source);
-    setDraft(toDraft(source));
-  }
-  return [draft, setDraft] as const;
-}
-
 export function ErrorBanner({ children }: { children: ReactNode }) {
   return (
     <p role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
       <span className="min-w-0 break-words">{children}</span>
     </p>
-  );
-}
-
-/** The slice of a mutation the form frame needs (independent of the mutation's variables type). */
-interface SaveState {
-  isPending: boolean;
-  isError: boolean;
-  isSuccess: boolean;
-  error: unknown;
-  reset: () => void;
-}
-
-interface SectionFormProps {
-  title: string;
-  description?: string;
-  save: SaveState;
-  /** Validates and, when valid, starts the save. Returns false when the form has errors. */
-  onSubmit: () => boolean;
-  submitLabel?: string;
-  extraActions?: ReactNode;
-  /** Blocking validation message shown right above the save button (it must be visible where the user acts). */
-  notice?: ReactNode;
-  children: ReactNode;
-}
-
-/** Shared frame for a settings section: heading, fields, save button and feedback. */
-export function SectionForm({ title, description, save, onSubmit, submitLabel = "Guardar cambios", extraActions, notice, children }: SectionFormProps) {
-  const formRef = useRef<HTMLFormElement>(null);
-  const [attempt, setAttempt] = useState(0);
-  const headingId = useId();
-
-  // Focus the first invalid field after a failed validation.
-  useEffect(() => {
-    if (attempt === 0) return;
-    formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
-  }, [attempt]);
-
-  function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!onSubmit()) setAttempt((n) => n + 1);
-  }
-
-  return (
-    <form ref={formRef} noValidate onSubmit={handleSubmit} onChange={() => save.isSuccess && save.reset()} aria-labelledby={headingId} className="space-y-6">
-      <div>
-        <h2 id={headingId} className="text-lg font-semibold tracking-tight">
-          {title}
-        </h2>
-        {description && <p className="mt-1 text-sm text-muted">{description}</p>}
-      </div>
-      {children}
-      {notice}
-      {save.isError && <ErrorBanner>{describeSaveError(save.error)}</ErrorBanner>}
-      <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" disabled={save.isPending} aria-busy={save.isPending} className={primaryButton}>
-          {save.isPending ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Save className="h-4 w-4" aria-hidden="true" />}
-          {save.isPending ? "Guardando…" : submitLabel}
-        </button>
-        {extraActions}
-        <span role="status" className="text-sm">
-          {save.isSuccess && (
-            <span className="flex items-center gap-1.5 text-foreground">
-              <CheckCircle2 className="h-4 w-4 text-accent" aria-hidden="true" />
-              Cambios guardados.
-            </span>
-          )}
-        </span>
-      </div>
-    </form>
   );
 }
 
