@@ -8,6 +8,9 @@ import "@fontsource/ibm-plex-sans/400.css";
 import "@fontsource/ibm-plex-sans/500.css";
 import "@fontsource/ibm-plex-sans/600.css";
 import "./index.css";
+import { initTheme } from "./theme";
+
+initTheme();
 
 const queryClient = new QueryClient();
 
