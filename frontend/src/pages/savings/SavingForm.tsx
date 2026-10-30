@@ -1,7 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
-import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { createSaving, savingsKeys, updateSaving, type Saving, type SavingInput } from "../../api/savings";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
@@ -18,12 +17,13 @@ interface Props {
   /** When set, the form edits this saving instead of creating one. Remount (key) to switch. */
   editing: Saving | null;
   onSaved: () => void;
-  onCancelEdit: () => void;
+  onCancel: () => void;
 }
 
 export const SAVINGS_KIND = "Ahorro";
 
-export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) {
+/** Create / edit form of a saving, rendered inside a dialog that carries the title. */
+export function SavingForm({ settings, editing, onSaved, onCancel }: Props) {
   const qc = useQueryClient();
   const instruments = settings.instruments.instruments;
   const methods = settings.payment_methods;
@@ -39,7 +39,6 @@ export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) 
   const [instrument, setInstrument] = useState(editing?.instrument ?? "");
   const [category, setCategory] = useState(editing?.category ?? "");
   const [errors, setErrors] = useState<{ amount?: string; rate?: string; date?: string }>({});
-  const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null);
   const amountRef = useRef<HTMLInputElement>(null);
 
   const save = useMutation({
@@ -85,11 +84,8 @@ export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) 
   const title = editing ? "Editar ahorro" : "Nuevo ahorro";
 
   return (
-    <form ref={formRef} noValidate onSubmit={onSubmit} aria-labelledby="saving-form-title" className="space-y-5">
-      <h2 id="saving-form-title" className="text-lg font-semibold tracking-tight">
-        {title}
-      </h2>
-      <div className={`${fieldGrid} lg:grid-cols-3`}>
+    <form noValidate onSubmit={onSubmit} aria-label={title} className="space-y-5">
+      <div className={fieldGrid}>
         <InstrumentSelect
           label="Instrumento"
           value={instrument}
@@ -154,11 +150,9 @@ export function SavingForm({ settings, editing, onSaved, onCancelEdit }: Props) 
           )}
           {save.isPending ? "Guardando…" : editing ? "Guardar cambios" : "Agregar ahorro"}
         </button>
-        {editing && (
-          <button type="button" onClick={onCancelEdit} className={secondaryButton}>
-            Cancelar edición
-          </button>
-        )}
+        <button type="button" onClick={onCancel} className={secondaryButton}>
+          Cancelar
+        </button>
       </div>
     </form>
   );

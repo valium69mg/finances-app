@@ -1,16 +1,16 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Plus } from "lucide-react";
+import { Loader2, Plus } from "lucide-react";
 import { addValuation, savingsKeys, type ValuationInput } from "../../api/savings";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
 import { isValuationAmount, todayISO } from "../expenses/money";
-import { ErrorBanner, fieldGrid, primaryButton } from "../settings/ui";
+import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeValuationError } from "./errors";
 import { InstrumentSelect } from "./InstrumentSelect";
 
 /** Appends a manual valuation. Valuations are append-only: a correction is a newer valuation. */
-export function ValuationForm({ settings }: { settings: AllSettings }) {
+export function ValuationForm({ settings, onDone, onCancel }: { settings: AllSettings; onDone: () => void; onCancel: () => void }) {
   const qc = useQueryClient();
   const instruments = settings.instruments.instruments;
   const [instrument, setInstrument] = useState("");
@@ -26,8 +26,7 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
     mutationFn: (input: ValuationInput) => addValuation(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: savingsKeys.all });
-      setValue("");
-      setNote("");
+      onDone();
     },
   });
 
@@ -52,16 +51,9 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
   }
 
   return (
-    <form noValidate onSubmit={onSubmit} aria-labelledby="valuation-form-title" className="space-y-5">
-      <div>
-        <h2 id="valuation-form-title" className="text-lg font-semibold tracking-tight">
-          Registrar valuación
-        </h2>
-        <p className="mt-1 text-sm text-muted">
-          Las valuaciones no se editan ni se eliminan: para corregir una, registra una nueva con fecha posterior.
-        </p>
-      </div>
-      <div className={`${fieldGrid} lg:grid-cols-3`}>
+    <form noValidate onSubmit={onSubmit} aria-label="Registrar valuación" className="space-y-5">
+      <p className="text-sm text-muted">Las valuaciones no se editan ni se eliminan: para corregir una, registra una nueva con fecha posterior.</p>
+      <div className={fieldGrid}>
         <InstrumentSelect
           label="Instrumento a valuar"
           value={instrument}
@@ -90,14 +82,9 @@ export function ValuationForm({ settings }: { settings: AllSettings }) {
           {add.isPending ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}
           {add.isPending ? "Guardando…" : "Registrar valuación"}
         </button>
-        <span role="status" className="text-sm">
-          {add.isSuccess && (
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-accent" aria-hidden="true" />
-              Valuación registrada.
-            </span>
-          )}
-        </span>
+        <button type="button" onClick={onCancel} className={secondaryButton}>
+          Cancelar
+        </button>
       </div>
     </form>
   );

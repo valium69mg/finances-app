@@ -1,19 +1,19 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRightLeft, CheckCircle2, Loader2 } from "lucide-react";
+import { ArrowRightLeft, Loader2 } from "lucide-react";
 import { savingsKeys, transferSavings, type TransferInput } from "../../api/savings";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
 import { isPositiveDecimal } from "../expenses/money";
 import { SelectField } from "../expenses/SelectField";
 import { MAX_MOVEMENT_DESCRIPTION_LENGTH } from "../movementErrors";
-import { ErrorBanner, fieldGrid, primaryButton } from "../settings/ui";
+import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeSavingsError } from "./errors";
 import { InstrumentSelect } from "./InstrumentSelect";
 import { SAVINGS_KIND } from "./SavingForm";
 
 /** Moves money from one instrument to another as a pair of movements. */
-export function TransferForm({ settings }: { settings: AllSettings }) {
+export function TransferForm({ settings, onDone, onCancel }: { settings: AllSettings; onDone: () => void; onCancel: () => void }) {
   const qc = useQueryClient();
   const instruments = settings.instruments.instruments;
   const [from, setFrom] = useState("");
@@ -28,8 +28,7 @@ export function TransferForm({ settings }: { settings: AllSettings }) {
     mutationFn: (input: TransferInput) => transferSavings(input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: savingsKeys.all });
-      setAmount("");
-      setDescription("");
+      onDone();
     },
   });
 
@@ -55,14 +54,9 @@ export function TransferForm({ settings }: { settings: AllSettings }) {
   const categories = settings.categories.filter((c) => c.kind === SAVINGS_KIND).map((c) => c.name);
 
   return (
-    <form noValidate onSubmit={onSubmit} aria-labelledby="transfer-form-title" className="space-y-5">
-      <div>
-        <h2 id="transfer-form-title" className="text-lg font-semibold tracking-tight">
-          Traspasar entre instrumentos
-        </h2>
-        <p className="mt-1 text-sm text-muted">Mueve dinero de un instrumento a otro sin cambiar el total ahorrado.</p>
-      </div>
-      <div className={`${fieldGrid} lg:grid-cols-3`}>
+    <form noValidate onSubmit={onSubmit} aria-label="Traspasar entre instrumentos" className="space-y-5">
+      <p className="text-sm text-muted">Mueve dinero de un instrumento a otro sin cambiar el total ahorrado.</p>
+      <div className={fieldGrid}>
         <InstrumentSelect label="Desde" value={from} onChange={setFrom} instruments={instruments} emptyLabel="Elige un instrumento" />
         <InstrumentSelect label="Hacia" value={to} onChange={setTo} instruments={instruments} emptyLabel="Elige un instrumento" />
         <TextField
@@ -97,14 +91,9 @@ export function TransferForm({ settings }: { settings: AllSettings }) {
           )}
           {transfer.isPending ? "Traspasando…" : "Traspasar"}
         </button>
-        <span role="status" className="text-sm">
-          {transfer.isSuccess && (
-            <span className="flex items-center gap-1.5">
-              <CheckCircle2 className="h-4 w-4 text-accent" aria-hidden="true" />
-              Traspaso registrado.
-            </span>
-          )}
-        </span>
+        <button type="button" onClick={onCancel} className={secondaryButton}>
+          Cancelar
+        </button>
       </div>
     </form>
   );

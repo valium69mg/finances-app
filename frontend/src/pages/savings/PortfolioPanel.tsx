@@ -1,9 +1,9 @@
 import { useId } from "react";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { Loader2, PiggyBank, ShieldCheck, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { CardTitle } from "../../components/CardTitle";
 import { EmptyNote } from "../../components/EmptyNote";
-import { cardClass } from "../../components/LinkCard";
+import { StatCard, cardClass } from "../../components/LinkCard";
 import { getPortfolio, savingsKeys, type EmergencyProgress, type Portfolio } from "../../api/savings";
 import { formatMoney, formatPercent, percentOf } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
@@ -16,7 +16,7 @@ const tdNum = "px-3 py-2 text-right align-top tabular-nums";
 
 function PortfolioTable({ portfolio }: { portfolio: Portfolio }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
+    <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
       <table className="w-full min-w-[44rem] border-collapse text-sm">
         <caption className="sr-only">Portafolio por instrumento</caption>
         <thead>
@@ -78,6 +78,46 @@ function PortfolioTable({ portfolio }: { portfolio: Portfolio }) {
         </tfoot>
       </table>
     </div>
+  );
+}
+
+/** The per-instrument portfolio as cards, for a phone: the same figures as the table, without the horizontal scroll. */
+function PortfolioCards({ portfolio }: { portfolio: Portfolio }) {
+  return (
+    <ul aria-label="Instrumentos del portafolio" className="space-y-2 md:hidden">
+      {portfolio.rows.map((r) => (
+        <li key={r.id} data-testid="instrument-card" className="rounded-xl border border-border bg-surface p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="break-words font-medium">{r.name}</p>
+              <p className="break-words text-xs text-muted">
+                {r.type}
+                {r.platform ? ` · ${r.platform}` : ""}
+              </p>
+            </div>
+            <p className="shrink-0 text-right text-lg font-semibold tabular-nums">{r.unvalued ? "—" : formatMoney(r.value)}</p>
+          </div>
+          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+            <div>
+              <dt className="text-muted">Aportado</dt>
+              <dd className="tabular-nums">{formatMoney(r.contributed)}</dd>
+            </div>
+            <div>
+              <dt className="text-muted">Valuación</dt>
+              <dd>{r.unvalued || !r.value_date ? <span className="text-muted">sin valuar</span> : r.value_date}</dd>
+            </div>
+            <div>
+              <dt className="text-muted">Ganancia</dt>
+              <dd className="tabular-nums">{r.unvalued ? "—" : `${formatMoney(r.gain)} (${formatPercent(r.gain_pct)})`}</dd>
+            </div>
+            <div>
+              <dt className="text-muted">% del total</dt>
+              <dd className="tabular-nums">{r.unvalued ? "—" : formatPercent(r.pct_of_total)}</dd>
+            </div>
+          </dl>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -159,7 +199,27 @@ export function EmergencyCard({ emergency, to }: { emergency: EmergencyProgress;
   );
 }
 
-/** Portfolio per instrument with totals, subtotals and the emergency fund progress. */
+/** Headline figures: what the portfolio is worth now, what was put in, and the emergency fund progress. */
+function Headline({ portfolio }: { portfolio: Portfolio }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-3">
+      <dl aria-label="Resumen del portafolio" className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
+        <StatCard label="Valor del portafolio" hint="Según la última valuación de cada instrumento" icon={TrendingUp} tone="saving">
+          {formatMoney(portfolio.total_value)}
+        </StatCard>
+        <StatCard label="Total aportado" icon={PiggyBank} tone="saving">
+          {formatMoney(portfolio.total_contributed)}
+        </StatCard>
+      </dl>
+      <EmergencyCard emergency={portfolio.emergency} />
+    </div>
+  );
+}
+
+/**
+ * Savings summary: headline figures and the emergency fund, the subtotals by type and destination, and the portfolio
+ * per instrument (a table from md up, cards below it).
+ */
 export function PortfolioPanel() {
   const portfolio = useQuery({ queryKey: savingsKeys.portfolio, queryFn: getPortfolio, retry: false });
 
@@ -187,9 +247,15 @@ export function PortfolioPanel() {
   }
   return (
     <div className="space-y-4">
-      <PortfolioTable portfolio={p} />
+      <Headline portfolio={p} />
       <Subtotals portfolio={p} />
-      <EmergencyCard emergency={p.emergency} />
+      <section aria-labelledby="by-instrument-title" className="space-y-2">
+        <h3 id="by-instrument-title" className="text-base font-semibold tracking-tight">
+          Por instrumento
+        </h3>
+        <PortfolioCards portfolio={p} />
+        <PortfolioTable portfolio={p} />
+      </section>
     </div>
   );
 }
