@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockFutureExpense } from "./helpers";
+import { sectionControl } from "./settingsNav";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -62,7 +63,7 @@ test.describe("future expenses module", () => {
     await expect(page.getByRole("navigation", { name: "Módulos" }).getByRole("link", { name: "Gastos futuros" })).toHaveAttribute("aria-current", "page");
 
     await page.goto("/configuracion");
-    await expect(page.getByRole("tab", { name: "General" })).toBeVisible();
+    await expect(sectionControl(page)).toBeVisible();
     await expect(page.getByRole("tab", { name: "Gastos futuros" })).toHaveCount(0);
   });
 

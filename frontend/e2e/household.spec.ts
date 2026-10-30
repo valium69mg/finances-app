@@ -93,6 +93,7 @@ test.describe("household session", () => {
     await openAsHousehold(page, "/configuracion");
     await expect(page).toHaveURL(/\/$/);
     await expect(page.getByRole("tab", { name: "Usuarios" })).toHaveCount(0);
+    await expect(page.getByLabel("Sección")).toHaveCount(0);
   });
 
   test("a 403 from the server shows a message instead of crashing the page", async ({ page }) => {

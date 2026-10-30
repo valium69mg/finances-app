@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockUser } from "./helpers";
+import { gotoSettings, sectionControl, switchSection } from "./settingsNav";
 
 async function expectNoHorizontalOverflow(page: Page, where: string) {
   const size = await page.evaluate(() => ({
@@ -18,8 +19,7 @@ const INACTIVE: MockUser = { id: "u-off", email: "off@example.com", role: "house
 async function openUsers(page: Page, opts: Parameters<typeof mockApi>[1] = {}) {
   const api = await mockApi(page, { users: [OWNER, PENDING, VERIFIED, INACTIVE], ...opts });
   await seedSession(page, "owner");
-  await page.goto("/configuracion");
-  await page.getByRole("tab", { name: "Usuarios" }).click();
+  await gotoSettings(page, "usuarios");
   await expect(page.getByRole("heading", { level: 2, name: "Usuarios" })).toBeVisible();
   return api;
 }
@@ -114,12 +114,12 @@ test.describe("users section (owner)", () => {
     await openUsers(page, { usersFail: "list" });
     await expect(page.getByRole("alert")).toBeVisible();
     await expect(page.getByRole("button", { name: "Reintentar" })).toBeVisible();
-    await expect(page.getByRole("tab", { name: "General" })).toBeVisible();
+    await expect(sectionControl(page)).toBeVisible();
   });
 
   test("the other settings sections still load next to it", async ({ page }) => {
     await openUsers(page);
-    await page.getByRole("tab", { name: "General" }).click();
-    await expect(page.getByLabel("Inicio del periodo")).toBeVisible();
+    await switchSection(page, "General");
+    await expect(page.getByRole("heading", { level: 3, name: "Periodo" })).toBeVisible();
   });
 });
