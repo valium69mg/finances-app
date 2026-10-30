@@ -10,6 +10,9 @@ interface Props {
   highlight?: boolean;
 }
 
+/** Open modals, innermost last: Escape closes only the top one, wherever the focus is. */
+const openModals: symbol[] = [];
+
 const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])';
 
 /**
@@ -23,6 +26,24 @@ export function Modal({ title, onClose, children, highlight = false }: Props) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  // Escape works even when the focus was lost (for example on a button that was disabled while saving).
+  useEffect(() => {
+    const token = Symbol("modal");
+    openModals.push(token);
+    function onEscape(e: globalThis.KeyboardEvent) {
+      if (e.key !== "Escape" || openModals[openModals.length - 1] !== token) return;
+      e.stopPropagation();
+      onCloseRef.current();
+    }
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      document.removeEventListener("keydown", onEscape);
+      openModals.splice(openModals.indexOf(token), 1);
+    };
+  }, []);
 
   useEffect(() => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -37,11 +58,6 @@ export function Modal({ title, onClose, children, highlight = false }: Props) {
   }, []);
 
   function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      onClose();
-      return;
-    }
     if (e.key !== "Tab") return;
     const focusable = ref.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
     if (!focusable || focusable.length === 0) return;
