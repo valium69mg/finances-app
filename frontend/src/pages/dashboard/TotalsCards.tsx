@@ -13,11 +13,12 @@ export interface TotalsLinks {
 
 /**
  * Month totals: income, expenses, savings contributed and the money left. Each kind has its own icon and tint.
+ * `compact` keeps two columns where the page is narrow (Hogar, beside its section nav).
  * `links` makes a card a link (the household and the owner's Panels pass them).
  */
-export function TotalsCards({ dashboard, links = {} }: { dashboard: Pick<Dashboard, "income" | "expenses" | "savings" | "available">; links?: TotalsLinks }) {
+export function TotalsCards({ dashboard, links = {}, compact = false }: { dashboard: Pick<Dashboard, "income" | "expenses" | "savings" | "available">; links?: TotalsLinks; compact?: boolean }) {
   return (
-    <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <dl className={`grid gap-4 sm:grid-cols-2 ${compact ? "" : "lg:grid-cols-4"}`}>
       <StatCard label="Ingresos" icon={KIND.Ingreso.icon} tone={KIND.Ingreso.tone} to={links.income}>
         {formatMoney(dashboard.income)}
       </StatCard>

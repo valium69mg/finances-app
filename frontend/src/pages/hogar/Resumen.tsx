@@ -49,6 +49,7 @@ export function Resumen({ userId }: { userId: string }) {
       {mine.data && (
         <div className="space-y-4">
           <TotalsCards
+            compact
             dashboard={mine.data}
             links={{
               income: hogarLink(userId, "ingresos", { mes: linkMonth }),
