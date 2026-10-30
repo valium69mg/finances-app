@@ -6,6 +6,32 @@ import { Modal } from "./Modal";
 afterEach(cleanup);
 
 describe("Modal", () => {
+  it("focuses the first field without scrolling and starts both scroll containers at the top", () => {
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    render(
+      <Modal title="Largo" onClose={() => {}}>
+        <input aria-label="campo" />
+      </Modal>,
+    );
+    const field = screen.getByLabelText("campo");
+    expect(focus.mock.instances).toContain(field);
+    expect(focus.mock.calls[focus.mock.instances.indexOf(field)][0]).toEqual({ preventScroll: true });
+    expect(field.closest("div.overflow-y-auto")!.scrollTop).toBe(0);
+    focus.mockRestore();
+  });
+
+  it("starts on the element marked data-autofocus", () => {
+    render(
+      <Modal title="Confirmar" onClose={() => {}}>
+        <input aria-label="campo" />
+        <button type="button" data-autofocus>
+          Cancelar
+        </button>
+      </Modal>,
+    );
+    expect(screen.getByRole("button", { name: "Cancelar" })).toHaveFocus();
+  });
+
   it("closes with Escape even when the focus is on the page body", () => {
     const onClose = vi.fn();
     render(

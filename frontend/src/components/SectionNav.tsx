@@ -22,9 +22,15 @@ interface Props<T extends string> {
  * ("Sección") below it, and the active section's panel beside/under it. The caller owns the active id (usually the
  * `?seccion=` param). Arrow keys, Home and End move between tabs (roving tabindex).
  */
-export function SectionNav<T extends string>({ items, active, onSelect, label, selectLabel = "Sección", children }: Props<T>) {
+export function SectionNav<T extends string>({ items, active, onSelect: pick, label, selectLabel = "Sección", children }: Props<T>) {
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const current = items.find((s) => s.id === active) ?? items[0];
+
+  /** A different section starts at the top of the page, as a new page does. */
+  function onSelect(id: T) {
+    if (id !== current.id) window.scrollTo(0, 0);
+    pick(id);
+  }
 
   function onTabKeyDown(e: KeyboardEvent<HTMLButtonElement>, index: number) {
     const last = items.length - 1;

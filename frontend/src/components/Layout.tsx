@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigationType } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, CircleUser, LogOut, Wallet, X } from "lucide-react";
 import { fetchMe } from "../api/auth";
@@ -7,6 +7,7 @@ import { tokenStore } from "../api/tokens";
 import { useAuth } from "../auth/AuthContext";
 import { modulesFor } from "../navigation";
 import { BottomDock } from "./BottomDock";
+import { LogoutDialog } from "./LogoutDialog";
 import { MoreSheet } from "./MoreSheet";
 import { PendingRequestsBadge } from "./PendingRequestsBadge";
 import { QuickExpense, type QuickExpenseResult } from "./QuickExpense";
@@ -60,8 +61,10 @@ type Overlay = "quick" | "more" | null;
 const NOTICE_MS = 6000;
 
 export function Layout() {
-  const { role, logout } = useAuth();
+  const { role } = useAuth();
   const location = useLocation();
+  const navigationType = useNavigationType();
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [notice, setNotice] = useState<{ result: QuickExpenseResult } | null>(null);
   const mainRef = useRef<HTMLElement>(null);
@@ -74,13 +77,16 @@ export function Layout() {
     if (serverRole) tokenStore.setRole(serverRole);
   }, [serverRole]);
 
-  // Move focus to the page content after client-side navigation. Comparing the path (instead of a
-  // first-render flag) also skips the first load when StrictMode runs the effect twice in development.
+  // After a client-side navigation to another page: land at the top (a new page must not inherit the previous scroll
+  // offset, which hid the title under the sticky header) and move focus to the content without scrolling. Back and
+  // forward (POP) keep whatever the browser restores. Comparing the path (instead of a first-render flag) also skips
+  // the first load when StrictMode runs the effect twice in development.
   useEffect(() => {
     if (shownPath.current === location.pathname) return;
     shownPath.current = location.pathname;
-    mainRef.current?.focus();
-  }, [location.pathname]);
+    if (navigationType !== "POP") window.scrollTo(0, 0);
+    mainRef.current?.focus({ preventScroll: true });
+  }, [location.pathname, navigationType]);
 
   // Dock overlays: close them when the viewport grows into the sidebar layout (the dock is gone there).
   useEffect(() => {
@@ -137,7 +143,8 @@ export function Layout() {
               <div className="border-l border-border pl-3">
                 <button
                   type="button"
-                  onClick={() => void logout()}
+                  onClick={() => setConfirmingLogout(true)}
+                  aria-haspopup="dialog"
                   className="focus-ring inline-flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium text-muted transition-colors duration-200 hover:bg-destructive/10 hover:text-destructive"
                 >
                   <LogOut className="h-5 w-5" aria-hidden="true" />
@@ -186,6 +193,7 @@ export function Layout() {
       </div>
 
       {overlay === "quick" && <QuickExpense role={role} onClose={() => setOverlay(null)} onSaved={(result) => setNotice({ result })} />}
+      {confirmingLogout && <LogoutDialog onClose={() => setConfirmingLogout(false)} />}
       {overlay === "more" && <MoreSheet email={me.data?.email} onClose={() => setOverlay(null)} />}
     </div>
   );

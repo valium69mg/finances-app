@@ -27,6 +27,7 @@ export function Modal({ title, onClose, children, highlight = false, sheet = fal
   const bodyRef = useFocusOnEdit<HTMLDivElement>(highlight, { scroll: false, focus: false, inset: true });
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -49,13 +50,20 @@ export function Modal({ title, onClose, children, highlight = false, sheet = fal
 
   useEffect(() => {
     opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const first = ref.current?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled])') ?? ref.current?.querySelector<HTMLElement>(FOCUSABLE);
-    first?.focus();
+    // Nothing may scroll on open: focusing a field far down a long form would scroll the (overflow-hidden) panel and
+    // push the title out of view, so the scroll is suppressed and both scroll containers start at the top.
+    const first =
+      ref.current?.querySelector<HTMLElement>("[data-autofocus]") ??
+      ref.current?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled])') ??
+      ref.current?.querySelector<HTMLElement>(FOCUSABLE);
+    first?.focus({ preventScroll: true });
+    if (panelRef.current) panelRef.current.scrollTop = 0;
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = previous;
-      opener.current?.focus();
+      opener.current?.focus({ preventScroll: true });
     };
   }, []);
 
@@ -78,7 +86,8 @@ export function Modal({ title, onClose, children, highlight = false, sheet = fal
     <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={onKeyDown} className={`fixed inset-0 z-40 flex items-end justify-center ${sheet ? "" : "sm:items-center sm:p-4"}`}>
       <div className="absolute inset-0 animate-fade-in bg-foreground/50" onClick={onClose} aria-hidden="true" />
       <div
-        className={`relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-border bg-surface shadow-xl ${
+        ref={panelRef}
+        className={`relative flex max-h-[92vh] max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-border bg-surface shadow-xl ${
           sheet ? "animate-sheet-in" : "sm:rounded-xl"
         }`}
       >
