@@ -223,12 +223,17 @@ test.describe("closing a month", () => {
     await expect(historyRow(page, PREV)).toContainText(label(PREV).replace(/^./, (c) => c.toUpperCase()));
     // On a phone the banner stacks: the button sits under the text at the banner's full width.
     if ((page.viewportSize()?.width ?? 1024) < 640) {
-      const banner = (await page.getByRole("status").filter({ hasText: "Este mes ya está cerrado" }).boundingBox())!;
-      const text = (await page.getByText("Este mes ya está cerrado desde el").boundingBox())!;
-      const button = (await page.getByRole("button", { name: "Ver cierre guardado" }).boundingBox())!;
-      expect(button.y).toBeGreaterThanOrEqual(text.y + text.height);
-      expect(button.width).toBeGreaterThan(banner.width - 40);
-      expect(text.width).toBeGreaterThan(banner.width - 60);
+      // One evaluate, so every rect is read at the same scroll position.
+      const m = await page.evaluate(() => {
+        const banner = [...document.querySelectorAll('[role="status"]')].find((e) => e.textContent?.includes("Este mes ya está cerrado"))!;
+        const text = banner.querySelector("span")!.getBoundingClientRect();
+        const button = banner.querySelector("button")!.getBoundingClientRect();
+        const box = banner.getBoundingClientRect();
+        return { bannerWidth: box.width, textBottom: text.bottom, textWidth: text.width, buttonTop: button.top, buttonWidth: button.width };
+      });
+      expect(m.buttonTop).toBeGreaterThanOrEqual(m.textBottom);
+      expect(m.buttonWidth).toBeGreaterThan(m.bannerWidth - 40);
+      expect(m.textWidth).toBeGreaterThan(m.bannerWidth - 60);
     }
   });
 
