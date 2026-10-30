@@ -144,3 +144,20 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
 }
 
 export const fieldGrid = "grid gap-4 sm:grid-cols-2";
+
+/** Full-width clickable row or card that opens an edit dialog. */
+export const rowButton =
+  "focus-ring flex min-h-11 w-full items-center gap-3 rounded-xl border border-border bg-surface px-4 py-3 text-left transition-colors duration-200 hover:bg-primary/5";
+
+/** Heading of a settings section: title, what it is for and, optionally, its main action. */
+export function SectionHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        {description && <p className="mt-1 text-sm text-muted">{description}</p>}
+      </div>
+      {action}
+    </div>
+  );
+}
