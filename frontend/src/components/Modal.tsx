@@ -10,6 +10,8 @@ interface Props {
   highlight?: boolean;
   /** Bottom sheet on every width: anchored at the bottom with a drag-handle look (used by the mobile "Más" menu). */
   sheet?: boolean;
+  /** Wider panel on tablets and desktops (document previews). */
+  wide?: boolean;
 }
 
 /** Open modals, innermost last: Escape closes only the top one, wherever the focus is. */
@@ -22,7 +24,7 @@ const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), selec
  * backdrop, keeps Tab inside, locks the page scroll and gives the focus back to
  * the element that opened it.
  */
-export function Modal({ title, onClose, children, highlight = false, sheet = false }: Props) {
+export function Modal({ title, onClose, children, highlight = false, sheet = false, wide = false }: Props) {
   // The dialog is already in view and Modal focuses its first field, so only the cue is applied.
   const bodyRef = useFocusOnEdit<HTMLDivElement>(highlight, { scroll: false, focus: false, inset: true });
   const titleId = useId();
@@ -87,7 +89,7 @@ export function Modal({ title, onClose, children, highlight = false, sheet = fal
       <div className="absolute inset-0 animate-fade-in bg-foreground/50" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
-        className={`relative flex max-h-[92vh] max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-xl border border-border bg-surface shadow-xl ${
+        className={`relative flex max-h-[92vh] max-h-[92dvh] w-full ${wide ? "max-w-3xl" : "max-w-lg"} flex-col overflow-hidden rounded-t-xl border border-border bg-surface shadow-xl ${
           sheet ? "animate-sheet-in" : "sm:rounded-xl"
         }`}
       >
