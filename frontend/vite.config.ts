@@ -15,7 +15,9 @@ function cspPlugin(apiOrigin: string, isBuild: boolean): Plugin {
     script,
     style,
     connect,
-    "img-src 'self' data:",
+    // blob: lets the in-page document preview show a downloaded file (object URL) in an <img> or <iframe>.
+    "img-src 'self' data: blob:",
+    "frame-src blob:",
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
