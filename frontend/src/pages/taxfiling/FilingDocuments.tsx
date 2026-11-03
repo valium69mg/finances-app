@@ -1,7 +1,8 @@
 import { useRef, useState, type ChangeEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Loader2, Upload } from "lucide-react";
+import { Download, Eye, FileText, Loader2, Upload } from "lucide-react";
 import { attachTaxFilingDocument, downloadTaxFilingDocument, taxFilingKeys, type Filing, type FilingDocument, type FilingDocumentKind } from "../../api/taxFiling";
+import { DocumentPreview } from "../../components/DocumentPreview";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
 import { formatBytes } from "../invoices/files";
 import { DOCUMENT_ACCEPT, DOCUMENT_HINT, DOCUMENT_LABEL, DOCUMENT_NOUN, saveBlob, validateDocument } from "./documents";
@@ -22,6 +23,7 @@ function DocumentRow({ period, kind, doc }: RowProps) {
   const [problem, setProblem] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<unknown>(null);
   const [downloading, setDownloading] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
   const noun = DOCUMENT_NOUN[kind];
 
   const attach = useMutation({
@@ -70,6 +72,12 @@ function DocumentRow({ period, kind, doc }: RowProps) {
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           {doc && (
+            <button type="button" onClick={() => setPreviewing(true)} aria-label={`Ver ${noun}`} className={secondaryButton}>
+              <Eye className="h-4 w-4" aria-hidden="true" />
+              Ver
+            </button>
+          )}
+          {doc && (
             <button type="button" onClick={() => void download()} disabled={downloading} aria-label={`Descargar ${noun}`} className={secondaryButton}>
               {downloading ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
               Descargar
@@ -82,6 +90,15 @@ function DocumentRow({ period, kind, doc }: RowProps) {
           <input ref={inputRef} type="file" accept={DOCUMENT_ACCEPT[kind]} onChange={onPick} aria-label={`Archivo del ${noun}`} tabIndex={-1} className="sr-only" />
         </div>
       </div>
+      {previewing && doc && (
+        <DocumentPreview
+          load={() => downloadTaxFilingDocument(period, kind)}
+          name={doc.filename}
+          contentType={doc.content_type}
+          onClose={() => setPreviewing(false)}
+          describeError={describeDocumentError}
+        />
+      )}
       {problem && <ErrorBanner>{problem}</ErrorBanner>}
       {attach.isError && <ErrorBanner>{describeDocumentError(attach.error)}</ErrorBanner>}
       {downloadError !== null && <ErrorBanner>{describeDocumentError(downloadError)}</ErrorBanner>}

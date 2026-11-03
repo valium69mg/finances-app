@@ -1,6 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Download, FileText, Loader2, Upload } from "lucide-react";
+import { Download, Eye, FileText, Loader2, Upload } from "lucide-react";
 import {
   attachInvoiceDocument,
   downloadInvoiceDocument,
@@ -9,6 +9,8 @@ import {
   type InvoiceDocument,
   type InvoiceWarning,
 } from "../../api/invoices";
+import { DocumentPreview } from "../../components/DocumentPreview";
+import { saveBlob } from "../../lib/saveBlob";
 import { SelectField } from "../expenses/SelectField";
 import { ErrorBanner, primaryButton, secondaryButton } from "../settings/ui";
 import { describeInvoiceError } from "./errors";
@@ -24,18 +26,6 @@ interface Props {
   onWarnings: (warnings: InvoiceWarning[]) => void;
 }
 
-/** Saves a downloaded blob through a temporary link; the object URL is released right after. */
-function saveBlob(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
 export function DocumentsPanel({ invoiceId, documents, canAttach, onWarnings }: Props) {
   const qc = useQueryClient();
   const [kind, setKind] = useState<DocumentKind>("pdf");
@@ -44,6 +34,7 @@ export function DocumentsPanel({ invoiceId, documents, canAttach, onWarnings }: 
   const [fileKey, setFileKey] = useState(0);
   const [downloading, setDownloading] = useState<number | null>(null);
   const [downloadError, setDownloadError] = useState<unknown>(null);
+  const [previewing, setPreviewing] = useState<InvoiceDocument | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const attach = useMutation({
@@ -106,19 +97,34 @@ export function DocumentsPanel({ invoiceId, documents, canAttach, onWarnings }: 
                   {KIND_LABEL[d.kind]} · {formatBytes(d.size)} · subido el {d.uploaded_at.slice(0, 10)}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => void download(d)}
-                disabled={downloading === d.id}
-                aria-label={`Descargar ${d.name}`}
-                className={`${secondaryButton} shrink-0`}
-              >
-                {downloading === d.id ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
-                Descargar
-              </button>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button type="button" onClick={() => setPreviewing(d)} aria-label={`Ver ${d.name}`} className={secondaryButton}>
+                  <Eye className="h-4 w-4" aria-hidden="true" />
+                  Ver
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void download(d)}
+                  disabled={downloading === d.id}
+                  aria-label={`Descargar ${d.name}`}
+                  className={secondaryButton}
+                >
+                  {downloading === d.id ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Download className="h-4 w-4" aria-hidden="true" />}
+                  Descargar
+                </button>
+              </div>
             </li>
           ))}
         </ul>
+      )}
+      {previewing && (
+        <DocumentPreview
+          load={() => downloadInvoiceDocument(invoiceId, previewing.id)}
+          name={previewing.name}
+          contentType={previewing.content_type}
+          onClose={() => setPreviewing(null)}
+          describeError={describeInvoiceError}
+        />
       )}
       {downloadError !== null && <ErrorBanner>{describeInvoiceError(downloadError)}</ErrorBanner>}
 
