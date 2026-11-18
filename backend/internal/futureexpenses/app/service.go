@@ -281,7 +281,9 @@ func (s *Service) Pay(ctx context.Context, id int, in PayInput) (domain.Planned,
 		return domain.Planned{}, ledger.Movement{}, err
 	}
 	paid, err := s.repo.MarkPaid(ctx, id, func(saved decimal.Decimal) (Settlement, error) {
-		return s.settlement(ctx, it, expense, saved)
+		out, err := s.settlement(ctx, it, expense, saved)
+		expense.CoveredBySavings = out.Expense.CoveredBySavings
+		return out, err
 	})
 	if err != nil {
 		return domain.Planned{}, ledger.Movement{}, err
@@ -297,6 +299,10 @@ func (s *Service) Pay(ctx context.Context, id int, in PayInput) (domain.Planned,
 func (s *Service) settlement(ctx context.Context, it domain.FutureExpense, expense ledger.Movement, saved decimal.Decimal) (Settlement, error) {
 	out := Settlement{Expense: expense}
 	linked, remainder := domain.Release(saved, expense.AmountMXN)
+	// What the savings really paid is what is released minus what returns to
+	// the free balance, i.e. min(saved, paid). The Gasto records it and the
+	// Ahorro rows are marked as a settlement, so monthly KPIs leave both out.
+	out.Expense.CoveredBySavings = linked.Sub(remainder)
 	if linked.IsPositive() {
 		m, err := s.savings.Build(ctx, savingsapp.Input{
 			Date: expense.Date, Description: "Pago de " + it.Name, Category: domain.SavingsCategory,
@@ -305,6 +311,7 @@ func (s *Service) settlement(ctx context.Context, it domain.FutureExpense, expen
 		if err != nil {
 			return Settlement{}, err
 		}
+		m.SavingsSettlement = true
 		out.Savings = append(out.Savings, m)
 	}
 	if remainder.IsPositive() {
@@ -314,6 +321,7 @@ func (s *Service) settlement(ctx context.Context, it domain.FutureExpense, expen
 		if err != nil {
 			return Settlement{}, err
 		}
+		m.SavingsSettlement = true
 		out.Savings = append(out.Savings, m)
 	}
 	return out, nil

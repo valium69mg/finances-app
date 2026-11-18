@@ -65,6 +65,40 @@ type Movement struct {
 	// (a contribution, an assignment from the free balance or the release row of
 	// a payment). Zero means none; only savings movements carry a link.
 	FutureExpenseID int
+	// CoveredBySavings is, on a Gasto, the part of the payment that came from
+	// the savings of a future expense (min(saved, paid)); zero means none. The
+	// money was set aside in earlier months, so monthly KPIs leave it out.
+	CoveredBySavings decimal.Decimal
+	// SavingsSettlement marks the Ahorro rows a future expense payment writes
+	// (the release and the remainder, whose net is minus the covered amount).
+	// Portfolios keep counting them; monthly KPIs skip them.
+	SavingsSettlement bool
+}
+
+// EffectiveCovered is the part of a Gasto that savings covered:
+// min(CoveredBySavings, AmountMXN), so an expense edited below the covered
+// amount never counts negative. Zero for anything else.
+func (m Movement) EffectiveCovered() decimal.Decimal {
+	if m.Kind != KindExpense || !m.CoveredBySavings.IsPositive() {
+		return decimal.Zero
+	}
+	return decimal.Min(m.CoveredBySavings, m.AmountMXN)
+}
+
+// KPIAmount is the amount of the movement in monthly KPIs (expenses, savings,
+// budget vs actual, available). A Gasto counts only the part not covered by
+// savings (an edited amount caps the covered part: min(covered, amount)), and
+// the settlement rows of a future expense payment count nothing, so the
+// available money (income - expenses - savings) is unchanged. Every other
+// movement counts its AmountMXN.
+func (m Movement) KPIAmount() decimal.Decimal {
+	switch {
+	case m.Kind == KindSavings && m.SavingsSettlement:
+		return decimal.Zero
+	case m.Kind == KindExpense:
+		return m.AmountMXN.Sub(m.EffectiveCovered())
+	}
+	return m.AmountMXN
 }
 
 // Valuation is a manually recorded value of an instrument on a date.
@@ -149,6 +183,23 @@ func MonthMovements(movements []Movement, month string) []Movement {
 		}
 	}
 	return out
+}
+
+// SumKPI is SumBy for monthly KPIs: it adds KPIAmount instead of AmountMXN, so
+// the part of an expense paid from savings and the settlement rows of that
+// payment are left out. Portfolio and balance readers keep using SumBy.
+func SumKPI(movements []Movement, f Filter) decimal.Decimal {
+	total := decimal.Zero
+	for _, m := range movements {
+		if f.Kind != "" && m.Kind != f.Kind {
+			continue
+		}
+		if f.Category != "" && m.Category != f.Category {
+			continue
+		}
+		total = total.Add(m.KPIAmount())
+	}
+	return total
 }
 
 // SumBy sums AmountMXN over the movements matching the filter (negative

@@ -124,8 +124,8 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 
 	totals := dashboard.Totals{
 		Income:   summary.MonthTotalMXN,
-		Expenses: ledger.SumBy(expenses, ledger.Filter{Kind: ledger.KindExpense}),
-		Savings:  ledger.SumBy(saved, ledger.Filter{Kind: ledger.KindSavings}),
+		Expenses: ledger.SumKPI(expenses, ledger.Filter{Kind: ledger.KindExpense}),
+		Savings:  ledger.SumKPI(saved, ledger.Filter{Kind: ledger.KindSavings}),
 	}
 	today := s.now().Format(bills.DateLayout)
 	progress, err := dashboard.NewCycleProgress(from, to, today)

@@ -92,3 +92,57 @@ func TestMonthMovementsAndSumBy(t *testing.T) {
 		}
 	}
 }
+
+func TestKPIAmountAndSumKPI(t *testing.T) {
+	gasto := func(amount, covered string) Movement {
+		m := Movement{Kind: KindExpense, Category: "Casa", AmountMXN: dec(amount)}
+		if covered != "" {
+			m.CoveredBySavings = dec(covered)
+		}
+		return m
+	}
+	tests := []struct {
+		name string
+		m    Movement
+		want string
+	}{
+		{"plain expense", gasto("100", ""), "100"},
+		{"partly covered", gasto("100", "60"), "40"},
+		{"fully covered", gasto("100", "100"), "0"},
+		{"covered above an edited amount is capped", gasto("50", "100"), "0"},
+		{"settlement release row", Movement{Kind: KindSavings, AmountMXN: dec("-60"), SavingsSettlement: true}, "0"},
+		{"settlement remainder row", Movement{Kind: KindSavings, AmountMXN: dec("20"), SavingsSettlement: true}, "0"},
+		{"ordinary saving", Movement{Kind: KindSavings, AmountMXN: dec("-60")}, "-60"},
+		{"income", Movement{Kind: KindIncome, AmountMXN: dec("500")}, "500"},
+	}
+	for _, tc := range tests {
+		if got := tc.m.KPIAmount(); !got.Equal(dec(tc.want)) {
+			t.Errorf("%s: KPIAmount = %s, want %s", tc.name, got, tc.want)
+		}
+	}
+
+	// A payment of 100 with 60 saved: the Gasto counts 40, the release row
+	// counts nothing, and available (income - expenses - savings) is unchanged.
+	month := []Movement{
+		{Kind: KindIncome, AmountMXN: dec("1000")},
+		gasto("100", "60"),
+		{Kind: KindSavings, Category: "Gastos futuros", AmountMXN: dec("-60"), SavingsSettlement: true},
+		{Kind: KindSavings, Category: "Inversiones", AmountMXN: dec("200")},
+	}
+	exp := SumKPI(month, Filter{Kind: KindExpense})
+	sav := SumKPI(month, Filter{Kind: KindSavings})
+	if !exp.Equal(dec("40")) || !sav.Equal(dec("200")) {
+		t.Fatalf("expenses = %s, savings = %s; want 40 and 200", exp, sav)
+	}
+	oldAvail := dec("1000").Sub(SumBy(month, Filter{Kind: KindExpense})).Sub(SumBy(month, Filter{Kind: KindSavings}))
+	newAvail := dec("1000").Sub(exp).Sub(sav)
+	if !oldAvail.Equal(newAvail) {
+		t.Errorf("available changed: %s -> %s", oldAvail, newAvail)
+	}
+	if got := SumKPI(month, Filter{Kind: KindExpense, Category: "Casa"}); !got.Equal(dec("40")) {
+		t.Errorf("category spent = %s, want 40", got)
+	}
+	if got := SumBy(month, Filter{Kind: KindSavings, Category: "Gastos futuros"}); !got.Equal(dec("-60")) {
+		t.Errorf("portfolio SumBy must keep the settlement row: %s", got)
+	}
+}

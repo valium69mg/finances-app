@@ -142,8 +142,8 @@ func hasBudget(r dashboard.Row) bool {
 func Compute(in Input) Close {
 	totals := dashboard.Totals{
 		Income:   ledger.SumBy(in.Monthly, ledger.Filter{Kind: ledger.KindIncome}),
-		Expenses: ledger.SumBy(in.Monthly, ledger.Filter{Kind: ledger.KindExpense}),
-		Savings:  ledger.SumBy(in.Monthly, ledger.Filter{Kind: ledger.KindSavings}),
+		Expenses: ledger.SumKPI(in.Monthly, ledger.Filter{Kind: ledger.KindExpense}),
+		Savings:  ledger.SumKPI(in.Monthly, ledger.Filter{Kind: ledger.KindSavings}),
 	}
 	expenseRows := dashboard.RowsOfKind(ledger.KindExpense, in.Budgets, in.Monthly)
 	savingsRows := dashboard.RowsOfKind(ledger.KindSavings, in.Budgets, in.Monthly)

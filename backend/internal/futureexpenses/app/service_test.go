@@ -336,6 +336,33 @@ func TestPayReleasesSavedAndReturnsTheRemainder(t *testing.T) {
 			if !savings.Equal(d("0").Sub(d(tt.wantPortfolioDrop)).Add(d(tt.saved))) {
 				t.Errorf("net savings = %s, want %s (saved %s minus what was spent %s)", savings, d(tt.saved).Sub(d(tt.wantPortfolioDrop)), tt.saved, tt.wantPortfolioDrop)
 			}
+			// The covered part and the settlement rows leave the monthly KPIs.
+			wantCovered := d(tt.wantPortfolioDrop)
+			if !expense.CoveredBySavings.Equal(wantCovered) {
+				t.Errorf("returned expense covered = %s, want %s", expense.CoveredBySavings, wantCovered)
+			}
+			var stored, settlements []ledger.Movement
+			for _, mv := range mem.movements {
+				switch {
+				case mv.Kind == ledger.KindExpense:
+					stored = append(stored, mv)
+				case mv.Kind == ledger.KindSavings && mv.SavingsSettlement:
+					settlements = append(settlements, mv)
+				}
+			}
+			if len(stored) != 1 || !stored[0].CoveredBySavings.Equal(wantCovered) {
+				t.Errorf("stored expense = %+v, want covered %s", stored, wantCovered)
+			}
+			if net := ledger.SumBy(settlements, ledger.Filter{}); !net.Equal(wantCovered.Neg()) {
+				t.Errorf("settlement rows net = %s, want %s", net, wantCovered.Neg())
+			}
+			kpiExpenses := ledger.SumKPI(mem.movements, ledger.Filter{Kind: ledger.KindExpense})
+			if want := d(tt.paid).Sub(wantCovered); !kpiExpenses.Equal(want) {
+				t.Errorf("KPI expenses = %s, want %s (only the uncovered part)", kpiExpenses, want)
+			}
+			if kpiSavings := ledger.SumKPI(mem.movements, ledger.Filter{Kind: ledger.KindSavings}); !kpiSavings.Equal(d(tt.saved)) {
+				t.Errorf("KPI savings = %s, want %s (the contribution only)", kpiSavings, tt.saved)
+			}
 			if linked, _ := payRows(mem); !mem.saved(item.ID).IsZero() && len(linked) > 0 {
 				t.Errorf("the item keeps %s linked after paying", mem.saved(item.ID))
 			}

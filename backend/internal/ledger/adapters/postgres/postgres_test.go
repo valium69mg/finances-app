@@ -58,7 +58,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000007_income_amount_positive.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql"} {
+	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000007_income_amount_positive.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000028_savings_covered_expenses.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -598,5 +598,48 @@ func TestUsersRoleMigrationDefaults(t *testing.T) {
 	}
 	if _, err := pool.Exec(bg, `INSERT INTO users (email, password_hash, role) VALUES ('x@example.com', 'x', 'admin')`); err == nil {
 		t.Error("an unknown role must violate the CHECK constraint")
+	}
+}
+
+func TestSavingsCoverageMarkersRoundTrip(t *testing.T) {
+	repo, _ := newRepo(t)
+	ctx := context.Background()
+
+	paid := expense("2026-10-05", "Mandado", "100")
+	paid.CoveredBySavings = dec("60.50")
+	got, err := repo.Create(ctx, paid)
+	if err != nil || !got.CoveredBySavings.Equal(dec("60.5")) {
+		t.Fatalf("Create = %+v, %v, want the covered amount returned", got, err)
+	}
+	release := saving("2026-10-05", "Gastos futuros", "-60.5")
+	release.SavingsSettlement = true
+	rel, err := repo.Create(ctx, release)
+	if err != nil || !rel.SavingsSettlement {
+		t.Fatalf("Create settlement = %+v, %v", rel, err)
+	}
+	plain, _ := repo.Create(ctx, expense("2026-10-05", "Mandado", "10"))
+	if plain.CoveredBySavings.IsPositive() || plain.SavingsSettlement {
+		t.Errorf("an ordinary expense carries markers: %+v", plain)
+	}
+
+	// An update never changes the markers.
+	got.Description = "edited"
+	got.CoveredBySavings = decimal.Zero
+	if err := repo.Update(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := repo.GetByID(ctx, got.ID); !g.CoveredBySavings.Equal(dec("60.5")) || g.Description != "edited" {
+		t.Errorf("after update: %+v", g)
+	}
+
+	// The markers are exclusive to their kind.
+	badCovered := saving("2026-10-05", "Gastos futuros", "5")
+	badCovered.CoveredBySavings = dec("5")
+	badSettlement := expense("2026-10-05", "Mandado", "5")
+	badSettlement.SavingsSettlement = true
+	for name, m := range map[string]domain.Movement{"covered saving": badCovered, "settlement expense": badSettlement} {
+		if _, err := repo.Create(ctx, m); err == nil {
+			t.Errorf("%s: expected a constraint violation", name)
+		}
 	}
 }

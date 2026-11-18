@@ -27,7 +27,8 @@ type Repo struct{ pool *pgxpool.Pool }
 func NewRepo(pool *pgxpool.Pool) *Repo { return &Repo{pool: pool} }
 
 const columns = `id, date::text, description, category, instrument, kind, payment_method, currency,
-	amount::text, exchange_rate::text, amount_mxn::text, transfer_id::text, future_expense_id`
+	amount::text, exchange_rate::text, amount_mxn::text, transfer_id::text, future_expense_id,
+	covered_by_savings::text, savings_settlement`
 
 func nullString(s string) *string {
 	if s == "" {
@@ -44,6 +45,15 @@ func nullInt(n int) *int64 {
 	return &v
 }
 
+// coveredArg is the covered_by_savings parameter: NULL unless a positive amount.
+func coveredArg(d decimal.Decimal) *string {
+	if !d.IsPositive() {
+		return nil
+	}
+	s := d.String()
+	return &s
+}
+
 func ratePtr(d *decimal.Decimal) *string {
 	if d == nil {
 		return nil
@@ -54,16 +64,16 @@ func ratePtr(d *decimal.Decimal) *string {
 
 func scan(row pgx.Row) (domain.Movement, error) {
 	var (
-		m                    domain.Movement
-		id                   int64
-		instrument, rateText *string
-		transferID           *string
-		futureExpenseID      *int64
-		kind                 string
-		amount, amountMXN    string
+		m                       domain.Movement
+		id                      int64
+		instrument, rateText    *string
+		transferID, coveredText *string
+		futureExpenseID         *int64
+		kind                    string
+		amount, amountMXN       string
 	)
 	if err := row.Scan(&id, &m.Date, &m.Description, &m.Category, &instrument, &kind, &m.PaymentMethod,
-		&m.Currency, &amount, &rateText, &amountMXN, &transferID, &futureExpenseID); err != nil {
+		&m.Currency, &amount, &rateText, &amountMXN, &transferID, &futureExpenseID, &coveredText, &m.SavingsSettlement); err != nil {
 		return domain.Movement{}, err
 	}
 	m.ID = int(id)
@@ -83,6 +93,11 @@ func scan(row pgx.Row) (domain.Movement, error) {
 	}
 	if m.AmountMXN, err = decimal.NewFromString(amountMXN); err != nil {
 		return domain.Movement{}, fmt.Errorf("parse amount_mxn: %w", err)
+	}
+	if coveredText != nil {
+		if m.CoveredBySavings, err = decimal.NewFromString(*coveredText); err != nil {
+			return domain.Movement{}, fmt.Errorf("parse covered_by_savings: %w", err)
+		}
 	}
 	if rateText != nil {
 		r, err := decimal.NewFromString(*rateText)
@@ -113,13 +128,15 @@ func Insert(ctx context.Context, q RowQuerier, m domain.Movement) (domain.Moveme
 func insert(ctx context.Context, q RowQuerier, m domain.Movement, createdAt *time.Time) (domain.Movement, error) {
 	row := q.QueryRow(ctx, `
 		INSERT INTO movements (date, description, category, instrument, kind, payment_method, currency,
-		                       amount, exchange_rate, amount_mxn, created_at, transfer_id, future_expense_id, created_by)
+		                       amount, exchange_rate, amount_mxn, created_at, transfer_id, future_expense_id, created_by,
+		                       covered_by_savings, savings_settlement)
 		VALUES ($1::date, $2, $3, $4, $5, $6, $7, $8::text::numeric, $9::text::numeric, $10::text::numeric,
-		        COALESCE($11::timestamptz, now()), $12::text::uuid, $13::bigint, $14::text::uuid)
+		        COALESCE($11::timestamptz, now()), $12::text::uuid, $13::bigint, $14::text::uuid,
+		        $15::text::numeric, $16::boolean)
 		RETURNING `+columns,
 		m.Date, m.Description, m.Category, nullString(m.Instrument), string(m.Kind), m.PaymentMethod, m.Currency,
 		m.Amount.String(), ratePtr(m.ExchangeRate), m.AmountMXN.String(), createdAt, nullString(m.TransferID), nullInt(m.FutureExpenseID),
-		nullString(session.UserID(ctx)))
+		nullString(session.UserID(ctx)), coveredArg(m.CoveredBySavings), m.SavingsSettlement)
 	return scan(row)
 }
 

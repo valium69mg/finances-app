@@ -40,7 +40,7 @@ func (t Totals) Available() decimal.Decimal {
 
 // newRow builds the row of one category from the movements of the month.
 func newRow(name string, kind ledger.Kind, budget *decimal.Decimal, monthly []ledger.Movement) Row {
-	real := ledger.SumBy(monthly, ledger.Filter{Kind: kind, Category: name})
+	real := ledger.SumKPI(monthly, ledger.Filter{Kind: kind, Category: name})
 	row := Row{Name: name, Kind: kind, Budget: budget, Real: real}
 	if budget != nil {
 		diff := budget.Sub(real)

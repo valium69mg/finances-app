@@ -59,7 +59,7 @@ func newRepos(t *testing.T) (*postgres.Repo, *ledgerpg.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql"} {
+	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000028_savings_covered_expenses.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -264,11 +264,16 @@ func settle(itemID int, paid string) func(saved decimal.Decimal) (app.Settlement
 	return func(saved decimal.Decimal) (app.Settlement, error) {
 		st := app.Settlement{Expense: expense(paid)}
 		linked, remainder := domain.Release(saved, d(paid))
+		st.Expense.CoveredBySavings = linked.Sub(remainder)
 		if linked.IsPositive() {
-			st.Savings = append(st.Savings, saving("Gastos futuros", linked.Neg().String(), itemID))
+			m := saving("Gastos futuros", linked.Neg().String(), itemID)
+			m.SavingsSettlement = true
+			st.Savings = append(st.Savings, m)
 		}
 		if remainder.IsPositive() {
-			st.Savings = append(st.Savings, saving("Gastos futuros", remainder.String(), 0))
+			m := saving("Gastos futuros", remainder.String(), 0)
+			m.SavingsSettlement = true
+			st.Savings = append(st.Savings, m)
 		}
 		return st, nil
 	}
@@ -299,6 +304,10 @@ func TestMarkPaidIsAtomicAndReleasesWhatWasSaved(t *testing.T) {
 	if err != nil || exp.Kind != ledger.KindExpense || !exp.AmountMXN.Equal(d("450")) || exp.FutureExpenseID != 0 {
 		t.Errorf("expense = %+v, %v", exp, err)
 	}
+	// 600 saved, 450 paid: the savings covered all of it.
+	if !exp.CoveredBySavings.Equal(d("450")) || !exp.KPIAmount().IsZero() {
+		t.Errorf("expense covered = %s (KPI %s), want 450 (KPI 0)", exp.CoveredBySavings, exp.KPIAmount())
+	}
 	// 600 saved, 450 paid: 150 goes back to the free balance (70 + 150).
 	if free, _ := repo.FreeBalance(ctx); !free.Equal(d("220")) {
 		t.Errorf("free = %s, want 220", free)
@@ -307,6 +316,22 @@ func TestMarkPaidIsAtomicAndReleasesWhatWasSaved(t *testing.T) {
 	all, _ := movements.ListAllByKind(ctx, ledger.KindSavings)
 	if total := ledger.SumBy(all, ledger.Filter{Kind: ledger.KindSavings}); !total.Equal(d("220")) {
 		t.Errorf("net savings = %s, want 220", total)
+	}
+	// The pay-generated rows are marked and net to minus the covered amount;
+	// the contributions made before are not.
+	marked := ledger.Movement{}
+	nMarked := 0
+	for _, m := range all {
+		if m.SavingsSettlement {
+			nMarked++
+			marked.AmountMXN = marked.AmountMXN.Add(m.AmountMXN)
+		}
+	}
+	if nMarked != 2 || !marked.AmountMXN.Equal(d("-450")) {
+		t.Errorf("settlement rows = %d netting %s, want 2 netting -450", nMarked, marked.AmountMXN)
+	}
+	if kpi := ledger.SumKPI(all, ledger.Filter{Kind: ledger.KindSavings}); !kpi.Equal(d("670")) {
+		t.Errorf("KPI savings = %s, want 670 (the contributions)", kpi)
 	}
 	if n := countMovements(t, pool); n != 3+1+2 {
 		t.Errorf("%d movements, want 3 savings + 1 expense + 2 release rows", n)

@@ -69,3 +69,36 @@ func checkOptional(t *testing.T, label string, got *decimal.Decimal, want string
 		t.Errorf("%s = %s, want %s", label, got, want)
 	}
 }
+
+// An expense paid from the savings of a future expense counts only its
+// uncovered part, and the settlement rows count nothing, while the available
+// money stays what it was.
+func TestRowsAndTotalsLeaveOutWhatSavingsCovered(t *testing.T) {
+	budgets := []dashboard.Budget{{Name: "Hogar", Kind: ledger.KindExpense, Amount: ptr("1000")}}
+	covered := mov("2026-10-05", ledger.KindExpense, "Hogar", "800")
+	covered.CoveredBySavings = d("500")
+	release := mov("2026-10-05", ledger.KindSavings, "Gastos futuros", "-500")
+	release.SavingsSettlement = true
+	month := []ledger.Movement{covered, mov("2026-10-06", ledger.KindExpense, "Hogar", "100"), release}
+
+	rows := dashboard.ExpenseRows(budgets, month)
+	if len(rows) != 1 || !rows[0].Real.Equal(d("400")) || rows[0].OverBudget() {
+		t.Fatalf("rows = %+v, want Hogar spent 400 (800 - 500 covered + 100)", rows)
+	}
+	totals := dashboard.Totals{
+		Income:   d("2000"),
+		Expenses: ledger.SumKPI(month, ledger.Filter{Kind: ledger.KindExpense}),
+		Savings:  ledger.SumKPI(month, ledger.Filter{Kind: ledger.KindSavings}),
+	}
+	old := dashboard.Totals{
+		Income:   d("2000"),
+		Expenses: ledger.SumBy(month, ledger.Filter{Kind: ledger.KindExpense}),
+		Savings:  ledger.SumBy(month, ledger.Filter{Kind: ledger.KindSavings}),
+	}
+	if !totals.Expenses.Equal(d("400")) || !totals.Savings.IsZero() {
+		t.Errorf("totals = %+v, want expenses 400 and savings 0", totals)
+	}
+	if !totals.Available().Equal(old.Available()) {
+		t.Errorf("available changed: %s -> %s", old.Available(), totals.Available())
+	}
+}

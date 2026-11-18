@@ -294,3 +294,27 @@ func TestMovementsUpToCycleEnd(t *testing.T) {
 		t.Errorf("up to %s = %+v, want only 2026-10-30", to, got)
 	}
 }
+
+func TestComputeLeavesOutWhatFutureExpenseSavingsCovered(t *testing.T) {
+	covered := mov("2026-10-05", ledger.KindExpense, "Vivienda", "1200")
+	covered.CoveredBySavings = d("900")
+	release := mov("2026-10-05", ledger.KindSavings, "Gastos futuros", "-900")
+	release.SavingsSettlement = true
+	monthly := append(octoberMovements(), covered, release)
+
+	base := monthclose.Compute(input(octoberMovements(), "22500", false))
+	got := monthclose.Compute(input(monthly, "22500", false))
+
+	// The covered 900 is not a month expense and the release row is not a month
+	// saving; the new expense only adds its uncovered 300.
+	if !got.Expenses.Equal(base.Expenses.Add(d("300"))) || !got.Savings.Equal(base.Savings) {
+		t.Errorf("expenses %s savings %s, want %s and %s", got.Expenses, got.Savings, base.Expenses.Add(d("300")), base.Savings)
+	}
+	// Available is income - expenses - savings, so only the uncovered 300 moves it.
+	if !got.Available.Equal(base.Available.Sub(d("300"))) {
+		t.Errorf("available = %s, want %s", got.Available, base.Available.Sub(d("300")))
+	}
+	if viv := got.Categories[0]; !viv.Spent.Equal(d("1500")) {
+		t.Errorf("Vivienda spent = %s, want 1500 (1200 + 300)", viv.Spent)
+	}
+}
