@@ -285,3 +285,12 @@ func TestClientsCarryPostalCode(t *testing.T) {
 		t.Fatalf("clients = %s", rec.Body)
 	}
 }
+
+func TestKeywordInUseIs409WithTheOwner(t *testing.T) {
+	svc := &fakeService{err: &domain.KeywordInUseError{Keyword: "heb", Category: "Súper"}}
+	rec := do(newServer(svc), http.MethodPut, "/settings/categories", `[{"name":"A","kind":"Gasto"}]`, true)
+	want := `{"category":"Súper","error":"keyword_in_use","keyword":"heb","message":"keyword \"heb\" already belongs to the category \"Súper\""}`
+	if rec.Code != http.StatusConflict || strings.TrimSpace(rec.Body.String()) != want {
+		t.Errorf("status = %d body = %s", rec.Code, rec.Body)
+	}
+}

@@ -151,17 +151,19 @@ func ValidateBudgetTotal(cats []Category, g General) error {
 	return nil
 }
 
-// ValidateCategories checks names (non-empty, unique), kinds and budgets.
+// ValidateCategories checks names (non-empty, unique ignoring case and
+// accents, like ledger.Catalog.FindCategory matches them), kinds and budgets.
 func ValidateCategories(cats []Category) error {
 	seen := map[string]bool{}
 	for _, c := range cats {
 		if strings.TrimSpace(c.Name) == "" {
 			return invalid("category name is required")
 		}
-		if seen[c.Name] {
+		key := ledger.Normalize(c.Name)
+		if seen[key] {
 			return invalid("category %q is repeated", c.Name)
 		}
-		seen[c.Name] = true
+		seen[key] = true
 		switch c.Kind {
 		case ledger.KindIncome, ledger.KindExpense, ledger.KindSavings:
 		default:

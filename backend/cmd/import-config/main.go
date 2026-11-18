@@ -18,6 +18,7 @@ import (
 	"github.com/valium69mg/finances-app/backend/internal/settings/adapters/configfile"
 	settingspg "github.com/valium69mg/finances-app/backend/internal/settings/adapters/postgres"
 	"github.com/valium69mg/finances-app/backend/internal/settings/app"
+	settingsdomain "github.com/valium69mg/finances-app/backend/internal/settings/domain"
 )
 
 func main() {
@@ -65,6 +66,12 @@ func run() error {
 	}
 	if err != nil {
 		return fmt.Errorf("import: %w", err)
+	}
+	// Legacy data may share a keyword between categories. The import keeps it as
+	// it is (settings are never rewritten silently) and only reports it.
+	conflicts := settingsdomain.FindKeywordConflicts(cfg.Categories)
+	for _, c := range conflicts {
+		fmt.Printf("warning: keyword %q is shared by the %s categories %s\n", c.Keyword, c.Kind, strings.Join(c.Categories, ", "))
 	}
 	fmt.Printf("imported %d categories, %d clients, %d instruments, %d brackets, %d payment methods\n",
 		len(cfg.Categories), len(cfg.Clients), len(cfg.Instruments), len(cfg.Brackets), len(cfg.PaymentMethods))

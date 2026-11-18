@@ -456,7 +456,12 @@ func (h *Handler) write(w http.ResponseWriter, op string, err error) {
 }
 
 func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
+	var inUse *domain.KeywordInUseError
 	switch {
+	case errors.As(err, &inUse):
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "keyword_in_use", "message": inUse.Error(), "keyword": inUse.Keyword, "category": inUse.Category,
+		})
 	case errors.Is(err, domain.ErrInvalid):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_settings", "message": err.Error()})
 	case errors.Is(err, domain.ErrMissingConfig):

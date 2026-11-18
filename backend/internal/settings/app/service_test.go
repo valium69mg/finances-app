@@ -190,3 +190,54 @@ func TestUpdateCategoriesWithoutBaseSkipsTheBudgetRule(t *testing.T) {
 		t.Fatalf("err = %v, want nil", err)
 	}
 }
+
+func TestUpdateCategoriesCleansKeywordsAndEnforcesOwnership(t *testing.T) {
+	cfg := settingstest.RealConfig()
+	repo := &fakeRepo{cfg: cfg}
+	svc := app.NewService(repo)
+	ctx := context.Background()
+
+	cats := append([]domain.Category{}, cfg.Categories...)
+	var gasto, other int = -1, -1
+	for i, c := range cats {
+		if c.Kind == "Gasto" && gasto < 0 {
+			gasto = i
+		} else if c.Kind == "Gasto" && other < 0 {
+			other = i
+		}
+	}
+	// A keyword already owned by another Gasto category is a conflict.
+	owner := cats[other].Name
+	cats[other].Keywords = []string{"zzclash"}
+	repo.cfg.Categories = append([]domain.Category{}, cats...)
+	cats[gasto].Keywords = []string{"  ", "ZZCLASH"}
+	var inUse *domain.KeywordInUseError
+	err := svc.UpdateCategories(ctx, cats)
+	if !errors.As(err, &inUse) || inUse.Category != owner || len(repo.saved) != 0 {
+		t.Fatalf("err = %v saved = %v, want keyword_in_use for %s and no save", err, repo.saved, owner)
+	}
+
+	// Duplicates inside one category are dropped, not an error.
+	cats[gasto].Keywords = []string{" nuevo ", "NUEVO", "", "Nuevo"}
+	if err := svc.UpdateCategories(ctx, cats); err != nil || len(repo.saved) != 1 {
+		t.Fatalf("err = %v saved = %v", err, repo.saved)
+	}
+}
+
+func TestUpdateCategoriesIgnoresLegacyConflictsElsewhere(t *testing.T) {
+	cfg := settingstest.RealConfig()
+	var gastos []int
+	for i, c := range cfg.Categories {
+		if c.Kind == "Gasto" {
+			gastos = append(gastos, i)
+		}
+	}
+	cfg.Categories[gastos[0]].Keywords = []string{"legacydup"}
+	cfg.Categories[gastos[1]].Keywords = []string{"legacydup"}
+	repo := &fakeRepo{cfg: cfg}
+	cats := append([]domain.Category{}, cfg.Categories...)
+	cats[gastos[2]].Keywords = append(append([]string{}, cats[gastos[2]].Keywords...), "unrelatedkw")
+	if err := app.NewService(repo).UpdateCategories(context.Background(), cats); err != nil {
+		t.Fatalf("a legacy duplicate blocked an unrelated save: %v", err)
+	}
+}

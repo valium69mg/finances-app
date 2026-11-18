@@ -47,12 +47,21 @@ func (s *Service) UpdateGeneral(ctx context.Context, g domain.General) error {
 // UpdateCategories validates and replaces the categories. The budgets of the
 // Gasto and Ahorro categories may not exceed the base monthly income (a rule
 // that does not apply while the base is unavailable).
+//
+// Keywords are cleaned first (trimmed, empty ones and case/accent-insensitive
+// duplicates dropped, first spelling kept). A keyword a category gains may not
+// already belong to another category of the same kind (*domain.KeywordInUseError);
+// conflicts already in the stored data do not block saving other categories.
 func (s *Service) UpdateCategories(ctx context.Context, cats []domain.Category) error {
+	cats = domain.CleanCategories(cats)
 	if err := domain.ValidateCategories(cats); err != nil {
 		return err
 	}
 	cfg, err := s.repo.Load(ctx)
 	if err != nil {
+		return err
+	}
+	if err := domain.CheckKeywordOwnership(cfg.Categories, cats); err != nil {
 		return err
 	}
 	if err := domain.ValidateBudgetTotal(cats, cfg.General()); err != nil {
