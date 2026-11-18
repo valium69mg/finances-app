@@ -51,6 +51,10 @@ type Input struct {
 	// FutureExpenseID links the movement to a future expense it feeds; zero
 	// means none. Only the future expenses module sets it.
 	FutureExpenseID int
+	// TransferID links the movement to the other row(s) of a pair stored
+	// together (a future expense assignment); empty means none. Use
+	// NewTransferID to get a fresh one.
+	TransferID string
 }
 
 // TransferInput moves Amount (> 0, MXN) from one instrument to another. An
@@ -148,6 +152,7 @@ func (s *Service) build(ctx context.Context, in Input) (ledger.Movement, error) 
 		return ledger.Movement{}, err
 	}
 	m.FutureExpenseID = in.FutureExpenseID
+	m.TransferID = in.TransferID
 	return m, nil
 }
 
@@ -233,6 +238,9 @@ func (s *Service) DeleteSaving(ctx context.Context, id int) error {
 	}
 	return s.movements.Delete(ctx, id)
 }
+
+// NewTransferID returns a random (version 4) UUID linking the legs of a transfer.
+func NewTransferID() (string, error) { return newTransferID() }
 
 // newTransferID returns a random (version 4) UUID linking the legs of a transfer.
 func newTransferID() (string, error) {

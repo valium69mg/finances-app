@@ -148,7 +148,7 @@ func (m *memory) Build(_ context.Context, in savingsapp.Input) (ledger.Movement,
 	}
 	return ledger.Movement{
 		Date: in.Date, Description: in.Description, Category: in.Category, Kind: ledger.KindSavings,
-		Amount: in.Amount, AmountMXN: in.Amount, FutureExpenseID: in.FutureExpenseID,
+		Amount: in.Amount, AmountMXN: in.Amount, FutureExpenseID: in.FutureExpenseID, TransferID: in.TransferID,
 	}, nil
 }
 
@@ -274,6 +274,15 @@ func TestAssignMovesFreeBalanceOnRequestOnly(t *testing.T) {
 	total := ledger.SumBy(mem.movements, ledger.Filter{Kind: ledger.KindSavings, Category: "Gastos futuros"})
 	if !total.Equal(d("5000")) {
 		t.Errorf("Gastos futuros total = %s, want 5000: an assignment does not change the savings", total)
+	}
+	var ids []string
+	for _, m := range mem.movements {
+		if m.TransferID != "" {
+			ids = append(ids, m.TransferID)
+		}
+	}
+	if len(ids) != 2 || ids[0] != ids[1] {
+		t.Errorf("transfer ids = %v, want the two assignment rows to share one", ids)
 	}
 	if _, err := s.Assign(ctx, item.ID, app.AssignInput{Amount: d("3800.01")}); !errors.Is(err, domain.ErrInsufficientFreeBalance) {
 		t.Errorf("err = %v, want ErrInsufficientFreeBalance", err)

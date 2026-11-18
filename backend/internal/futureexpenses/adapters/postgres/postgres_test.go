@@ -441,3 +441,31 @@ func TestMarkPaidSeesSavingsCommittedBeforeTheLock(t *testing.T) {
 		t.Errorf("err = %v, saved seen = %s, want the amount read inside the transaction (60)", err, seen)
 	}
 }
+
+func TestAssignmentPairSharesATransferIDAndDeletesTogether(t *testing.T) {
+	repo, movements, _ := newRepos(t)
+	ctx := context.Background()
+	item := mustCreate(t, repo, "Laptop", "2027-01-20", "8000")
+	if _, err := movements.Create(ctx, saving("Gastos futuros", "1000", 0)); err != nil {
+		t.Fatal(err)
+	}
+	const tid = "11111111-2222-4333-8444-555555555555"
+	out, in := saving("Gastos futuros", "-300", 0), saving("Gastos futuros", "300", item.ID)
+	out.TransferID, in.TransferID = tid, tid
+	if _, err := movements.CreateMany(ctx, []ledger.Movement{out, in}); err != nil {
+		t.Fatal(err)
+	}
+	free, _ := repo.FreeBalance(ctx)
+	got, _ := repo.Get(ctx, item.ID)
+	if !free.Equal(d("700")) || !got.Saved.Equal(d("300")) {
+		t.Fatalf("free %s saved %s, want 700 and 300: the transfer id changes no balance", free, got.Saved)
+	}
+	if err := movements.DeleteByTransfer(ctx, tid); err != nil {
+		t.Fatal(err)
+	}
+	free, _ = repo.FreeBalance(ctx)
+	got, _ = repo.Get(ctx, item.ID)
+	if !free.Equal(d("1000")) || !got.Saved.IsZero() {
+		t.Errorf("after deleting: free %s saved %s, want 1000 and 0", free, got.Saved)
+	}
+}

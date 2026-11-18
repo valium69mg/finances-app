@@ -207,6 +207,8 @@ type AssignInput struct {
 // Assign moves part of the free balance to an item as a transfer: two Ahorro
 // rows of the Gastos futuros category stored atomically, -amount linked to no
 // item and +amount linked to the item, so the savings portfolio does not move.
+// Both rows share a transfer_id, like a Traspaso pair, so they are listed and
+// deleted together.
 // It is never automatic: the owner picks the item and the amount. More than the
 // free balance is domain.ErrInsufficientFreeBalance.
 func (s *Service) Assign(ctx context.Context, id int, in AssignInput) (domain.Planned, error) {
@@ -226,9 +228,13 @@ func (s *Service) Assign(ctx context.Context, id int, in AssignInput) (domain.Pl
 	}
 	description := "Asignado a " + it.Name
 	date := s.dateOrToday(in.Date)
+	transferID, err := savingsapp.NewTransferID()
+	if err != nil {
+		return domain.Planned{}, err
+	}
 	_, err = s.savings.CreateMany(ctx, []savingsapp.Input{
-		{Date: date, Description: description, Category: domain.SavingsCategory, Amount: in.Amount.Neg()},
-		{Date: date, Description: description, Category: domain.SavingsCategory, Amount: in.Amount, FutureExpenseID: id},
+		{Date: date, Description: description, Category: domain.SavingsCategory, Amount: in.Amount.Neg(), TransferID: transferID},
+		{Date: date, Description: description, Category: domain.SavingsCategory, Amount: in.Amount, FutureExpenseID: id, TransferID: transferID},
 	})
 	if err != nil {
 		return domain.Planned{}, err
