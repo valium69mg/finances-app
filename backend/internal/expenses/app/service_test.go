@@ -407,3 +407,31 @@ func TestBudgetForReadsTheCycleOfTheDateWithoutStoring(t *testing.T) {
 		t.Error("BudgetFor must not store anything")
 	}
 }
+
+func TestBudgetForLeavesOutWhatSavingsCovered(t *testing.T) {
+	svc, repo, _ := newService(t)
+	ctx := context.Background()
+	paid := ledger.Movement{
+		ID: 100, Date: "2026-10-05", Category: "Transporte", Kind: ledger.KindExpense,
+		AmountMXN: d("700"), CoveredBySavings: d("600"),
+	}
+	repo.rows[100] = paid
+	if _, err := svc.Create(ctx, app.Input{Category: "Transporte", Amount: d("50"), Date: "2026-10-06"}); err != nil {
+		t.Fatal(err)
+	}
+	fb, err := svc.BudgetFor(ctx, "Transporte", "2026-10-14")
+	if err != nil || !fb.Spent.Equal(d("150")) || fb.Remaining == nil || !fb.Remaining.Equal(d("850")) {
+		t.Errorf("BudgetFor = %+v, %v, want spent 150 (700 - 600 covered + 50) and remaining 850", fb, err)
+	}
+}
+
+func TestCreateWithoutInferableCategoryReturnsADedicatedError(t *testing.T) {
+	svc, repo, _ := newService(t)
+	_, err := svc.Create(context.Background(), app.Input{Description: "zzzz qqqq", Amount: d("10")})
+	if !errors.Is(err, ledger.ErrCategoryNotInferred) || !errors.Is(err, ledger.ErrInvalid) {
+		t.Errorf("err = %v, want ErrCategoryNotInferred (also an ErrInvalid)", err)
+	}
+	if len(repo.rows) != 0 {
+		t.Error("nothing may be stored")
+	}
+}

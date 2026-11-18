@@ -172,6 +172,7 @@ func TestErrorMapping(t *testing.T) {
 	}{
 		{"unexpected", errors.New("x"), http.StatusInternalServerError, `{"error":"internal_error"}`},
 		{"validation", ledgerInvalid(), http.StatusBadRequest, invalid},
+		{"category not inferred", ledger.ErrCategoryNotInferred, http.StatusBadRequest, `{"error":"category_not_inferred","message":"invalid movement: could not infer the category from the description, choose one"}`},
 		{"not found", ledger.ErrNotFound, http.StatusNotFound, `{"error":"not_found"}`},
 	}
 	for _, tc := range tests {
@@ -255,5 +256,16 @@ func TestInferCategory(t *testing.T) {
 	rec = do(newServer(&fakeService{}), "GET", "/expenses/infer-category?description=zzz", "")
 	if strings.TrimSpace(rec.Body.String()) != `{"category":null}` {
 		t.Errorf("no match body %s", rec.Body)
+	}
+}
+
+func TestCoveredBySavingsIsExposedOnlyWhenPositive(t *testing.T) {
+	covered := ledger.Movement{ID: 1, Kind: ledger.KindExpense, Category: "A", AmountMXN: d("100"), Amount: d("100"), CoveredBySavings: d("60")}
+	plain := ledger.Movement{ID: 2, Kind: ledger.KindExpense, Category: "A", AmountMXN: d("10"), Amount: d("10")}
+	over := ledger.Movement{ID: 3, Kind: ledger.KindExpense, Category: "A", AmountMXN: d("50"), Amount: d("50"), CoveredBySavings: d("80")}
+	rec := do(newServer(&fakeService{list: []ledger.Movement{covered, plain, over}}), "GET", "/expenses", "")
+	body := rec.Body.String()
+	if strings.Count(body, "covered_by_savings") != 2 || !strings.Contains(body, `"covered_by_savings":"60"`) || !strings.Contains(body, `"covered_by_savings":"50"`) {
+		t.Errorf("body = %s, want 60 and the capped 50 only", body)
 	}
 }

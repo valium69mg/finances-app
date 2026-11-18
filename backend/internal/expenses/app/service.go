@@ -94,7 +94,7 @@ func (s *Service) build(ctx context.Context, in Input) (ledger.Movement, error) 
 	if category == "" {
 		inferred, ok := cfg.InferCategory(in.Description, ledger.KindExpense)
 		if !ok {
-			return ledger.Movement{}, fmt.Errorf("%w: could not infer the category from the description, choose one", ledger.ErrInvalid)
+			return ledger.Movement{}, ledger.ErrCategoryNotInferred
 		}
 		category = inferred
 	}
@@ -127,7 +127,8 @@ func (s *Service) Create(ctx context.Context, in Input) (Result, error) {
 // Update replaces the expense with the given ID. Movements of another kind are
 // reported as not found: this module only manages expenses.
 func (s *Service) Update(ctx context.Context, id int, in Input) (Result, error) {
-	if _, err := s.expense(ctx, id); err != nil {
+	current, err := s.expense(ctx, id)
+	if err != nil {
 		return Result{}, err
 	}
 	m, err := s.build(ctx, in)
@@ -135,6 +136,10 @@ func (s *Service) Update(ctx context.Context, id int, in Input) (Result, error) 
 		return Result{}, err
 	}
 	m.ID = id
+	// The stored coverage is untouched by the update (the repository does not
+	// write it); the response shows it capped by the new amount.
+	m.CoveredBySavings = current.CoveredBySavings
+	m.CoveredBySavings = m.EffectiveCovered()
 	if err := s.repo.Update(ctx, m); err != nil {
 		return Result{}, err
 	}
@@ -239,7 +244,7 @@ func (s *Service) BudgetFor(ctx context.Context, category, date string) (BudgetF
 	fb := BudgetFeedback{
 		Month:    month,
 		Category: category,
-		Spent:    ledger.SumBy(movements, ledger.Filter{Kind: ledger.KindExpense, Category: category}),
+		Spent:    ledger.SumKPI(movements, ledger.Filter{Kind: ledger.KindExpense, Category: category}),
 	}
 	for _, b := range budgets {
 		if b.Name != category || b.Budget == nil || !b.Budget.IsPositive() {

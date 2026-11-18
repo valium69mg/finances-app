@@ -12,6 +12,11 @@ import (
 // ErrInvalid is wrapped by movement validation; the message says what is wrong.
 var ErrInvalid = errors.New("invalid movement")
 
+// ErrCategoryNotInferred is returned when an expense names no category and none
+// can be deduced from its description. It is an ErrInvalid too, so callers that
+// only know about invalid movements keep treating it as a validation failure.
+var ErrCategoryNotInferred = fmt.Errorf("%w: could not infer the category from the description, choose one", ErrInvalid)
+
 // ErrNotFound is returned by repositories when a movement does not exist.
 var ErrNotFound = errors.New("movement not found")
 

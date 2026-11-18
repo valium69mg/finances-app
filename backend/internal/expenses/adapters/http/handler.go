@@ -80,6 +80,9 @@ type expenseDTO struct {
 	Amount        decimal.Decimal  `json:"amount"`
 	ExchangeRate  *decimal.Decimal `json:"exchange_rate"`
 	AmountMXN     decimal.Decimal  `json:"amount_mxn"`
+	// CoveredBySavings is the part paid from the savings of a future expense
+	// (left out of the monthly KPIs); omitted when none.
+	CoveredBySavings *decimal.Decimal `json:"covered_by_savings,omitempty"`
 }
 
 type budgetDTO struct {
@@ -108,10 +111,14 @@ func (r expenseRequest) toInput() app.Input {
 }
 
 func toExpenseDTO(m ledger.Movement) expenseDTO {
-	return expenseDTO{
+	out := expenseDTO{
 		ID: m.ID, Date: m.Date, Description: m.Description, Category: m.Category, PaymentMethod: m.PaymentMethod,
 		Currency: m.Currency, Amount: m.Amount, ExchangeRate: m.ExchangeRate, AmountMXN: m.AmountMXN,
 	}
+	if covered := m.EffectiveCovered(); covered.IsPositive() {
+		out.CoveredBySavings = &covered
+	}
+	return out
 }
 
 func toResultDTO(r app.Result) resultDTO {
@@ -202,6 +209,8 @@ func (h *Handler) inferCategory(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) fail(w http.ResponseWriter, op string, err error) {
 	switch {
+	case errors.Is(err, ledger.ErrCategoryNotInferred):
+		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "category_not_inferred", "message": err.Error()})
 	case errors.Is(err, ledger.ErrInvalid):
 		httpjson.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_expense", "message": err.Error()})
 	case errors.Is(err, ledger.ErrNotFound):
