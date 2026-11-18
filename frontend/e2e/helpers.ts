@@ -761,6 +761,8 @@ export interface MockSaving {
   amount_mxn: string;
   /** Shared by both legs of a transfer; null (or absent) for a plain saving. */
   transfer_id?: string | null;
+  /** Future expense the saving feeds; with a transfer_id it makes the pair a future expense assignment. */
+  future_expense_id?: number | null;
 }
 
 export interface MockValuation {
@@ -789,6 +791,7 @@ function buildSaving(id: number, body: any, settings: any, existing?: MockSaving
     exchange_rate: rate,
     amount_mxn: rate ? (Number(body.amount) * Number(rate)).toFixed(2) : body.amount,
     transfer_id: null,
+    future_expense_id: null,
   };
 }
 

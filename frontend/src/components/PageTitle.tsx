@@ -5,7 +5,8 @@ import { IconChip } from "./IconChip";
 
 /**
  * Page heading (the page's h1) with an icon chip: the kind's tone on Ingresos, Gastos and Ahorros, primary elsewhere.
- * `action` puts the page's main buttons (Nuevo …) on the same line, wrapping under the title on a phone.
+ * `action` puts the page's main buttons (Nuevo …) on the same line, wrapping under the title on a phone, where it takes the full
+ * width (so a page can lay its buttons out as a grid).
  */
 export function PageTitle({ icon, tone = "primary", children, action }: { icon: LucideIcon; tone?: Tone; children: ReactNode; action?: ReactNode }) {
   const heading = (
@@ -18,7 +19,7 @@ export function PageTitle({ icon, tone = "primary", children, action }: { icon: 
   return (
     <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
       {heading}
-      <div className="flex flex-wrap gap-2">{action}</div>
+      <div className="flex w-full flex-wrap gap-2 sm:w-auto">{action}</div>
     </div>
   );
 }

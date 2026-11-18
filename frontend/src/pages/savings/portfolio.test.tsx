@@ -45,18 +45,27 @@ describe("PortfolioPanel", () => {
     expect(screen.getByRole("region", { name: "Subtotales por destino" })).toHaveTextContent("Inversión ETF");
   });
 
-  it("renders every instrument both as a card (phone) and as a table row (md up), CSS decides which one shows", async () => {
+  it("shows each instrument as a card with its name and current value, and no table", async () => {
     api.getPortfolio.mockResolvedValue(PORTFOLIO);
     renderPanel();
     const cards = await screen.findAllByTestId("instrument-card");
     expect(cards).toHaveLength(2);
     expect(cards[0]).toHaveTextContent("VOO");
-    expect(cards[0]).toHaveTextContent("20.00%");
+    expect(cards[0]).toHaveTextContent("$12,000.00");
+    expect(cards[0]).not.toHaveTextContent("20.00%");
+    expect(cards[1]).toHaveTextContent("CETES");
     expect(cards[1]).toHaveTextContent("sin valuar");
-    expect(within(cards[1]).getAllByText("—").length).toBeGreaterThan(0);
-    expect(screen.getByRole("table", { name: "Portafolio por instrumento" })).toBeInTheDocument();
-    expect(screen.getByRole("list", { name: "Instrumentos del portafolio" }).className).toContain("md:hidden");
-    expect(screen.getByRole("table").parentElement?.className).toContain("hidden");
+    expect(within(cards[1]).getByText("—")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("keeps the two KPIs in two columns at every width, with the emergency fund below", async () => {
+    api.getPortfolio.mockResolvedValue(PORTFOLIO);
+    renderPanel();
+    const headline = await screen.findByLabelText("Resumen del portafolio");
+    expect(headline.className).toContain("grid-cols-2");
+    expect(headline.className).not.toContain("sm:grid-cols");
+    expect(headline.parentElement).toContainElement(screen.getByRole("region", { name: "Fondo de emergencia" }));
   });
 
   it("explains the empty portfolio", async () => {

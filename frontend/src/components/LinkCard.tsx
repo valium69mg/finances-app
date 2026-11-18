@@ -49,15 +49,17 @@ interface StatCardProps {
   tone: Tone;
   /** Route the card links to. Without it the card is informative and not interactive. */
   to?: string;
+  /** Test hook of the card (data-testid). */
+  testId?: string;
   children: ReactNode;
 }
 
 /** A summary figure: label, amount and optional hint, linking to the page that explains it when `to` is given. */
-export function StatCard({ label, hint, negative, icon, tone, to, children }: StatCardProps) {
+export function StatCard({ label, hint, negative, icon, tone, to, testId, children }: StatCardProps) {
   // Two per row on a phone (icon above the text, money scaled to fit 320px), icon beside the text from sm up.
   const box = `flex min-w-0 flex-col items-start gap-2 rounded-lg border p-3 sm:flex-row sm:gap-3 sm:p-4 ${TONES[tone].card}`;
   return (
-    <div className={to ? `${box} group relative transition duration-200 hover:border-foreground/30 hover:shadow-sm` : box}>
+    <div data-testid={testId} className={to ? `${box} group relative transition duration-200 hover:border-foreground/30 hover:shadow-sm` : box}>
       <IconChip icon={icon} tone={tone} onSoft />
       <div className="min-w-0 flex-1">
         <dt className="text-sm text-muted">

@@ -8,12 +8,13 @@ import { DeepLinkNote } from "../components/DeepLinkNote";
 import { FilterChip } from "../components/FilterChip";
 import { Modal } from "../components/Modal";
 import { PortfolioPanel } from "./savings/PortfolioPanel";
-import { SavingDialog, TransferLegDialog } from "./savings/SavingDialogs";
+import { AssignmentLegDialog, SavingDialog, TransferLegDialog } from "./savings/SavingDialogs";
+import { isAssignment } from "./savings/assignment";
 import { SavingsList } from "./savings/SavingsList";
 import { TransferForm } from "./savings/TransferForm";
 import { ValuationForm } from "./savings/ValuationForm";
 import { describeSavingsError } from "./savings/errors";
-import { ErrorBanner, primaryButton, secondaryButton } from "./settings/ui";
+import { ErrorBanner, secondaryButton } from "./settings/ui";
 import { useDeepLink } from "../hooks/useDeepLink";
 import { useCategoryFilter } from "./useCategoryFilter";
 import { useUrlCyclePeriod } from "./useCycle";
@@ -22,7 +23,7 @@ import { KIND } from "../lib/tones";
 
 const panel = "mt-6 rounded-xl border border-border bg-surface p-4 sm:p-6";
 
-type Dialog = { kind: "saving"; saving: Saving | null } | { kind: "leg"; saving: Saving } | { kind: "transfer" } | { kind: "valuation" } | null;
+type Dialog = { kind: "saving"; saving: Saving | null } | { kind: "leg"; saving: Saving } | { kind: "assignment"; saving: Saving } | { kind: "transfer" } | { kind: "valuation" } | null;
 
 /**
  * Ahorros, summary first: the portfolio on top, "Nuevo ahorro", "Transferir" and "Actualizar valuación" in the header
@@ -51,21 +52,27 @@ export function Savings() {
     setNotice(message);
   };
 
+  // A phone shows the three buttons as one row of equal columns (icon over a short label); from sm up they keep their full text.
+  const base = "focus-ring flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 py-2 text-xs font-medium transition-colors duration-200 sm:min-h-11 sm:flex-row sm:gap-2 sm:text-sm";
+  const primary = `${base} bg-primary text-on-primary hover:bg-primary/90 sm:px-5 sm:text-base`;
+  const secondary = `${base} border border-border bg-surface hover:bg-primary/10 sm:px-4`;
   const actions = settings.data ? (
-    <>
-      <button type="button" onClick={() => open({ kind: "saving", saving: null })} className={primaryButton}>
-        <Plus className="h-4 w-4" aria-hidden="true" />
-        Nuevo ahorro
+    <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+      <button type="button" onClick={() => open({ kind: "saving", saving: null })} aria-label="Nuevo ahorro" className={primary}>
+        <Plus className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden="true" />
+        <span className="sm:hidden">Nuevo</span>
+        <span className="hidden sm:inline">Nuevo ahorro</span>
       </button>
-      <button type="button" onClick={() => open({ kind: "transfer" })} className={secondaryButton}>
-        <ArrowRightLeft className="h-4 w-4" aria-hidden="true" />
+      <button type="button" onClick={() => open({ kind: "transfer" })} aria-label="Transferir" className={secondary}>
+        <ArrowRightLeft className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden="true" />
         Transferir
       </button>
-      <button type="button" onClick={() => open({ kind: "valuation" })} className={secondaryButton}>
-        <LineChart className="h-4 w-4" aria-hidden="true" />
-        Actualizar valuación
+      <button type="button" onClick={() => open({ kind: "valuation" })} aria-label="Actualizar valuación" className={secondary}>
+        <LineChart className="h-5 w-5 sm:h-4 sm:w-4" aria-hidden="true" />
+        <span className="sm:hidden">Valuación</span>
+        <span className="hidden sm:inline">Actualizar valuación</span>
       </button>
-    </>
+    </div>
   ) : undefined;
 
   return (
@@ -126,7 +133,7 @@ export function Savings() {
             category={category.filter}
             waiting={category.pending}
             instruments={settings.data?.instruments.instruments ?? []}
-            onOpen={(s) => open(s.transfer_id ? { kind: "leg", saving: s } : { kind: "saving", saving: s })}
+            onOpen={(s) => open(isAssignment(s) ? { kind: "assignment", saving: s } : s.transfer_id ? { kind: "leg", saving: s } : { kind: "saving", saving: s })}
           />
         )}
       </div>
@@ -141,6 +148,7 @@ export function Savings() {
         />
       )}
       {dialog?.kind === "leg" && <TransferLegDialog saving={dialog.saving} onClose={() => setDialog(null)} onDeleted={() => done("Traspaso eliminado.")} />}
+      {dialog?.kind === "assignment" && <AssignmentLegDialog saving={dialog.saving} onClose={() => setDialog(null)} onDeleted={() => done("Asignación eliminada.")} />}
       {settings.data && dialog?.kind === "transfer" && (
         <Modal title="Traspasar entre instrumentos" onClose={() => setDialog(null)}>
           <TransferForm settings={settings.data} onDone={() => done("Traspaso registrado.")} onCancel={() => setDialog(null)} />

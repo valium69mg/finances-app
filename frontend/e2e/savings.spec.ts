@@ -51,9 +51,9 @@ async function openForm(page: Page, form: keyof typeof HEADER_BUTTON) {
   await expect(page.getByRole("dialog")).toBeVisible();
 }
 
-/** The per-instrument figures: a table row from md up, a card on a phone. */
-const isCards = (page: Page) => (page.viewportSize()?.width ?? 0) < 768;
-const instrument = (page: Page, name: RegExp) => (isCards(page) ? page.getByTestId("instrument-card").filter({ hasText: name }) : page.getByRole("row", { name }));
+/** The per-instrument figures: one card each (name and current value). */
+const isPhone = (page: Page) => (page.viewportSize()?.width ?? 0) < 640;
+const instrument = (page: Page, name: RegExp) => page.getByTestId("instrument-card").filter({ hasText: name });
 const headline = (page: Page) => page.getByRole("list", { name: "Resumen del portafolio" }).or(page.getByLabel("Resumen del portafolio"));
 
 const savingForm = (page: Page) => page.getByRole("form", { name: /ahorro$/ });
@@ -96,25 +96,14 @@ test.describe("savings page", () => {
     await open(page, { savings: [seeded(), emergency()], valuations: [vooValuation] }, { form: null });
 
     const voo = instrument(page, /VOO/);
-    await expect(voo).toContainText("$10,000.00");
     await expect(voo).toContainText("$12,000.00");
-    await expect(voo).toContainText("2026-09-30");
-    await expect(voo).toContainText("$2,000.00");
-    await expect(voo).toContainText("20.00%");
-    await expect(voo).toContainText("100.00%");
     const cetes = instrument(page, /CETES/);
-    await expect(cetes).toContainText("$20,000.00");
+    await expect(cetes).toContainText("—");
     await expect(cetes).toContainText("sin valuar");
 
-    // The headline figures are always there; the totals row only exists in the table.
     await expect(headline(page)).toContainText("Valor del portafolio");
     await expect(headline(page)).toContainText("$12,000.00");
     await expect(headline(page)).toContainText("$30,000.00");
-    if (!isCards(page)) {
-      const total = page.getByRole("row", { name: /^Total/ });
-      await expect(total).toContainText("$30,000.00");
-      await expect(total).toContainText("$12,000.00");
-    }
 
     await expect(page.getByRole("region", { name: "Subtotales por tipo" })).toContainText("ETF");
     await expect(page.getByRole("region", { name: "Subtotales por tipo" })).toContainText("Renta fija");
@@ -126,24 +115,42 @@ test.describe("savings page", () => {
     await expect(card.getByRole("progressbar", { name: "Avance del fondo de emergencia" })).toHaveAttribute("aria-valuenow", "33");
   });
 
-  test("renders the instruments as cards on a phone and as a table from md up", async ({ page }) => {
+  test("lays the portfolio out as dashboard cards: two KPIs side by side, the emergency fund below and one card per instrument", async ({ page }) => {
     await open(page, { savings: [seeded(), emergency()], valuations: [vooValuation] }, { form: null });
-    await expect(headline(page)).toContainText("$12,000.00");
-    if (isCards(page)) {
-      await expect(page.getByRole("table")).toHaveCount(0);
-      const cards = page.getByTestId("instrument-card");
-      await expect(cards).toHaveCount(2);
-      await expect(cards.filter({ hasText: "VOO" })).toContainText("20.00%");
-    } else {
-      await expect(page.getByRole("table", { name: "Portafolio por instrumento" })).toBeVisible();
-      await expect(page.getByTestId("instrument-card").first()).toBeHidden();
-    }
+    await expect(page.getByRole("table")).toHaveCount(0);
+    await expect(page.getByTestId("instrument-card")).toHaveCount(2);
+
+    const kpis = headline(page).locator("> div");
+    await expect(kpis).toHaveCount(2);
+    const [valor, aportado] = await Promise.all([kpis.nth(0).boundingBox(), kpis.nth(1).boundingBox()]);
+    expect(Math.abs((valor?.y ?? 0) - (aportado?.y ?? 1)), "the two KPIs share a row").toBeLessThan(2);
+    expect(aportado?.x ?? 0).toBeGreaterThan((valor?.x ?? 0) + (valor?.width ?? 0) - 2);
+
+    const emergencyCard = await page.getByRole("region", { name: "Fondo de emergencia" }).boundingBox();
+    expect(emergencyCard?.y ?? 0).toBeGreaterThan((valor?.y ?? 0) + (valor?.height ?? 0));
+    expect(emergencyCard?.width ?? 0).toBeGreaterThanOrEqual((aportado?.x ?? 0) + (aportado?.width ?? 0) - (valor?.x ?? 0) - 2);
+
+    const cards = page.getByTestId("instrument-card");
+    const first = await cards.nth(0).boundingBox();
+    const second = await cards.nth(1).boundingBox();
+    expect(Math.abs((first?.y ?? 0) - (second?.y ?? 1)), "two instrument cards per row").toBeLessThan(2);
     await expectNoHorizontalOverflow(page, "portfolio");
-    // The page never needs the table's 44rem horizontal scroll on a phone.
-    if (isCards(page)) {
-      const scrollers = await page.evaluate(() => [...document.querySelectorAll("main *")].filter((el) => el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).overflowX === "auto").length);
-      expect(scrollers).toBe(0);
+  });
+
+  test("the three header buttons share one row on a phone and keep their full names", async ({ page }) => {
+    await open(page, { savings: [seeded()] }, { form: null });
+    const boxes = await Promise.all(["Nuevo ahorro", "Transferir", "Actualizar valuación"].map((name) => page.getByRole("button", { name }).boundingBox()));
+    expect(boxes.every(Boolean)).toBe(true);
+    if (isPhone(page)) {
+      expect(new Set(boxes.map((b) => Math.round(b?.y ?? 0))).size, "one row").toBe(1);
+      const widths = boxes.map((b) => Math.round(b?.width ?? 0));
+      expect(Math.max(...widths) - Math.min(...widths), "equal columns").toBeLessThanOrEqual(1);
+      await expect(page.getByRole("button", { name: "Nuevo ahorro" })).toHaveText("Nuevo", { useInnerText: true });
+      await expect(page.getByRole("button", { name: "Actualizar valuación" })).toHaveText("Valuación", { useInnerText: true });
+    } else {
+      await expect(page.getByRole("button", { name: "Nuevo ahorro" })).toHaveText("Nuevo ahorro", { useInnerText: true });
     }
+    await expectNoHorizontalOverflow(page, "header buttons");
   });
 
   test("shows empty states when nothing is registered", async ({ page }) => {
@@ -171,7 +178,7 @@ test.describe("savings page", () => {
     await expect(page.getByText("Ahorro guardado.")).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("listitem").filter({ hasText: "Aportación quincena" })).toContainText("$1,500.50 MXN");
-    await expect(instrument(page, /VOO/)).toContainText("$1,500.50");
+    await expect(headline(page)).toContainText("$1,500.50");
 
     const body = api.requests.find((r) => r.path === "/savings")?.body as Record<string, unknown>;
     expect(body.amount).toBe("1500.50");
@@ -195,7 +202,7 @@ test.describe("savings page", () => {
     const row = page.getByRole("listitem").filter({ hasText: "Retiro parcial" });
     await expect(row).toContainText("-$500.00 MXN");
     await expect(row).toContainText("Retiro");
-    await expect(instrument(page, /VOO/)).toContainText("$9,500.00");
+    await expect(headline(page)).toContainText("$9,500.00");
     expect((api.requests.find((r) => r.path === "/savings")?.body as { amount: string }).amount).toBe("-500.00");
   });
 
@@ -279,7 +286,7 @@ test.describe("savings page", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByText("No hay ahorros registrados en este periodo.")).toBeVisible();
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/savings/1")).toBe(true);
-    await expect(instrument(page, /VOO/)).toContainText("$0.00");
+    await expect(headline(page)).toContainText("$0.00");
   });
 
   test("transfers between instruments and lists both legs", async ({ page }) => {
@@ -294,8 +301,8 @@ test.describe("savings page", () => {
     const legs = page.getByRole("listitem").filter({ hasText: "Traspaso i1 -> i2" });
     await expect(legs).toHaveCount(2);
     await expect(legs.filter({ hasText: "-$2,500.25" })).toHaveCount(1);
-    await expect(instrument(page, /VOO/)).toContainText("$7,499.75");
-    await expect(instrument(page, /CETES/)).toContainText("$2,500.25");
+    // A transfer moves money between instruments: the amount contributed does not change.
+    await expect(headline(page)).toContainText("$10,000.00");
     const body = api.requests.find((r) => r.path === "/savings/transfers")?.body as Record<string, unknown>;
     expect(body).toEqual({ from: "i1", to: "i2", amount: "2500.25" });
     // It opens empty again.
@@ -332,8 +339,44 @@ test.describe("savings page", () => {
     await expect(plain).toBeVisible();
     expect(api.savings).toHaveLength(1);
     expect(api.writes.filter((w) => w.method === "DELETE")).toHaveLength(1);
-    await expect(instrument(page, /VOO/)).toContainText("$10,000.00");
-    await expect(instrument(page, /CETES/)).toContainText("$0.00");
+    await expect(headline(page)).toContainText("$10,000.00");
+  });
+
+  test("a future expense assignment is one row, badged, positive and deleted from its own dialog", async ({ page }) => {
+    const pair = { transfer_id: "00000000-0000-4000-8000-0000000000aa", category: "Gastos futuros", description: "Asignado a Viaje", amount_mxn: "6000.00" };
+    const api = await open(
+      page,
+      {
+        savings: [
+          seeded({ id: 5, ...pair, amount: "-6000.00", amount_mxn: "-6000.00", future_expense_id: null }),
+          seeded({ id: 6, ...pair, amount: "6000.00", future_expense_id: 3 }),
+        ],
+      },
+      { form: null },
+    );
+    const rows = page.getByRole("listitem").filter({ hasText: "Asignado a Viaje" });
+    await expect(rows).toHaveCount(1);
+    const row = rows.first();
+    await expect(row.getByText("Asignación", { exact: true })).toBeVisible();
+    await expect(row.getByText("Traspaso", { exact: true })).toHaveCount(0);
+    await expect(row).toContainText("$6,000.00 MXN");
+    await expect(row).not.toContainText("-$6,000.00");
+    await expect(row).not.toContainText("Retiro");
+    await expect(row.locator(".text-destructive")).toHaveCount(0);
+
+    await row.getByRole("button").click();
+    const dialog = page.getByRole("dialog", { name: "Asignación" });
+    await expect(dialog).toBeVisible();
+    await expect(page.getByRole("form")).toHaveCount(0);
+    await expect(dialog).toContainText("saldo libre");
+    await page.getByRole("button", { name: "Eliminar asignación" }).click();
+    await page.getByRole("button", { name: "Sí, eliminar" }).click();
+
+    await expect(page.getByText("Asignación eliminada.")).toBeVisible();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(page.getByText("Asignado a Viaje")).toHaveCount(0);
+    expect(api.savings).toHaveLength(0);
+    expect(api.writes.filter((w) => w.method === "DELETE")).toHaveLength(1);
   });
 
   test("validates the transfer before sending it", async ({ page }) => {
@@ -363,8 +406,6 @@ test.describe("savings page", () => {
     await expect(page.getByRole("dialog")).toHaveCount(0);
     const voo = instrument(page, /VOO/);
     await expect(voo).toContainText("$15,000.50");
-    await expect(voo).toContainText("2026-10-05");
-    await expect(voo).toContainText("$5,000.50");
     const body = api.requests.find((r) => r.path === "/savings/valuations")?.body as Record<string, unknown>;
     expect(body).toEqual({ instrument: "i1", value_mxn: "15000.50", date: "2026-10-05", note: "Cierre de octubre" });
     expect(api.valuations).toHaveLength(2);

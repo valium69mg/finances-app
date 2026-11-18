@@ -1,123 +1,24 @@
 import { useId } from "react";
-import { Loader2, PiggyBank, ShieldCheck, TrendingUp } from "lucide-react";
+import { Landmark, Loader2, PiggyBank, ShieldCheck, TrendingUp } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { CardTitle } from "../../components/CardTitle";
 import { EmptyNote } from "../../components/EmptyNote";
 import { StatCard, cardClass } from "../../components/LinkCard";
 import { getPortfolio, savingsKeys, type EmergencyProgress, type Portfolio } from "../../api/savings";
-import { formatMoney, formatPercent, percentOf } from "../expenses/money";
+import { formatMoney, percentOf } from "../expenses/money";
 import { ErrorBanner, secondaryButton } from "../settings/ui";
 import { describeSavingsError } from "./errors";
 
-const th = "px-3 py-2 text-left text-sm font-medium text-muted";
-const thNum = "px-3 py-2 text-right text-sm font-medium text-muted";
-const td = "px-3 py-2 align-top";
-const tdNum = "px-3 py-2 text-right align-top tabular-nums";
-
-function PortfolioTable({ portfolio }: { portfolio: Portfolio }) {
-  return (
-    <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
-      <table className="w-full min-w-[44rem] border-collapse text-sm">
-        <caption className="sr-only">Portafolio por instrumento</caption>
-        <thead>
-          <tr className="border-b border-border">
-            <th scope="col" className={th}>
-              Instrumento
-            </th>
-            <th scope="col" className={thNum}>
-              Aportado
-            </th>
-            <th scope="col" className={thNum}>
-              Valor actual
-            </th>
-            <th scope="col" className={th}>
-              Valuación
-            </th>
-            <th scope="col" className={thNum}>
-              Ganancia
-            </th>
-            <th scope="col" className={thNum}>
-              Ganancia %
-            </th>
-            <th scope="col" className={thNum}>
-              % del total
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {portfolio.rows.map((r) => (
-            <tr key={r.id}>
-              <th scope="row" className={`${td} text-left font-medium`}>
-                <span className="break-words">{r.name}</span>
-                <span className="block break-words text-xs font-normal text-muted">
-                  {r.type}
-                  {r.platform ? ` · ${r.platform}` : ""}
-                </span>
-              </th>
-              <td className={tdNum}>{formatMoney(r.contributed)}</td>
-              <td className={tdNum}>{r.unvalued ? "—" : formatMoney(r.value)}</td>
-              <td className={td}>{r.unvalued || !r.value_date ? <span className="text-muted">sin valuar</span> : r.value_date}</td>
-              <td className={tdNum}>{r.unvalued ? "—" : formatMoney(r.gain)}</td>
-              <td className={tdNum}>{r.unvalued ? "—" : formatPercent(r.gain_pct)}</td>
-              <td className={tdNum}>{r.unvalued ? "—" : formatPercent(r.pct_of_total)}</td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t border-border font-semibold">
-            <th scope="row" className={`${td} text-left`}>
-              Total
-            </th>
-            <td className={tdNum}>{formatMoney(portfolio.total_contributed)}</td>
-            <td className={tdNum}>{formatMoney(portfolio.total_value)}</td>
-            <td className={td} />
-            <td className={td} />
-            <td className={td} />
-            <td className={td} />
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  );
-}
-
-/** The per-instrument portfolio as cards, for a phone: the same figures as the table, without the horizontal scroll. */
+/** The per-instrument portfolio as dashboard cards: the instrument's name and what it is worth now. */
 function PortfolioCards({ portfolio }: { portfolio: Portfolio }) {
   return (
-    <ul aria-label="Instrumentos del portafolio" className="space-y-2 md:hidden">
+    <dl aria-label="Instrumentos del portafolio" className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-4">
       {portfolio.rows.map((r) => (
-        <li key={r.id} data-testid="instrument-card" className="rounded-xl border border-border bg-surface p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="break-words font-medium">{r.name}</p>
-              <p className="break-words text-xs text-muted">
-                {r.type}
-                {r.platform ? ` · ${r.platform}` : ""}
-              </p>
-            </div>
-            <p className="shrink-0 text-right text-lg font-semibold tabular-nums">{r.unvalued ? "—" : formatMoney(r.value)}</p>
-          </div>
-          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-            <div>
-              <dt className="text-muted">Aportado</dt>
-              <dd className="tabular-nums">{formatMoney(r.contributed)}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Valuación</dt>
-              <dd>{r.unvalued || !r.value_date ? <span className="text-muted">sin valuar</span> : r.value_date}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">Ganancia</dt>
-              <dd className="tabular-nums">{r.unvalued ? "—" : `${formatMoney(r.gain)} (${formatPercent(r.gain_pct)})`}</dd>
-            </div>
-            <div>
-              <dt className="text-muted">% del total</dt>
-              <dd className="tabular-nums">{r.unvalued ? "—" : formatPercent(r.pct_of_total)}</dd>
-            </div>
-          </dl>
-        </li>
+        <StatCard key={r.id} testId="instrument-card" label={r.name} icon={Landmark} tone="saving" hint={r.unvalued ? "sin valuar" : undefined}>
+          {r.unvalued ? "—" : formatMoney(r.value)}
+        </StatCard>
       ))}
-    </ul>
+    </dl>
   );
 }
 
@@ -199,11 +100,14 @@ export function EmergencyCard({ emergency, to }: { emergency: EmergencyProgress;
   );
 }
 
-/** Headline figures: what the portfolio is worth now, what was put in, and the emergency fund progress. */
+/**
+ * Headline figures: what the portfolio is worth now and what was put in, side by side at every width (like the
+ * dashboard KPIs), with the emergency fund progress full width below them.
+ */
 function Headline({ portfolio }: { portfolio: Portfolio }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <dl aria-label="Resumen del portafolio" className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
+    <div className="space-y-4">
+      <dl aria-label="Resumen del portafolio" className="grid grid-cols-2 gap-3 sm:gap-4">
         <StatCard label="Valor del portafolio" hint="Según la última valuación de cada instrumento" icon={TrendingUp} tone="saving">
           {formatMoney(portfolio.total_value)}
         </StatCard>
@@ -218,7 +122,7 @@ function Headline({ portfolio }: { portfolio: Portfolio }) {
 
 /**
  * Savings summary: headline figures and the emergency fund, the subtotals by type and destination, and the portfolio
- * per instrument (a table from md up, cards below it).
+ * per instrument as cards.
  */
 export function PortfolioPanel() {
   const portfolio = useQuery({ queryKey: savingsKeys.portfolio, queryFn: getPortfolio, retry: false });
@@ -254,7 +158,6 @@ export function PortfolioPanel() {
           Por instrumento
         </h3>
         <PortfolioCards portfolio={p} />
-        <PortfolioTable portfolio={p} />
       </section>
     </div>
   );
