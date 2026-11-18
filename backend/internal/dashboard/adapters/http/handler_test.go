@@ -87,7 +87,7 @@ func sample() dashboard.Overview {
 		PeriodStart: "2026-09-30",
 		PeriodEnd:   "2026-10-30",
 		Rows: []dashboard.Row{
-			{Name: "Mandado", Kind: ledger.KindExpense, Real: d("1500"), Budget: p("1000"), Diff: p("-500")},
+			{Name: "Mandado", Kind: ledger.KindExpense, Real: d("1500"), Budget: p("1000"), Diff: p("-500"), Fixed: true},
 			{Name: "Ocio", Kind: ledger.KindExpense, Real: d("200")},
 		},
 		Spending: dashboard.Spending{
@@ -143,7 +143,7 @@ func TestGet(t *testing.T) {
 		t.Error("missing Cache-Control: no-store")
 	}
 	want := `{"month":"2026-10","period_start":"2026-09-30","period_end":"2026-10-30","categories":[` +
-		`{"category":"Mandado","spent":"1500","budget":"1000","remaining":"-500","over_budget":true},` +
+		`{"category":"Mandado","spent":"1500","budget":"1000","remaining":"-500","over_budget":true,"fixed":true},` +
 		`{"category":"Ocio","spent":"200","budget":null,"remaining":null,"over_budget":false}],` +
 		`"income":"50000","expenses":"1700","savings":"5000","available":"43300",` +
 		`"emergency":{"accumulated":"10000","goal":"120000"},` +

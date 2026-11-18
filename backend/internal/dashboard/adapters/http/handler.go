@@ -55,6 +55,8 @@ type categoryDTO struct {
 	Budget     *decimal.Decimal `json:"budget"`
 	Remaining  *decimal.Decimal `json:"remaining"`
 	OverBudget bool             `json:"over_budget"`
+	// Fixed marks a fixed expense category. Only the owner's payload carries it (omitted when false).
+	Fixed bool `json:"fixed,omitempty"`
 }
 
 // spendingDTO splits the Gasto categories into fixed and variable for the cycle
@@ -206,7 +208,7 @@ func toDTO(d dashboard.Overview) dashboardDTO {
 			ID: m.ID, Date: m.Date, Kind: string(m.Kind), Description: m.Description, Category: m.Category, AmountMXN: m.AmountMXN,
 		}
 	}
-	out.Categories = toCategoryDTOs(d.Rows)
+	out.Categories = toCategoryDTOs(d.Rows, true)
 	if d.Tax != nil {
 		out.Tax = &taxDTO{
 			Rate: d.Tax.Rate, EstimatedISR: d.Tax.EstimatedISR, FilingStatus: string(d.Tax.Filing.Payment),
@@ -226,10 +228,10 @@ type budgetDTO struct {
 	Categories  []categoryDTO `json:"categories"`
 }
 
-func toCategoryDTOs(rows []dashboard.Row) []categoryDTO {
+func toCategoryDTOs(rows []dashboard.Row, withFixed bool) []categoryDTO {
 	out := make([]categoryDTO, len(rows))
 	for i, r := range rows {
-		out[i] = categoryDTO{Category: r.Name, Spent: r.Real, Budget: r.Budget, Remaining: r.Diff, OverBudget: r.OverBudget()}
+		out[i] = categoryDTO{Category: r.Name, Spent: r.Real, Budget: r.Budget, Remaining: r.Diff, OverBudget: r.OverBudget(), Fixed: withFixed && r.Fixed}
 	}
 	return out
 }
@@ -257,7 +259,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httpjson.WriteJSON(w, http.StatusOK, budgetDTO{
-			Month: v.Month, PeriodStart: v.PeriodStart, PeriodEnd: v.PeriodEnd, Categories: toCategoryDTOs(v.Rows),
+			Month: v.Month, PeriodStart: v.PeriodStart, PeriodEnd: v.PeriodEnd, Categories: toCategoryDTOs(v.Rows, false),
 		})
 	default:
 		httpjson.WriteError(w, http.StatusForbidden, "forbidden")
