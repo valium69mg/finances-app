@@ -165,8 +165,12 @@ test.describe("month close preview", () => {
   });
 
   test("a complete emergency fund sends everything to Inversiones", async ({ page }) => {
+    // Drop the mocked investment pause so the outcome does not depend on today's date.
     await openClose(page, {
       ...withMovements,
+      settingsPatch: (s) => {
+        s.investment_pause = null;
+      },
       savings: [{ ...MOVEMENTS.savings[0], date: `${OLDER}-01`, amount: "60000.00", amount_mxn: "60000.00" }],
     });
     await expand(page, /^¿Dónde poner el dinero disponible\?/);
