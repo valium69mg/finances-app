@@ -293,13 +293,11 @@ func (s *Service) Dashboard(ctx context.Context, actor Identity, target, month s
 	if err != nil {
 		return domain.Dashboard{}, err
 	}
-	totals, err := s.repo.KindTotals(ctx, userID, p.Start, p.End)
+	rows, err := s.repo.KPIMovements(ctx, userID, p.Start, p.End)
 	if err != nil {
 		return domain.Dashboard{}, err
 	}
-	cats, err := s.repo.SpentByCategory(ctx, userID, p.Start, p.End)
-	if err != nil {
-		return domain.Dashboard{}, err
-	}
-	return domain.Dashboard{Period: p, Totals: totals, Categories: cats}, nil
+	// What savings covered is left out of her expenses and categories and the
+	// settlement rows out of her savings, so Available does not change.
+	return domain.Dashboard{Period: p, Totals: domain.KPITotals(rows), Categories: domain.KPISpend(rows)}, nil
 }

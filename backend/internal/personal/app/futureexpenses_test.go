@@ -160,6 +160,17 @@ func (r *fakeRepo) PayFuture(_ context.Context, user string, id int, plan func(d
 		return domain.FutureExpense{}, domain.Movement{}, err
 	}
 	r.settled = append(r.settled, st)
+	// The ledger rows of the payment, so the dashboard sees them.
+	r.nextMov++
+	r.moves = append(r.moves, domain.Movement{ID: r.nextMov, Kind: domain.KindExpense, CategoryID: st.Expense.CategoryID, Amount: st.Expense.Amount,
+		Description: st.Expense.Description, Date: st.Expense.Date, CoveredBySavings: st.Expense.CoveredBySavings})
+	r.mOwners[r.nextMov] = user
+	for _, row := range st.Savings {
+		r.nextMov++
+		r.moves = append(r.moves, domain.Movement{ID: r.nextMov, Kind: domain.KindSavings, Amount: row.Amount, Description: row.Description,
+			Date: row.Date, SavingsSettlement: row.Settlement})
+		r.mOwners[r.nextMov] = user
+	}
 	for _, row := range st.Savings {
 		link := 0
 		if row.Linked {
@@ -347,11 +358,12 @@ func TestPayReleasesWhatWasSaved(t *testing.T) {
 		wantRemain   string // positive unlinked row
 		wantAmount   string
 		wantFreeDiff string
+		wantCovered  string
 	}{
-		{"saved more than paid", "500", ptr("300"), 2, "-500", "200", "300", "200"},
-		{"saved less than paid", "100", ptr("300"), 1, "-100", "", "300", "0"},
-		{"saved exactly the target, amount defaults", "1000", nil, 1, "-1000", "", "1000", "0"},
-		{"nothing saved", "0", ptr("300"), 0, "", "", "300", "0"},
+		{"saved more than paid", "500", ptr("300"), 2, "-500", "200", "300", "200", "300"},
+		{"saved less than paid", "100", ptr("300"), 1, "-100", "", "300", "0", "100"},
+		{"saved exactly the target, amount defaults", "1000", nil, 1, "-1000", "", "1000", "0", "1000"},
+		{"nothing saved", "0", ptr("300"), 0, "", "", "300", "0", "0"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -381,6 +393,14 @@ func TestPayReleasesWhatWasSaved(t *testing.T) {
 			if !st.Expense.Amount.Equal(d(c.wantAmount)) || st.Expense.CategoryID != ropa || st.Expense.Kind != domain.KindExpense ||
 				st.Expense.Description != "Viaje" || st.Expense.Date != "2026-10-05" {
 				t.Errorf("expense = %+v", st.Expense)
+			}
+			if !st.Expense.CoveredBySavings.Equal(d(c.wantCovered)) {
+				t.Errorf("covered by savings = %s, want %s (min(saved, paid))", st.Expense.CoveredBySavings, c.wantCovered)
+			}
+			for i, row := range st.Savings {
+				if !row.Settlement {
+					t.Errorf("savings row %d = %+v, want it marked as a settlement", i, row)
+				}
 			}
 			if paid.Status != domain.FuturePaid || paid.PaidAt != "2026-10-05" || paid.AmountPaid == nil || !paid.AmountPaid.Equal(d(c.wantAmount)) || expense.ID != 900 {
 				t.Errorf("paid item = %+v, expense %+v", paid, expense)
@@ -461,5 +481,34 @@ func TestListSplitsActiveAndPaid(t *testing.T) {
 	failing := newSvc(&fakeRepo{owners: map[int]string{}, mOwners: map[int]string{}}, fakeSettings{err: errSet})
 	if _, err := failing.FutureExpenses(ctx, her, ""); !errors.Is(err, errSet) {
 		t.Errorf("settings failure: %v", err)
+	}
+}
+
+// Paying an item must not move her monthly KPIs except by what savings did not
+// cover, and Available stays what it was.
+func TestDashboardLeavesOutWhatSavingsCoveredAndKeepsAvailable(t *testing.T) {
+	r := newRepo()
+	svc := newSvc(r, noCfg)
+	ropa := categoryID(t, svc, her, "Ropa")
+	trabajo := r.addCat(her.UserID, domain.KindIncome, "Trabajo")
+	addMove(r, her.UserID, domain.KindIncome, trabajo, "2000", "2026-10-02")
+	id := newItem(t, svc, her, "1000")
+	if _, _, err := svc.ContributeFuture(ctx, her, id, app.FutureSavingInput{Amount: d("500"), Date: "2026-09-20"}); err != nil {
+		t.Fatal(err)
+	}
+	// The September saving is outside the cycle; pay 300 in October with 500 saved.
+	before, _ := svc.Dashboard(ctx, her, "", "2026-10")
+	if _, _, err := svc.PayFuture(ctx, her, id, app.FuturePayInput{Date: "2026-10-05", Amount: ptr("300"), CategoryID: ropa}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.Dashboard(ctx, her, "", "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !after.Totals.Expenses.IsZero() || !after.Totals.Savings.IsZero() || len(after.Categories) != 0 {
+		t.Errorf("dashboard = %+v, want nothing spent or saved: savings paid it all", after)
+	}
+	if !after.Totals.Available().Equal(before.Totals.Available()) {
+		t.Errorf("available changed: %s -> %s", before.Totals.Available(), after.Totals.Available())
 	}
 }

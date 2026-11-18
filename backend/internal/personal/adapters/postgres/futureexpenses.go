@@ -189,7 +189,7 @@ func lockItem(ctx context.Context, tx pgx.Tx, userID string, id int, mode string
 }
 
 func savingMovement(categoryID int, row app.SavingRow) domain.ValidMovement {
-	return domain.ValidMovement{Kind: domain.KindSavings, CategoryID: categoryID, Amount: row.Amount, Description: row.Description, Date: row.Date}
+	return domain.ValidMovement{Kind: domain.KindSavings, CategoryID: categoryID, Amount: row.Amount, Description: row.Description, Date: row.Date, SavingsSettlement: row.Settlement}
 }
 
 func linkOf(id int, linked bool) *int64 {

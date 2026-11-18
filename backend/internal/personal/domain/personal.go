@@ -7,6 +7,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -85,8 +86,90 @@ type Movement struct {
 	Date         string // YYYY-MM-DD
 	// FutureExpenseID is the future expense an Ahorro feeds, nil otherwise.
 	FutureExpenseID *int
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// CoveredBySavings is, on a Gasto, the part of the payment that came from
+	// the savings of a future expense (min(saved, paid)); zero means none.
+	CoveredBySavings decimal.Decimal
+	// SavingsSettlement marks the Ahorro rows a future expense payment writes
+	// (the release and the remainder, whose net is minus the covered amount).
+	SavingsSettlement bool
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+// EffectiveCovered is the part of a Gasto that savings covered, capped by its
+// amount so an expense edited below the covered amount never counts negative.
+func (m Movement) EffectiveCovered() decimal.Decimal {
+	if m.Kind != KindExpense || !m.CoveredBySavings.IsPositive() {
+		return decimal.Zero
+	}
+	return decimal.Min(m.CoveredBySavings, m.Amount)
+}
+
+// KPIAmount is the amount of the movement in her monthly KPIs. It is the
+// owner's rule (ledger.Movement.KPIAmount): a Gasto counts only the part not
+// covered by savings and the settlement rows of a payment count nothing, so the
+// available money is unchanged. Savings totals, the free balance and the item
+// totals keep reading Amount.
+func (m Movement) KPIAmount() decimal.Decimal {
+	switch {
+	case m.Kind == KindSavings && m.SavingsSettlement:
+		return decimal.Zero
+	case m.Kind == KindExpense:
+		return m.Amount.Sub(m.EffectiveCovered())
+	}
+	return m.Amount
+}
+
+// KPITotals sums the KPI amounts of the movements by kind.
+func KPITotals(movements []Movement) KindTotals {
+	var t KindTotals
+	for _, m := range movements {
+		switch m.Kind {
+		case KindIncome:
+			t.Income = t.Income.Add(m.KPIAmount())
+		case KindExpense:
+			t.Expenses = t.Expenses.Add(m.KPIAmount())
+		case KindSavings:
+			t.Savings = t.Savings.Add(m.KPIAmount())
+		}
+	}
+	return t
+}
+
+// KPISpend returns what each Gasto category spent (KPI amounts), biggest first
+// with the name and then the id breaking ties. Categories that spent nothing,
+// like one whose expenses were all covered by savings, are left out.
+func KPISpend(movements []Movement) []CategorySpend {
+	byID := map[int]*CategorySpend{}
+	var order []int
+	for _, m := range movements {
+		if m.Kind != KindExpense {
+			continue
+		}
+		c, ok := byID[m.CategoryID]
+		if !ok {
+			c = &CategorySpend{CategoryID: m.CategoryID, Category: m.CategoryName}
+			byID[m.CategoryID] = c
+			order = append(order, m.CategoryID)
+		}
+		c.Spent = c.Spent.Add(m.KPIAmount())
+	}
+	out := []CategorySpend{}
+	for _, id := range order {
+		if byID[id].Spent.IsPositive() {
+			out = append(out, *byID[id])
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if !out[i].Spent.Equal(out[j].Spent) {
+			return out[i].Spent.GreaterThan(out[j].Spent)
+		}
+		if out[i].Category != out[j].Category {
+			return out[i].Category < out[j].Category
+		}
+		return out[i].CategoryID < out[j].CategoryID
+	})
+	return out
 }
 
 // ParseKind checks a kind name.
@@ -126,6 +209,10 @@ type ValidMovement struct {
 	Amount      decimal.Decimal
 	Description string
 	Date        string
+	// CoveredBySavings and SavingsSettlement are set only by the payment of a
+	// future expense, never by user input (ValidateMovement leaves them empty).
+	CoveredBySavings  decimal.Decimal
+	SavingsSettlement bool
 }
 
 // ValidateAmount checks a user-supplied amount: in range first (before any

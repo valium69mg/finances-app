@@ -2,6 +2,8 @@ package postgres_test
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -52,8 +54,13 @@ func (f fixture) free(t *testing.T, user string) decimal.Decimal {
 
 func settle(cat domain.Category, paid string, rows ...app.SavingRow) func(domain.FutureExpense) (app.Settlement, error) {
 	return func(it domain.FutureExpense) (app.Settlement, error) {
+		// What the savings paid is minus the net of the release rows.
+		covered := decimal.Zero
+		for _, r := range rows {
+			covered = covered.Sub(r.Amount)
+		}
 		return app.Settlement{
-			Expense: domain.ValidMovement{Kind: domain.KindExpense, CategoryID: cat.ID, Amount: d(paid), Description: it.Name, Date: "2026-10-05"},
+			Expense: domain.ValidMovement{Kind: domain.KindExpense, CategoryID: cat.ID, Amount: d(paid), Description: it.Name, Date: "2026-10-05", CoveredBySavings: covered},
 			Savings: rows,
 		}, nil
 	}
@@ -251,8 +258,8 @@ func TestPayReleasesSavedAndReturnsTheRemainder(t *testing.T) {
 	f.save(t, f.her, it.ID, "500")
 	f.seedFree(t, f.her, "50")
 	rows := []app.SavingRow{
-		{Amount: d("-500"), Date: "2026-10-05", Description: "Pago de Viaje", Linked: true},
-		{Amount: d("200"), Date: "2026-10-05", Description: "Sobrante de Viaje"},
+		{Amount: d("-500"), Date: "2026-10-05", Description: "Pago de Viaje", Linked: true, Settlement: true},
+		{Amount: d("200"), Date: "2026-10-05", Description: "Sobrante de Viaje", Settlement: true},
 	}
 	paid, expense, err := f.repo.PayFuture(ctx, f.her, it.ID, settle(f.ropa, "300", rows...))
 	if err != nil {
@@ -267,6 +274,25 @@ func TestPayReleasesSavedAndReturnsTheRemainder(t *testing.T) {
 	}
 	if free := f.free(t, f.her); !free.Equal(d("250")) {
 		t.Errorf("free balance = %s, want 50 + 200 remainder", free)
+	}
+	// The markers round trip and her KPIs leave the covered part out while the
+	// raw Ahorro rows (free balance, item totals) stay as they were.
+	if !expense.CoveredBySavings.Equal(d("300")) {
+		t.Errorf("covered by savings = %s, want 300", expense.CoveredBySavings)
+	}
+	month, err := f.repo.KPIMovements(ctx, f.her, "2026-10-01", "2026-10-31")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settlements := 0
+	for _, m := range month {
+		if m.SavingsSettlement {
+			settlements++
+		}
+	}
+	// The 500 contribution of the cycle stays a saving; the payment adds nothing.
+	if kpi := domain.KPITotals(month); settlements != 2 || !kpi.Expenses.IsZero() || !kpi.Savings.Equal(d("500")) {
+		t.Errorf("KPIs = %+v with %d settlement rows, want nothing spent, 500 saved and 2 rows", kpi, settlements)
 	}
 	if _, _, err := f.repo.PayFuture(ctx, f.her, it.ID, settle(f.ropa, "300")); !errors.Is(err, domain.ErrAlreadyPaid) {
 		t.Errorf("second payment: %v; want ErrAlreadyPaid", err)
@@ -432,5 +458,127 @@ func TestManualUpdateKeepsTheLinkAndListExposesIt(t *testing.T) {
 	}
 	if got, _ := f.repo.GetFutureExpense(ctx, f.her, it.ID); !got.Saved.IsZero() {
 		t.Errorf("saved = %s after deleting the saving", got.Saved)
+	}
+}
+
+func (f fixture) addPaymentWith(t *testing.T, name string, saved, paid string) (domain.FutureExpense, domain.Movement) {
+	t.Helper()
+	it, err := f.repo.CreateFutureExpense(ctx, f.her, validItem(name, "1000"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != "0" {
+		f.save(t, f.her, it.ID, saved)
+	}
+	var rows []app.SavingRow
+	linked, remainder := domain.Release(d(saved), d(paid))
+	if linked.IsPositive() {
+		rows = append(rows, app.SavingRow{Amount: linked.Neg(), Date: "2026-10-05", Description: "Pago de " + name, Linked: true})
+	}
+	if remainder.IsPositive() {
+		rows = append(rows, app.SavingRow{Amount: remainder, Date: "2026-10-05", Description: "Sobrante de " + name})
+	}
+	paidItem, expense, err := f.repo.PayFuture(ctx, f.her, it.ID, settle(f.ropa, paid, rows...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return paidItem, expense
+}
+
+// The data step of migration 000030 marks the payments made before the
+// markers existed: release and remainder rows as settlements and the Gasto with
+// min(saved, paid). It is idempotent and leaves manual rows alone.
+func TestMigrationBackfillsAlreadyPaidItems(t *testing.T) {
+	f := setup(t)
+	_, over := f.addPaymentWith(t, "Viaje", "500", "300")
+	_, under := f.addPaymentWith(t, "Laptop", "100", "300")
+	_, none := f.addPaymentWith(t, "Cena", "0", "80")
+	// Manual rows that look similar but are not payments.
+	cats, _ := f.repo.ListCategories(ctx, f.her, domain.KindSavings)
+	gf := find(t, cats, domain.SavingsCategory)
+	manual := mv(domain.KindSavings, gf, "70", "2026-10-06") // another day: not part of the payment
+	manual.Description = "Sobrante de Viaje"
+	if _, err := f.repo.CreateMovement(ctx, f.her, manual); err != nil {
+		t.Fatal(err)
+	}
+	manual.Date = "2026-10-05"
+	manual.Description = "ordinario"
+	manual.Amount = d("-20")
+	if _, err := f.repo.CreateMovement(ctx, f.her, manual); err != nil {
+		t.Fatal(err)
+	}
+
+	// Go back to the legacy shape and run the up migration data steps again.
+	root := filepath.Join("..", "..", "..", "..", "..", "migrations")
+	down, err := os.ReadFile(filepath.Join(root, "000030_personal_savings_covered_expenses.down.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	up, err := os.ReadFile(filepath.Join(root, "000030_personal_savings_covered_expenses.up.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.pool.Exec(ctx, string(down)); err != nil {
+		t.Fatalf("down: %v", err)
+	}
+	if _, err := f.pool.Exec(ctx, string(up)); err != nil {
+		t.Fatalf("up: %v", err)
+	}
+
+	covered := func(id int) string {
+		var s *string
+		if err := f.pool.QueryRow(ctx, `SELECT covered_by_savings::text FROM personal_movements WHERE id = $1`, id).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		if s == nil {
+			return "none"
+		}
+		return *s
+	}
+	if g := covered(over.ID); g != "300.00" {
+		t.Errorf("saved more than paid: covered = %s, want 300.00", g)
+	}
+	if g := covered(under.ID); g != "100.00" {
+		t.Errorf("saved less than paid: covered = %s, want 100.00 (what existed)", g)
+	}
+	if g := covered(none.ID); g != "none" {
+		t.Errorf("nothing saved: covered = %s, want none", g)
+	}
+	// The two releases and the remainder of "Viaje", never the manual rows.
+	if n := count(t, f, `SELECT count(*) FROM personal_movements WHERE savings_settlement`); n != 3 {
+		t.Errorf("settlement rows = %d, want 3 (2 releases + 1 remainder)", n)
+	}
+	// The raw readers are unchanged.
+	if free := f.free(t, f.her); !free.Equal(d("250")) {
+		t.Errorf("free balance = %s, want 200 remainder + 70 - 20", free)
+	}
+}
+
+func TestSchemaRejectsMisplacedSavingsMarkers(t *testing.T) {
+	f := setup(t)
+	bad := mv(domain.KindSavings, f.ahorro, "5", "2026-10-05")
+	bad.CoveredBySavings = d("5")
+	if _, err := f.repo.CreateMovement(ctx, f.her, bad); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("covered on an Ahorro: %v; want ErrInvalidInput", err)
+	}
+	bad = mv(domain.KindExpense, f.ropa, "5", "2026-10-05")
+	bad.SavingsSettlement = true
+	if _, err := f.repo.CreateMovement(ctx, f.her, bad); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("settlement on a Gasto: %v; want ErrInvalidInput", err)
+	}
+	// An update never writes the markers, and a Gasto paid with savings cannot become another kind.
+	ok := mv(domain.KindExpense, f.ropa, "100", "2026-10-05")
+	ok.CoveredBySavings = d("60")
+	m, err := f.repo.CreateMovement(ctx, f.her, ok)
+	if err != nil || !m.CoveredBySavings.Equal(d("60")) {
+		t.Fatalf("create covered Gasto = %+v, %v", m, err)
+	}
+	edited := mv(domain.KindExpense, f.ropa, "90", "2026-10-05")
+	up, err := f.repo.UpdateMovement(ctx, f.her, m.ID, edited)
+	if err != nil || !up.CoveredBySavings.Equal(d("60")) || !up.Amount.Equal(d("90")) {
+		t.Errorf("update = %+v, %v; want the coverage kept", up, err)
+	}
+	if _, err := f.repo.UpdateMovement(ctx, f.her, m.ID, mv(domain.KindIncome, f.trabajo, "90", "2026-10-05")); !errors.Is(err, domain.ErrInvalidInput) {
+		t.Errorf("kind change of a covered Gasto: %v; want ErrInvalidInput", err)
 	}
 }

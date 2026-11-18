@@ -287,14 +287,19 @@ func (s *Service) PayFuture(ctx context.Context, actor Identity, id int, in Futu
 		}
 		out := Settlement{Expense: v}
 		linked, remainder := domain.Release(it.Saved, amount)
+		// What the savings really paid is what is released minus what returns
+		// to the free balance, i.e. min(saved, paid). The Gasto records it and
+		// the Ahorro rows are marked as a settlement, so her monthly KPIs leave
+		// both out.
+		out.Expense.CoveredBySavings = linked.Sub(remainder)
 		if linked.IsPositive() {
 			out.Savings = append(out.Savings, SavingRow{
-				Amount: linked.Neg(), Date: date, Description: domain.TrimDescription("Pago de " + it.Name), Linked: true,
+				Amount: linked.Neg(), Date: date, Description: domain.TrimDescription("Pago de " + it.Name), Linked: true, Settlement: true,
 			})
 		}
 		if remainder.IsPositive() {
 			out.Savings = append(out.Savings, SavingRow{
-				Amount: remainder, Date: date, Description: domain.TrimDescription("Sobrante de " + it.Name),
+				Amount: remainder, Date: date, Description: domain.TrimDescription("Sobrante de " + it.Name), Settlement: true,
 			})
 		}
 		return out, nil

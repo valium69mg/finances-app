@@ -62,12 +62,10 @@ type Repo interface {
 	UpdateMovement(ctx context.Context, userID string, id int, v domain.ValidMovement) (domain.Movement, error)
 	DeleteMovement(ctx context.Context, userID string, id int) error
 
-	// KindTotals sums the user's movements by kind in the inclusive date range
-	// (savings net of withdrawals). Missing kinds are zero.
-	KindTotals(ctx context.Context, userID, from, to string) (domain.KindTotals, error)
-	// SpentByCategory returns the Gasto categories that have spending in the
-	// range, ordered by spent descending then name.
-	SpentByCategory(ctx context.Context, userID, from, to string) ([]domain.CategorySpend, error)
+	// KPIMovements returns every movement of the user in the inclusive date
+	// range with its savings markers, for the monthly KPIs (domain.KPITotals
+	// and domain.KPISpend).
+	KPIMovements(ctx context.Context, userID, from, to string) ([]domain.Movement, error)
 
 	FutureRepo
 	WishRepo
@@ -80,12 +78,15 @@ type SavingRow struct {
 	Date        string
 	Description string
 	Linked      bool
+	// Settlement marks the row as part of a payment (release or remainder).
+	Settlement bool
 }
 
 // Settlement is what a payment writes besides the item itself, computed from
 // the amount saved at the moment of the payment.
 type Settlement struct {
-	// Expense is the Gasto of the payment, in a category of the user.
+	// Expense is the Gasto of the payment, in a category of the user. Its
+	// CoveredBySavings is what the savings paid.
 	Expense domain.ValidMovement
 	// Savings are the Ahorro rows that release the saved money (domain.Release).
 	Savings []SavingRow

@@ -152,7 +152,8 @@ func (r *Repo) RenameCategory(ctx context.Context, userID string, id int, name s
 
 // --- movements ----------------------------------------------------------
 
-const movementColumns = `m.id, m.kind, m.category_id, c.name, m.amount::text, m.description, m.date::text, m.future_expense_id, m.created_at, m.updated_at`
+const movementColumns = `m.id, m.kind, m.category_id, c.name, m.amount::text, m.description, m.date::text, m.future_expense_id,
+	m.covered_by_savings::text, m.savings_settlement, m.created_at, m.updated_at`
 
 func scanMovement(row pgx.Row) (domain.Movement, error) {
 	var (
@@ -160,9 +161,10 @@ func scanMovement(row pgx.Row) (domain.Movement, error) {
 		id, categoryID       int64
 		kind, amount         string
 		futureID             *int64
+		coveredText          *string
 		createdAt, updatedAt time.Time
 	)
-	if err := row.Scan(&id, &kind, &categoryID, &m.CategoryName, &amount, &m.Description, &m.Date, &futureID, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&id, &kind, &categoryID, &m.CategoryName, &amount, &m.Description, &m.Date, &futureID, &coveredText, &m.SavingsSettlement, &createdAt, &updatedAt); err != nil {
 		return domain.Movement{}, err
 	}
 	if futureID != nil {
@@ -174,6 +176,11 @@ func scanMovement(row pgx.Row) (domain.Movement, error) {
 	if m.Amount, err = decimal.NewFromString(amount); err != nil {
 		return domain.Movement{}, fmt.Errorf("parse amount: %w", err)
 	}
+	if coveredText != nil {
+		if m.CoveredBySavings, err = decimal.NewFromString(*coveredText); err != nil {
+			return domain.Movement{}, fmt.Errorf("parse covered_by_savings: %w", err)
+		}
+	}
 	return m, nil
 }
 
@@ -182,8 +189,15 @@ func scanMovement(row pgx.Row) (domain.Movement, error) {
 // the CHECK rejects a wrong amount sign.
 func mapWriteError(err error) error {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.ConstraintName == "personal_movements_future_expense_savings_only" {
-		return fmt.Errorf("%w: a saving linked to a future expense must stay an Ahorro", domain.ErrInvalidInput)
+	if errors.As(err, &pgErr) {
+		switch pgErr.ConstraintName {
+		case "personal_movements_future_expense_savings_only":
+			return fmt.Errorf("%w: a saving linked to a future expense must stay an Ahorro", domain.ErrInvalidInput)
+		case "personal_movements_covered_by_savings_expense_only":
+			return fmt.Errorf("%w: an expense paid with savings must stay a Gasto", domain.ErrInvalidInput)
+		case "personal_movements_savings_settlement_savings_only":
+			return fmt.Errorf("%w: the settlement of a payment must stay an Ahorro", domain.ErrInvalidInput)
+		}
 	}
 	switch pgCode(err) {
 	case codeForeignKey:
@@ -235,18 +249,29 @@ type rowQuerier interface {
 func insertMovement(ctx context.Context, q rowQuerier, userID string, v domain.ValidMovement, futureID *int64) (domain.Movement, error) {
 	m, err := scanMovement(q.QueryRow(ctx, `
 		WITH m AS (
-			INSERT INTO personal_movements (user_id, kind, category_id, amount, description, date, future_expense_id)
-			VALUES ($1::text::uuid, $2, $3, $4::text::numeric, $5, $6::date, $7::bigint)
+			INSERT INTO personal_movements (user_id, kind, category_id, amount, description, date, future_expense_id,
+			                                covered_by_savings, savings_settlement)
+			VALUES ($1::text::uuid, $2, $3, $4::text::numeric, $5, $6::date, $7::bigint, $8::text::numeric, $9)
 			RETURNING *)
 		SELECT `+movementColumns+` FROM m JOIN personal_categories c ON c.id = m.category_id`,
-		userID, string(v.Kind), int64(v.CategoryID), v.Amount.String(), v.Description, v.Date, futureID))
+		userID, string(v.Kind), int64(v.CategoryID), v.Amount.String(), v.Description, v.Date, futureID, coveredArg(v.CoveredBySavings), v.SavingsSettlement))
 	if err != nil {
 		return domain.Movement{}, mapWriteError(err)
 	}
 	return m, nil
 }
 
-// UpdateMovement replaces a movement of the user.
+// coveredArg is the covered_by_savings parameter: NULL unless a positive amount.
+func coveredArg(d decimal.Decimal) *string {
+	if !d.IsPositive() {
+		return nil
+	}
+	v := d.String()
+	return &v
+}
+
+// UpdateMovement replaces a movement of the user. The savings markers are never
+// written by an update: they belong to the payment that created the row.
 func (r *Repo) UpdateMovement(ctx context.Context, userID string, id int, v domain.ValidMovement) (domain.Movement, error) {
 	m, err := scanMovement(r.pool.QueryRow(ctx, `
 		WITH m AS (
@@ -279,70 +304,12 @@ func (r *Repo) DeleteMovement(ctx context.Context, userID string, id int) error 
 
 // --- dashboard ----------------------------------------------------------
 
-// KindTotals sums the movements of the user by kind in the inclusive range.
-// Savings are net: a withdrawal is a negative row.
-func (r *Repo) KindTotals(ctx context.Context, userID, from, to string) (domain.KindTotals, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT kind, SUM(amount)::text FROM personal_movements
-		WHERE user_id = $1::text::uuid AND date BETWEEN $2::date AND $3::date
-		GROUP BY kind`, userID, from, to)
-	if err != nil {
-		return domain.KindTotals{}, err
-	}
-	defer rows.Close()
-	var t domain.KindTotals
-	for rows.Next() {
-		var kind, sum string
-		if err := rows.Scan(&kind, &sum); err != nil {
-			return domain.KindTotals{}, err
-		}
-		v, err := decimal.NewFromString(sum)
-		if err != nil {
-			return domain.KindTotals{}, fmt.Errorf("parse sum: %w", err)
-		}
-		switch domain.Kind(kind) {
-		case domain.KindIncome:
-			t.Income = v
-		case domain.KindExpense:
-			t.Expenses = v
-		case domain.KindSavings:
-			t.Savings = v
-		}
-	}
-	return t, rows.Err()
-}
-
-// SpentByCategory returns the Gasto categories with spending in the range,
-// biggest first (name breaks ties).
-func (r *Repo) SpentByCategory(ctx context.Context, userID, from, to string) ([]domain.CategorySpend, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT c.id, c.name, SUM(m.amount)::text AS spent
-		FROM personal_movements m JOIN personal_categories c ON c.id = m.category_id
-		WHERE m.user_id = $1::text::uuid AND m.kind = 'Gasto' AND m.date BETWEEN $2::date AND $3::date
-		GROUP BY c.id, c.name
-		HAVING SUM(m.amount) > 0
-		ORDER BY SUM(m.amount) DESC, c.name, c.id`, userID, from, to)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := []domain.CategorySpend{}
-	for rows.Next() {
-		var (
-			s     domain.CategorySpend
-			id    int64
-			spent string
-		)
-		if err := rows.Scan(&id, &s.Category, &spent); err != nil {
-			return nil, err
-		}
-		s.CategoryID = int(id)
-		if s.Spent, err = decimal.NewFromString(spent); err != nil {
-			return nil, fmt.Errorf("parse spent: %w", err)
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
+// KPIMovements returns the movements of the user in the inclusive range with
+// their savings markers; the monthly KPIs are summed from them in the domain
+// (domain.KPITotals and domain.KPISpend), so the owner's rule lives in one
+// place. A user has a few dozen rows per cycle.
+func (r *Repo) KPIMovements(ctx context.Context, userID, from, to string) ([]domain.Movement, error) {
+	return r.ListMovements(ctx, userID, app.Filter{From: from, To: to})
 }
 
 var _ app.Repo = (*Repo)(nil)

@@ -125,38 +125,19 @@ func (r *fakeRepo) ListMovements(_ context.Context, user string, f app.Filter) (
 	return out, r.err
 }
 
-func (r *fakeRepo) KindTotals(_ context.Context, user string, from, to string) (domain.KindTotals, error) {
-	var t domain.KindTotals
+func (r *fakeRepo) KPIMovements(_ context.Context, user string, from, to string) ([]domain.Movement, error) {
+	var out []domain.Movement
 	for _, m := range r.moves {
 		if r.mOwners[m.ID] != user || m.Date < from || m.Date > to {
 			continue
 		}
-		switch m.Kind {
-		case domain.KindIncome:
-			t.Income = t.Income.Add(m.Amount)
-		case domain.KindExpense:
-			t.Expenses = t.Expenses.Add(m.Amount)
-		case domain.KindSavings:
-			t.Savings = t.Savings.Add(m.Amount)
+		for _, c := range r.cats {
+			if c.ID == m.CategoryID {
+				m.CategoryName = c.Name
+			}
 		}
+		out = append(out, m)
 	}
-	return t, r.err
-}
-
-func (r *fakeRepo) SpentByCategory(_ context.Context, user string, from, to string) ([]domain.CategorySpend, error) {
-	sums := map[int]decimal.Decimal{}
-	for _, m := range r.moves {
-		if r.mOwners[m.ID] == user && m.Kind == domain.KindExpense && m.Date >= from && m.Date <= to {
-			sums[m.CategoryID] = sums[m.CategoryID].Add(m.Amount)
-		}
-	}
-	var out []domain.CategorySpend
-	for _, c := range r.cats {
-		if v, ok := sums[c.ID]; ok {
-			out = append(out, domain.CategorySpend{CategoryID: c.ID, Category: c.Name, Spent: v})
-		}
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Spent.GreaterThan(out[j].Spent) })
 	return out, r.err
 }
 

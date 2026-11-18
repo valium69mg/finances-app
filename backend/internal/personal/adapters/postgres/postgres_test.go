@@ -58,7 +58,7 @@ func newRepo(t *testing.T) (*postgres.Repo, *pgxpool.Pool) {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000018_expense_requests.up.sql", "000023_personal_finances.up.sql", "000024_personal_future_expenses.up.sql", "000025_personal_wishlist.up.sql"} {
+	for _, name := range []string{"000002_users.up.sql", "000006_movements.up.sql", "000009_movements_transfer_id.up.sql", "000016_future_expenses.up.sql", "000017_users_roles.up.sql", "000018_expense_requests.up.sql", "000023_personal_finances.up.sql", "000024_personal_future_expenses.up.sql", "000025_personal_wishlist.up.sql", "000030_personal_savings_covered_expenses.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -422,10 +422,11 @@ func TestKindTotalsAndSpentByCategory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := f.repo.KindTotals(ctx, f.her, "2026-10-01", "2026-10-31")
+	rows, err := f.repo.KPIMovements(ctx, f.her, "2026-10-01", "2026-10-31")
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := domain.KPITotals(rows)
 	if !got.Income.Equal(d("10000.10")) || !got.Expenses.Equal(d("1300.25")) || !got.Savings.Equal(d("1499.50")) {
 		t.Errorf("totals = %+v; want 10000.10 / 1300.25 / 1499.50", got)
 	}
@@ -433,24 +434,22 @@ func TestKindTotalsAndSpentByCategory(t *testing.T) {
 		t.Errorf("available = %s, want 7200.35", got.Available())
 	}
 
-	cats, err := f.repo.SpentByCategory(ctx, f.her, "2026-10-01", "2026-10-31")
-	if err != nil {
-		t.Fatal(err)
-	}
+	cats := domain.KPISpend(rows)
 	if len(cats) != 2 || cats[0].Category != "Salud" || !cats[0].Spent.Equal(d("900")) ||
 		cats[1].CategoryID != f.ropa.ID || !cats[1].Spent.Equal(d("400.25")) {
 		t.Errorf("categories = %+v; want Salud 900 then Ropa 400.25; categories without spending are left out", cats)
 	}
 
-	empty, err := f.repo.KindTotals(ctx, f.her, "2027-01-01", "2027-01-31")
-	if err != nil || !empty.Available().IsZero() {
+	emptyRows, err := f.repo.KPIMovements(ctx, f.her, "2027-01-01", "2027-01-31")
+	if empty := domain.KPITotals(emptyRows); err != nil || !empty.Available().IsZero() {
 		t.Errorf("empty range = %+v, %v", empty, err)
 	}
-	none, err := f.repo.SpentByCategory(ctx, f.her, "2027-01-01", "2027-01-31")
-	if err != nil || none == nil || len(none) != 0 {
+	none := domain.KPISpend(emptyRows)
+	if none == nil || len(none) != 0 {
 		t.Errorf("empty range categories = %#v, %v; want an empty non-nil slice", none, err)
 	}
-	theirs, _ := f.repo.KindTotals(ctx, f.other, "2026-10-01", "2026-10-31")
+	theirRows, _ := f.repo.KPIMovements(ctx, f.other, "2026-10-01", "2026-10-31")
+	theirs := domain.KPITotals(theirRows)
 	if !theirs.Expenses.Equal(d("5555")) || !theirs.Income.IsZero() {
 		t.Errorf("another user's totals = %+v; each user must only see her own rows", theirs)
 	}

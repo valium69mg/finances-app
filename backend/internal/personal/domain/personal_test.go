@@ -116,3 +116,59 @@ func TestValidateMovement(t *testing.T) {
 		}
 	}
 }
+
+func TestKPIAmountSumsAndSpend(t *testing.T) {
+	gasto := func(cat int, name, amount, covered string) domain.Movement {
+		m := domain.Movement{Kind: domain.KindExpense, CategoryID: cat, CategoryName: name, Amount: d(amount)}
+		if covered != "" {
+			m.CoveredBySavings = d(covered)
+		}
+		return m
+	}
+	cases := []struct {
+		name string
+		m    domain.Movement
+		want string
+	}{
+		{"plain expense", gasto(1, "Ropa", "100", ""), "100"},
+		{"partly covered", gasto(1, "Ropa", "100", "60"), "40"},
+		{"fully covered", gasto(1, "Ropa", "100", "100"), "0"},
+		{"covered above an edited amount is capped", gasto(1, "Ropa", "50", "100"), "0"},
+		{"settlement release", domain.Movement{Kind: domain.KindSavings, Amount: d("-60"), SavingsSettlement: true}, "0"},
+		{"settlement remainder", domain.Movement{Kind: domain.KindSavings, Amount: d("20"), SavingsSettlement: true}, "0"},
+		{"ordinary saving", domain.Movement{Kind: domain.KindSavings, Amount: d("-60")}, "-60"},
+		{"income", domain.Movement{Kind: domain.KindIncome, Amount: d("500")}, "500"},
+	}
+	for _, c := range cases {
+		if got := c.m.KPIAmount(); !got.Equal(d(c.want)) {
+			t.Errorf("%s: KPIAmount = %s, want %s", c.name, got, c.want)
+		}
+	}
+
+	// A payment of 100 with 60 saved: the Gasto counts 40, the settlement rows
+	// count nothing and Available is what the raw sums gave.
+	month := []domain.Movement{
+		{Kind: domain.KindIncome, Amount: d("1000")},
+		gasto(1, "Ropa", "100", "60"),
+		gasto(2, "Salud", "30", ""),
+		gasto(3, "Pintura", "80", "80"),
+		{Kind: domain.KindSavings, Amount: d("-60"), SavingsSettlement: true},
+		{Kind: domain.KindSavings, Amount: d("-80"), SavingsSettlement: true},
+		{Kind: domain.KindSavings, Amount: d("200")},
+	}
+	got := domain.KPITotals(month)
+	if !got.Income.Equal(d("1000")) || !got.Expenses.Equal(d("70")) || !got.Savings.Equal(d("200")) {
+		t.Fatalf("totals = %+v, want 1000 / 70 / 200", got)
+	}
+	raw := domain.KindTotals{Income: d("1000"), Expenses: d("210"), Savings: d("60")}
+	if !got.Available().Equal(raw.Available()) {
+		t.Errorf("available changed: %s -> %s", raw.Available(), got.Available())
+	}
+	spend := domain.KPISpend(month)
+	if len(spend) != 2 || spend[0].Category != "Ropa" || !spend[0].Spent.Equal(d("40")) || spend[1].Category != "Salud" || !spend[1].Spent.Equal(d("30")) {
+		t.Errorf("spend = %+v, want Ropa 40 then Salud 30 (Pintura fully covered is left out)", spend)
+	}
+	if empty := domain.KPISpend(nil); empty == nil || len(empty) != 0 {
+		t.Errorf("empty spend = %#v, want an empty non-nil slice", empty)
+	}
+}
