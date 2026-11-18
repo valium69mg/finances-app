@@ -27,6 +27,8 @@ export interface PersonalMovement {
   date: string;
   /** The future expense an Ahorro feeds, null otherwise. A manual update never changes it. */
   future_expense_id: number | null;
+  /** On a Gasto paid from the savings of a future expense: the covered part (capped by the amount). Absent when none. */
+  covered_by_savings?: string;
   created_at: string;
   updated_at: string;
 }

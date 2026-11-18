@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { listPersonalMovements, personalKeys, type PersonalCategory, type PersonalMovement } from "../../api/personal";
+import { CoveredBadge } from "../../components/CoveredBadge";
 import { EmptyNote } from "../../components/EmptyNote";
 import { KIND } from "../../lib/tones";
 import { formatMoney } from "../expenses/money";
@@ -73,6 +74,7 @@ export function MovementList({ config, month, category, ready = true, onEdit }: 
                   {m.date} · {m.category}
                   {config.kind === "Ahorro" ? ` · ${withdrawal ? "Retiro" : "Aportación"}` : ""}
                 </span>
+                {config.kind === "Gasto" && <CoveredBadge covered={m.covered_by_savings} amount={m.amount} />}
               </span>
               <span className={`shrink-0 font-semibold tabular-nums ${withdrawal ? "text-destructive" : ""}`}>{formatMoney(m.amount)} MXN</span>
               {!readOnly && <ChevronRight className="h-4 w-4 shrink-0 text-muted" aria-hidden="true" />}

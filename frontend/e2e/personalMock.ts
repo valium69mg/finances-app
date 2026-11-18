@@ -29,6 +29,8 @@ export interface MockPersonalMovement {
   amount: string;
   description?: string;
   date: string;
+  /** Part of a Gasto paid from the savings of a future expense. */
+  covered_by_savings?: string;
 }
 
 /** An item of her wishlist. `request_id` links it to an expense request of the requests mock (seeded by the test). */
@@ -95,6 +97,8 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     description: string;
     date: string;
     future_expense_id: number | null;
+    covered_by_savings?: string;
+    savings_settlement?: boolean;
   }
   let nextId = seed.reduce((max, m) => Math.max(max, m.id), 0) + 1;
   const movements: Stored[] = seed.map((m) => ({
@@ -105,6 +109,7 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     description: m.description ?? "",
     date: m.date,
     future_expense_id: null,
+    covered_by_savings: m.covered_by_savings,
   }));
   /** Every write the page sent: method, path and JSON body. */
   const writes: { method: string; path: string; body: unknown }[] = [];
@@ -128,6 +133,8 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     description: m.description,
     date: m.date,
     future_expense_id: m.future_expense_id,
+    // Like the API: only when positive, capped by the amount.
+    ...(m.covered_by_savings && cents(m.covered_by_savings) > 0 ? { covered_by_savings: money(Math.min(cents(m.covered_by_savings), cents(m.amount))) } : {}),
     created_at: "2026-10-01T10:00:00Z",
     updated_at: "2026-10-01T10:00:00Z",
   });
@@ -310,11 +317,12 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
     const paidCents = body.amount === undefined ? item.targetCents : cents(body.amount);
     const saved = savedCents(item.id);
     const expense: Stored = { id: nextId++, kind: "Gasto", category_id: category.id, amount: money(paidCents), description: item.name, date, future_expense_id: null };
+    if (saved > 0) expense.covered_by_savings = money(Math.min(saved, paidCents));
     movements.push(expense);
     if (saved > 0) {
-      movements.push({ id: nextId++, kind: "Ahorro", category_id: futureCategory(), amount: money(-saved), description: `Pago de ${item.name}`, date, future_expense_id: item.id });
+      movements.push({ id: nextId++, kind: "Ahorro", category_id: futureCategory(), amount: money(-saved), description: `Pago de ${item.name}`, date, future_expense_id: item.id, savings_settlement: true });
       if (saved > paidCents) {
-        movements.push({ id: nextId++, kind: "Ahorro", category_id: futureCategory(), amount: money(saved - paidCents), description: `Sobrante de ${item.name}`, date, future_expense_id: null });
+        movements.push({ id: nextId++, kind: "Ahorro", category_id: futureCategory(), amount: money(saved - paidCents), description: `Sobrante de ${item.name}`, date, future_expense_id: null, savings_settlement: true });
       }
     }
     item.status = "paid";
@@ -580,13 +588,16 @@ export function createPersonalMock(seed: MockPersonalMovement[], deps: PersonalD
       const wanted = month || deps.cycleOf(deps.today());
       const range = deps.rangeOf(wanted);
       const inCycle = movements.filter((m) => deps.cycleOf(m.date) === wanted);
-      const sum = (kind: PersonalKind) => inCycle.filter((m) => m.kind === kind).reduce((total, m) => total + cents(m.amount), 0);
+      // The API's KPI rule: what savings covered and the settlement rows of a payment are left out.
+      const kpi = (m: Stored) => (m.savings_settlement ? 0 : m.kind === "Gasto" ? cents(m.amount) - Math.min(cents(m.covered_by_savings ?? "0"), cents(m.amount)) : cents(m.amount));
+      const sum = (kind: PersonalKind) => inCycle.filter((m) => m.kind === kind).reduce((total, m) => total + kpi(m), 0);
       const income = sum("Ingreso");
       const expenses = sum("Gasto");
       const savings = sum("Ahorro");
       const spent = new Map<number, number>();
-      inCycle.filter((m) => m.kind === "Gasto").forEach((m) => spent.set(m.category_id, (spent.get(m.category_id) ?? 0) + cents(m.amount)));
+      inCycle.filter((m) => m.kind === "Gasto").forEach((m) => spent.set(m.category_id, (spent.get(m.category_id) ?? 0) + kpi(m)));
       const list = [...spent.entries()]
+        .filter(([, amount]) => amount > 0)
         .map(([id, amount]) => ({ category_id: id, category: categories.find((c) => c.id === id)?.name ?? "", amount }))
         .sort((a, b) => b.amount - a.amount || a.category.localeCompare(b.category))
         .map((c) => ({ category_id: c.category_id, category: c.category, spent: money(c.amount) }));

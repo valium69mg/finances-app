@@ -144,6 +144,11 @@ test.describe("household: Mis gastos futuros", () => {
     // The Gasto is in Mis gastos and the release is in Mis ahorros.
     await page.goto("/mis-gastos");
     await expect(page.getByRole("listitem").filter({ hasText: "Viaje" })).toContainText("Ropa");
+    // Savings paid all of it: the badge is there and her Panel counts no expense.
+    await expect(page.getByRole("listitem").filter({ hasText: "Viaje" })).toContainText("Pagado con ahorro");
+    await page.goto("/");
+    await expect(page.locator("dl").locator("div", { has: page.getByText("Gastos", { exact: true }) }).last()).toContainText("$0.00");
+    await expect(page.getByText("Aún no hay gastos en este periodo.")).toBeVisible();
     await page.goto("/mis-ahorros");
     await expect(page.getByTestId("personal-total")).toHaveText("$900.00 MXN");
   });

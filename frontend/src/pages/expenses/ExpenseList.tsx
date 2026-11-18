@@ -4,6 +4,7 @@ import { expensesKeys, listExpenses, type Expense } from "../../api/expenses";
 import { ErrorBanner, rowButton, secondaryButton } from "../settings/ui";
 import { describeExpenseError } from "./errors";
 import { formatMoney } from "./money";
+import { CoveredBadge, coveredText } from "../../components/CoveredBadge";
 import { EmptyNote } from "../../components/EmptyNote";
 import { KIND } from "../../lib/tones";
 
@@ -17,11 +18,9 @@ interface Props {
   onEdit: (expense: Expense) => void;
 }
 
-/** "Pagado con ahorro", with the covered amount when the savings paid only part of the expense. */
+/** The badge text of an expense (see CoveredBadge), kept here for the list and its tests. */
 export function coveredLabel(e: Expense): string | null {
-  const covered = e.covered_by_savings;
-  if (!covered || Number(covered) <= 0) return null;
-  return Number(covered) >= Number(e.amount_mxn) ? "Pagado con ahorro" : `Pagado con ahorro: ${formatMoney(covered)}`;
+  return coveredText(e.covered_by_savings, e.amount_mxn);
 }
 
 export function ExpenseList({ month, category = "", waiting = false, editingId, onEdit }: Props) {
@@ -66,9 +65,7 @@ export function ExpenseList({ month, category = "", waiting = false, editingId, 
                 <span className="mt-0.5 block break-words text-sm text-muted">
                   {e.date} · {e.category || "Sin categoría"} · {e.payment_method}
                 </span>
-                {coveredLabel(e) && (
-                  <span className="mt-1 inline-block rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium">{coveredLabel(e)}</span>
-                )}
+                <CoveredBadge covered={e.covered_by_savings} amount={e.amount_mxn} />
               </span>
               <span className="shrink-0 text-right">
                 <span className="block font-semibold tabular-nums">

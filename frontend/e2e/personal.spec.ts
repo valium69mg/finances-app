@@ -67,6 +67,20 @@ test.describe("Mis gastos", () => {
     await expectNoHorizontalOverflow(page, "Mis gastos");
   });
 
+  test("rows paid from the savings of a future expense carry a badge, with the amount when it is partial", async ({ page }) => {
+    await open(page, "/mis-gastos", [
+      gasto({ id: 1, description: "Laptop", amount: "800.00", covered_by_savings: "800.00" }),
+      gasto({ id: 2, description: "Seguro", amount: "500.00", covered_by_savings: "300.00" }),
+      gasto({ id: 3, description: "Tacos sueltos", amount: "90.00" }),
+    ]);
+    const row = (name: string) => page.getByRole("listitem").filter({ hasText: name });
+    await expect(row("Laptop")).toContainText("Pagado con ahorro");
+    await expect(row("Laptop")).not.toContainText("Pagado con ahorro:");
+    await expect(row("Seguro")).toContainText("Pagado con ahorro: $300");
+    await expect(row("Tacos sueltos")).not.toContainText("Pagado con ahorro");
+    await expectNoHorizontalOverflow(page, "Mis gastos badges");
+  });
+
   test("puts Nuevo gasto and Administrar categorías in the page header and makes each row one clickable target", async ({ page }) => {
     await open(page, "/mis-gastos", [gasto()]);
     const title = page.getByRole("heading", { level: 1, name: "Mis gastos" });
