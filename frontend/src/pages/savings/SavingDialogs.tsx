@@ -1,6 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { futureExpensesKeys } from "../../api/futureExpenses";
 import { deleteSaving, savingsKeys, type Saving } from "../../api/savings";
 import type { AllSettings } from "../../api/settings";
+import { AssignmentDialog } from "../../components/AssignmentDialog";
 import { DeleteAction } from "../../components/DeleteAction";
 import { Modal } from "../../components/Modal";
 import { formatMoney } from "../expenses/money";
@@ -16,6 +18,8 @@ function useDeleteSaving(onDeleted: () => void) {
     onSuccess: async () => {
       onDeleted();
       await qc.invalidateQueries({ queryKey: savingsKeys.all });
+      // Deleting an assignment changes the balance of its future expense and the free balance.
+      await qc.invalidateQueries({ queryKey: futureExpensesKeys.all });
     },
   });
 }
@@ -79,5 +83,23 @@ export function TransferLegDialog({ saving, onClose, onDeleted }: { saving: Savi
         />
       </div>
     </Modal>
+  );
+}
+
+/** A future expense assignment (two linked rows shown as one): deleting it removes both and the money goes back to the saldo libre. */
+export function AssignmentLegDialog({ saving, onClose, onDeleted }: { saving: Saving; onClose: () => void; onDeleted: () => void }) {
+  const remove = useDeleteSaving(onDeleted);
+  return (
+    <AssignmentDialog
+      label={saving.description || "Asignación"}
+      date={saving.date}
+      amount={saving.amount}
+      currency={saving.currency}
+      pending={remove.isPending}
+      error={remove.isError ? describeSavingsError(remove.error) : null}
+      onStart={() => remove.reset()}
+      onConfirm={() => remove.mutate(saving.id)}
+      onClose={onClose}
+    />
   );
 }

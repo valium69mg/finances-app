@@ -23,6 +23,8 @@ export interface Saving {
   amount_mxn: string;
   /** Shared by the two legs of a transfer; null for any other saving. Legs cannot be edited, and deleting one deletes both. */
   transfer_id: string | null;
+  /** The future expense the saving feeds, null otherwise. A transfer group holding one is a future expense assignment. */
+  future_expense_id: number | null;
 }
 
 /** Body for create and update. Only `amount` is required; the backend fills the rest. */

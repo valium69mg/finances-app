@@ -6,6 +6,7 @@ import { EmptyNote } from "../../components/EmptyNote";
 import { KIND } from "../../lib/tones";
 import { formatMoney } from "../expenses/money";
 import { ErrorBanner, rowButton, secondaryButton } from "../settings/ui";
+import { isAssignment } from "./assignment";
 import { describeSavingsError } from "./errors";
 
 interface Props {
@@ -41,7 +42,10 @@ export function SavingsList({ month, category = "", waiting = false, instruments
       </div>
     );
   }
-  const rows = category ? list.data.filter((s) => s.category === category) : list.data;
+  const filtered = category ? list.data.filter((s) => s.category === category) : list.data;
+  // An assignment is two linked rows; the list shows only the one that feeds the item (the positive leg).
+  const shown = new Set(filtered.filter((s) => isAssignment(s) && !s.amount.trim().startsWith("-")).map((s) => s.transfer_id));
+  const rows = filtered.filter((s) => !(isAssignment(s) && s.amount.trim().startsWith("-") && shown.has(s.transfer_id)));
   if (rows.length === 0) {
     return (
       <EmptyNote icon={KIND.Ahorro.icon}>
@@ -61,25 +65,29 @@ export function SavingsList({ month, category = "", waiting = false, instruments
         {rows.map((s) => {
           const label = s.description || "Sin descripción";
           const instrument = instruments.find((i) => i.id === s.instrument)?.name ?? s.instrument;
-          const withdrawal = s.amount.trim().startsWith("-");
-          const isTransfer = Boolean(s.transfer_id);
+          const assignment = isAssignment(s);
+          const withdrawal = s.amount.trim().startsWith("-") && !assignment;
+          const isTransfer = Boolean(s.transfer_id) && !assignment;
           return (
             <li key={s.id}>
-              <button type="button" onClick={() => onOpen(s)} aria-label={`${isTransfer ? "Ver" : "Editar"} ${label}`} className={rowButton}>
+              <button type="button" onClick={() => onOpen(s)} aria-label={`${isTransfer || assignment ? "Ver" : "Editar"} ${label}`} className={rowButton}>
                 <span className="min-w-0 flex-1">
                   <span className="block break-words font-medium">
                     {label}
                     {isTransfer && (
                       <span className="ml-2 inline-block rounded-full border border-border px-2 py-0.5 align-middle text-xs font-medium text-muted">Traspaso</span>
                     )}
+                    {assignment && (
+                      <span className="ml-2 inline-block rounded-full border border-border px-2 py-0.5 align-middle text-xs font-medium text-muted">Asignación</span>
+                    )}
                   </span>
                   <span className="mt-0.5 block break-words text-sm text-muted">
-                    {s.date} · {instrument || "Sin instrumento"} · {s.category || "Sin categoría"}
+                    {assignment ? `${s.date} · ${s.category || "Sin categoría"}` : `${s.date} · ${instrument || "Sin instrumento"} · ${s.category || "Sin categoría"}`}
                   </span>
                 </span>
                 <span className="shrink-0 text-right">
                   <span className={`block font-semibold tabular-nums ${withdrawal ? "text-destructive" : ""}`}>
-                    {formatMoney(s.amount)} {s.currency}
+                    {formatMoney(assignment ? s.amount.replace(/^-/, "") : s.amount)} {s.currency}
                   </span>
                   {withdrawal && <span className="block text-sm text-muted">Retiro</span>}
                   {s.currency !== "MXN" && (
