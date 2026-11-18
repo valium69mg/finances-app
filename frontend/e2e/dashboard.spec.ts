@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mockApi, seedSession, type MockExpense, type MockIncome, type MockSaving } from "./helpers";
 
 function today() {
@@ -220,6 +220,39 @@ test.describe("dashboard page", () => {
     await expect(cycle).not.toContainText("Vas por encima del ritmo");
     await expect(cycle.getByRole("link", { name: /Marca tus gastos fijos/ })).toHaveCount(0);
     await expectNoHorizontalOverflow(page, "split cycle card");
+  });
+
+  test("budget by category groups Fijos and Variables with a subtotal and keeps the links", async ({ page }) => {
+    await open(page, {
+      expenses: [expense({ amount: "15000.00", amount_mxn: "15000.00" }), expense({ id: 2, category: "Comida", amount: "1000.00", amount_mxn: "1000.00" })],
+      income: [salary],
+      settingsPatch: (settings) => {
+        settings.categories.find((c: { name: string }) => c.name === "Renta").fixed = true;
+      },
+    });
+    const fijos = page.getByRole("region", { name: "Fijos", exact: true }).filter({ hasText: "Gastado $15,000.00 de $12,000.50" });
+    await expect(fijos).toBeVisible();
+    const variables = page.getByRole("region", { name: "Variables", exact: true }).filter({ hasText: "Gastado $1,000.00 de" });
+    await expect(variables).toBeVisible();
+    const phone = isPhone(page);
+    const rowIn = (scope: Locator, name: RegExp) => (phone ? scope.getByTestId("budget-card").filter({ hasText: name }) : scope.getByRole("row", { name }));
+    await expect(rowIn(fijos, /Renta/)).toBeVisible();
+    await expect(rowIn(fijos, /Comida/)).toHaveCount(0);
+    await expect(rowIn(variables, /Comida/)).toBeVisible();
+    await expect(rowIn(variables, /Renta/)).toHaveCount(0);
+    // Over-budget colors and the row link survive the grouping.
+    await expect(rowIn(fijos, /Renta/).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "100");
+    await expectNoHorizontalOverflow(page, "grouped budget");
+    await rowIn(variables, /Comida/).getByRole("link", { name: "Comida" }).click();
+    await expect(page).toHaveURL(/\/gastos\?.*categoria=Comida/);
+  });
+
+  test("budget by category stays a single list without headers when no category is fixed", async ({ page }) => {
+    await open(page, { expenses: [expense({})], income: [salary] });
+    await expect(budgetRow(page, /Renta/)).toBeVisible();
+    await expect(page.getByRole("heading", { level: 3, name: "Fijos" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { level: 3, name: "Variables" })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page, "ungrouped budget");
   });
 
   test("shows the future expenses with progress, the suggested monthly amount and a total", async ({ page }) => {

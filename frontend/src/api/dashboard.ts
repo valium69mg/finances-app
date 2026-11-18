@@ -15,6 +15,8 @@ export interface DashboardCategory {
   /** budget - spent (negative when exceeded), or null without a budget. */
   remaining: string | null;
   over_budget: boolean;
+  /** True for a category marked as a fixed expense. Only the owner's payload carries it. */
+  fixed?: boolean;
 }
 
 export interface EmergencyProgress {

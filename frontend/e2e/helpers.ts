@@ -604,6 +604,7 @@ function buildDashboard(
   const income = sum(inMonth(data.income));
   const expenses = sum(monthExpenses);
   const savings = sum(inMonth(data.savings));
+  const fixedNames = new Set<string>(settings.categories.filter((c: { fixed?: boolean }) => c.fixed).map((c: { name: string }) => c.name));
   const categories = settings.categories
     .filter((c: { kind: string }) => ["Gasto", "fixed", "variable"].includes(c.kind))
     .map((c: { name: string; budget: string | null }) => {
@@ -615,9 +616,9 @@ function buildDashboard(
         budget: c.budget,
         remaining: budget === null ? null : (budget - spent).toFixed(2),
         over_budget: budget !== null && spent > budget,
+        ...(fixedNames.has(c.name) ? { fixed: true } : {}),
       };
     });
-  const fixedNames = new Set<string>(settings.categories.filter((c: { fixed?: boolean }) => c.fixed).map((c: { name: string }) => c.name));
   const block = (fixed: boolean) => ({
     spent: categories.filter((c: { category: string }) => fixedNames.has(c.category) === fixed).reduce((t: number, c: { spent: string }) => t + Number(c.spent), 0).toFixed(2),
     budget: categories.filter((c: { category: string }) => fixedNames.has(c.category) === fixed).reduce((t: number, c: { budget: string | null }) => t + Number(c.budget ?? 0), 0).toFixed(2),

@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Coins, Loader2, Wallet } from "lucide-react";
 import { Link } from "react-router-dom";
-import { dashboardKeys, getBudgetDashboard, getDashboard, isFullDashboard, type BudgetDashboard, type Dashboard as DashboardData, type RecentMovement } from "../api/dashboard";
+import { dashboardKeys, getBudgetDashboard, getDashboard, isFullDashboard, type BudgetDashboard, type DashboardSpending, type Dashboard as DashboardData, type RecentMovement } from "../api/dashboard";
 import { ApiError } from "../api/client";
 import { getPersonalDashboard, personalKeys } from "../api/personal";
 import { useAuth } from "../auth/AuthContext";
@@ -35,10 +35,13 @@ function BudgetSection({
   categories,
   emptyText,
   rowLink,
+  split,
 }: {
   categories: BudgetDashboard["categories"];
   emptyText: string;
   rowLink?: RowLink;
+  /** The owner's fixed/variable split: groups the rows under "Fijos" and "Variables" when a category is fixed. */
+  split?: DashboardSpending;
 }) {
   return (
     <section aria-labelledby="budget-title">
@@ -46,7 +49,7 @@ function BudgetSection({
         <IconChip icon={Wallet} tone="expense" size="sm" />
         Presupuesto por categoría
       </h2>
-      {categories.length === 0 ? <EmptyNote icon={Wallet}>{emptyText}</EmptyNote> : <BudgetTable categories={categories} rowLink={rowLink} />}
+      {categories.length === 0 ? <EmptyNote icon={Wallet}>{emptyText}</EmptyNote> : <BudgetTable categories={categories} rowLink={rowLink} split={split} />}
     </section>
   );
 }
@@ -100,6 +103,7 @@ function DashboardBody({ dashboard, startDay }: { dashboard: DashboardData; star
       <BudgetSection
         categories={dashboard.categories}
         emptyText={OWNER_EMPTY_BUDGET}
+        split={dashboard.spending}
         rowLink={(c) => linkWithMonth("/gastos", month, { categoria: c.category })}
       />
 

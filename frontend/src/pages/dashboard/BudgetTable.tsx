@@ -1,6 +1,6 @@
 import { AlertTriangle } from "lucide-react";
 import { Link } from "react-router-dom";
-import type { DashboardCategory } from "../../api/dashboard";
+import type { DashboardCategory, DashboardSpending } from "../../api/dashboard";
 import { IconChip } from "../../components/IconChip";
 import { Chevron, ROW_LINK, ROW_LINKED } from "../../components/LinkCard";
 import { categoryIcon } from "../../lib/categoryIcon";
@@ -76,9 +76,9 @@ function CardBar({ row }: { row: DashboardCategory }) {
 }
 
 /** Phone layout: one compact card per category (name and percent, bar, spent of budget and what is left). */
-function BudgetCards({ categories, rowLink }: { categories: DashboardCategory[]; rowLink?: RowLink }) {
+function BudgetCards({ categories, rowLink, label }: { categories: DashboardCategory[]; rowLink?: RowLink; label: string }) {
   return (
-    <ul aria-label="Presupuesto contra gasto real por categoría" className="space-y-3 md:hidden">
+    <ul aria-label={label} className="space-y-3 md:hidden">
       {categories.map((c) => {
         const to = rowLink?.(c);
         return (
@@ -122,20 +122,63 @@ function BudgetCards({ categories, rowLink }: { categories: DashboardCategory[];
  * Budget versus actual per Gasto category for the selected month; exceeded budgets are flagged in text and
  * color. Compact cards below the md breakpoint (no horizontal scroll on a phone), a table from md up.
  */
-export function BudgetTable({ categories, rowLink }: { categories: DashboardCategory[]; rowLink?: RowLink }) {
+export function BudgetTable({ categories, rowLink, split }: { categories: DashboardCategory[]; rowLink?: RowLink; split?: DashboardSpending }) {
+  const groups = split?.has_fixed ? groupByFixed(categories, split) : null;
+  if (!groups) return <BudgetList categories={categories} rowLink={rowLink} label={BASE_LABEL} />;
+  return (
+    <div className="space-y-6">
+      {groups.map((g) => (
+        <section key={g.title} aria-labelledby={`budget-group-${g.title}`}>
+          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-3">
+            <h3 id={`budget-group-${g.title}`} className="text-base font-semibold">
+              {g.title}
+            </h3>
+            <p className="text-sm tabular-nums text-muted">
+              Gastado {formatMoney(g.block.spent)} de {formatMoney(g.block.budget)}
+            </p>
+          </div>
+          <BudgetList categories={g.categories} rowLink={rowLink} label={`${BASE_LABEL}: ${g.title}`} />
+        </section>
+      ))}
+    </div>
+  );
+}
+
+const BASE_LABEL = "Presupuesto contra gasto real por categoría";
+
+export interface BudgetGroup {
+  title: "Fijos" | "Variables";
+  categories: DashboardCategory[];
+  /** Subtotal of the group as the server computed it (decimal strings). */
+  block: DashboardSpending["fixed"];
+}
+
+/**
+ * Splits the categories into the "Fijos" and "Variables" groups, each keeping the incoming order. A group without
+ * categories is left out, so a header never sits over nothing.
+ */
+export function groupByFixed(categories: DashboardCategory[], split: DashboardSpending): BudgetGroup[] {
+  const groups: BudgetGroup[] = [
+    { title: "Fijos", categories: categories.filter((c) => c.fixed === true), block: split.fixed },
+    { title: "Variables", categories: categories.filter((c) => c.fixed !== true), block: split.variable },
+  ];
+  return groups.filter((g) => g.categories.length > 0);
+}
+
+function BudgetList({ categories, rowLink, label }: { categories: DashboardCategory[]; rowLink?: RowLink; label: string }) {
   return (
     <>
-      <BudgetCards categories={categories} rowLink={rowLink} />
-      <BudgetGrid categories={categories} rowLink={rowLink} />
+      <BudgetCards categories={categories} rowLink={rowLink} label={label} />
+      <BudgetGrid categories={categories} rowLink={rowLink} label={label} />
     </>
   );
 }
 
-function BudgetGrid({ categories, rowLink }: { categories: DashboardCategory[]; rowLink?: RowLink }) {
+function BudgetGrid({ categories, rowLink, label }: { categories: DashboardCategory[]; rowLink?: RowLink; label: string }) {
   return (
     <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
       <table className="w-full min-w-[40rem] border-collapse text-sm">
-        <caption className="sr-only">Presupuesto contra gasto real por categoría</caption>
+        <caption className="sr-only">{label}</caption>
         <thead>
           <tr className="border-b border-border">
             <th scope="col" className={th}>

@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Dashboard, DashboardCategory, DashboardTax, FutureExpenses, RecentMovement, UpcomingBill } from "../../api/dashboard";
 import { EmergencyCard } from "../savings/PortfolioPanel";
-import { BudgetTable } from "./BudgetTable";
+import { BudgetTable, groupByFixed } from "./BudgetTable";
 import { CycleProgress, paceOf } from "./CycleProgress";
 import { FutureExpensesCard } from "./FutureExpensesCard";
 import { RecentMovements } from "./RecentMovements";
@@ -21,6 +21,48 @@ const cat = (over: Partial<DashboardCategory>): DashboardCategory => ({
   remaining: "1000",
   over_budget: false,
   ...over,
+});
+
+describe("BudgetTable grouped by fixed", () => {
+  const split = { has_fixed: true, fixed: { spent: "10000", budget: "12000" }, variable: { spent: "1500", budget: "1000" } };
+  const rows = [
+    cat({ category: "Comida", spent: "1500", remaining: "-500", over_budget: true }),
+    cat({ category: "Renta", spent: "10000", budget: "12000", remaining: "2000", fixed: true }),
+    cat({ category: "Ocio", spent: "0", budget: null, remaining: null }),
+  ];
+
+  it("keeps the order inside each group and drops a group without categories", () => {
+    expect(groupByFixed(rows, split).map((g) => [g.title, g.categories.map((c) => c.category)])).toEqual([
+      ["Fijos", ["Renta"]],
+      ["Variables", ["Comida", "Ocio"]],
+    ]);
+    expect(groupByFixed([rows[1]], split).map((g) => g.title)).toEqual(["Fijos"]);
+  });
+
+  it("shows a subtotal per group, the over-budget flag and the rows in their group", () => {
+    render(
+      <MemoryRouter>
+        <BudgetTable categories={rows} split={split} rowLink={(c) => `/gastos?categoria=${c.category}`} />
+      </MemoryRouter>,
+    );
+    const fijos = screen.getByRole("region", { name: "Fijos" });
+    expect(fijos).toHaveTextContent("Gastado $10,000.00 de $12,000.00");
+    expect(within(fijos).getByRole("row", { name: /Renta/ })).toBeInTheDocument();
+    expect(within(fijos).queryByRole("row", { name: /Comida/ })).toBeNull();
+    const variables = screen.getByRole("region", { name: "Variables" });
+    expect(variables).toHaveTextContent("Gastado $1,500.00 de $1,000.00");
+    const comida = within(variables).getByRole("row", { name: /Comida/ });
+    expect(comida).toHaveTextContent("Presupuesto excedido");
+    expect(within(comida).getByRole("link", { name: "Comida" })).toHaveAttribute("href", "/gastos?categoria=Comida");
+    expect(within(variables).getByRole("row", { name: /Ocio/ })).toHaveTextContent("Sin presupuesto");
+  });
+
+  it("renders a single list without headers when no category is fixed", () => {
+    render(<BudgetTable categories={rows} split={{ ...split, has_fixed: false }} />);
+    expect(screen.queryByRole("heading", { name: "Fijos" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Variables" })).toBeNull();
+    expect(screen.getAllByRole("table")).toHaveLength(1);
+  });
 });
 
 describe("BudgetTable", () => {
