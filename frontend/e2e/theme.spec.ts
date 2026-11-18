@@ -9,9 +9,9 @@ async function open(page: Page) {
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 }
 
-/** The selector lives in the sidebar footer on desktop and in the Más sheet below lg. */
+/** The selector is an icon-only control in the top navbar on desktop and lives in the Más sheet below lg. */
 async function selector(page: Page) {
-  if (isDesktop(page)) return sidebar(page).locator("xpath=..").getByRole("radiogroup", { name: "Tema" });
+  if (isDesktop(page)) return page.getByRole("banner").getByRole("radiogroup", { name: "Tema" });
   await openMore(page);
   return moreSheet(page).getByRole("radiogroup", { name: "Tema" });
 }
@@ -20,6 +20,19 @@ const html = (page: Page) => page.locator("html");
 const themeColors = (page: Page) => page.locator('meta[name="theme-color"]').evaluateAll((els) => els.map((e) => (e as HTMLMetaElement).content));
 
 test.describe("theme selector", () => {
+  test("on desktop it sits in the top navbar between the email and Cerrar sesión, not in the sidebar", async ({ page }) => {
+    test.skip(!isDesktop(page), "desktop layout only");
+    await open(page);
+    const bar = page.getByRole("banner");
+    const group = bar.getByRole("radiogroup", { name: "Tema" });
+    await expect(group).toBeVisible();
+    await expect(sidebar(page).locator("xpath=..").getByRole("radiogroup", { name: "Tema" })).toHaveCount(0);
+    const [email, theme, logout] = await Promise.all([bar.locator("span.truncate").boundingBox(), group.boundingBox(), bar.getByRole("button", { name: "Cerrar sesión" }).boundingBox()]);
+    expect(theme?.x ?? 0).toBeGreaterThan((email?.x ?? 0) + (email?.width ?? 0) - 1);
+    expect((theme?.x ?? 0) + (theme?.width ?? 0)).toBeLessThan(logout?.x ?? 0);
+  });
+
+
   test("offers Automático, Claro and Oscuro, Automático by default", async ({ page }) => {
     await open(page);
     const group = await selector(page);
@@ -31,7 +44,7 @@ test.describe("theme selector", () => {
   test("sets data-theme and the theme-color, and persists across reloads", async ({ page }) => {
     await open(page);
     let group = await selector(page);
-    await group.getByText("Oscuro", { exact: true }).click();
+    await group.locator("label", { hasText: "Oscuro" }).click();
     await expect(html(page)).toHaveAttribute("data-theme", "dark");
     expect(await themeColors(page)).toEqual(["#0B1120", "#0B1120"]);
     expect(await page.evaluate(() => localStorage.getItem("theme"))).toBe("dark");
@@ -43,11 +56,11 @@ test.describe("theme selector", () => {
     group = await selector(page);
     await expect(group.getByRole("radio", { name: "Oscuro" })).toBeChecked();
 
-    await group.getByText("Claro", { exact: true }).click();
+    await group.locator("label", { hasText: "Claro" }).click();
     await expect(html(page)).toHaveAttribute("data-theme", "light");
     expect(await themeColors(page)).toEqual(["#F8FAFC", "#F8FAFC"]);
 
-    await group.getByText("Automático", { exact: true }).click();
+    await group.locator("label", { hasText: "Automático" }).click();
     await expect(html(page)).not.toHaveAttribute("data-theme", /.+/);
     expect(await themeColors(page)).toEqual(["#F8FAFC", "#0B1120"]);
     expect(await page.evaluate(() => localStorage.getItem("theme"))).toBeNull();

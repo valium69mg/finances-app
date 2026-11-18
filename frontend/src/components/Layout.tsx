@@ -122,9 +122,6 @@ export function Layout() {
           <Brand />
         </div>
         <ModuleNav />
-        <div className="shrink-0 border-t border-border p-3">
-          <ThemeSelector />
-        </div>
       </aside>
 
       <div className="lg:pl-64">
@@ -140,6 +137,9 @@ export function Layout() {
                   <span className="max-w-[16rem] truncate">{me.data.email}</span>
                 </span>
               )}
+              <div className="border-l border-border pl-3">
+                <ThemeSelector compact />
+              </div>
               <div className="border-l border-border pl-3">
                 <button
                   type="button"
