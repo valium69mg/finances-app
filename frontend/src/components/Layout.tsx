@@ -66,7 +66,7 @@ export function Layout() {
   const navigationType = useNavigationType();
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [overlay, setOverlay] = useState<Overlay>(null);
-  const [notice, setNotice] = useState<{ result: QuickExpenseResult } | null>(null);
+  const [notice, setNotice] = useState<{ result: QuickExpenseResult } | { message: string } | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   const shownPath = useRef(location.pathname);
   const me = useQuery({ queryKey: ["me"], queryFn: fetchMe, retry: false, staleTime: 5 * 60_000 });
@@ -171,7 +171,12 @@ export function Layout() {
         {notice && (
           <div data-testid="quick-expense-notice" className="pointer-events-auto flex max-w-md items-start gap-2 rounded-xl border border-border bg-surface p-3 shadow-lg">
             <div className="min-w-0 flex-1" aria-live="polite">
-              {notice.result ? (
+              {"message" in notice ? (
+                <p role="status" className="flex items-start gap-1.5 text-sm">
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+                  <span className="min-w-0 break-words">{notice.message}</span>
+                </p>
+              ) : notice.result ? (
                 <BudgetFeedbackNote result={notice.result} />
               ) : (
                 <p role="status" className="flex items-center gap-1.5 text-sm">
@@ -192,7 +197,7 @@ export function Layout() {
         )}
       </div>
 
-      {overlay === "quick" && <QuickExpense role={role} onClose={() => setOverlay(null)} onSaved={(result) => setNotice({ result })} />}
+      {overlay === "quick" && <QuickExpense role={role} onClose={() => setOverlay(null)} onSaved={(result) => setNotice({ result })} onBillPaid={(message) => setNotice({ message })} />}
       {confirmingLogout && <LogoutDialog onClose={() => setConfirmingLogout(false)} />}
       {overlay === "more" && <MoreSheet email={me.data?.email} onClose={() => setOverlay(null)} />}
     </div>

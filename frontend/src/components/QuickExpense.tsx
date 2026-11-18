@@ -9,8 +9,11 @@ import { keywordOwners } from "../lib/keywords";
 import { TextField } from "./AuthCard";
 import { DescriptionField } from "./DescriptionField";
 import { Modal } from "./Modal";
+import { QuickBills } from "./QuickBills";
+import { Tabs, panelId, tabId } from "./Tabs";
 import { describeExpenseError } from "../pages/expenses/errors";
 import { withValue } from "../pages/expenses/formHelpers";
+import { expenseCategories } from "../pages/bills/form";
 import { isPositiveDecimal, todayISO } from "../pages/expenses/money";
 import { SelectField } from "../pages/expenses/SelectField";
 import { CATEGORY_NOT_INFERRED_MESSAGE, MAX_MOVEMENT_DESCRIPTION_LENGTH, isCategoryNotInferred } from "../pages/movementErrors";
@@ -26,14 +29,17 @@ interface Props {
   role: "owner" | "household";
   onClose: () => void;
   onSaved: (result: QuickExpenseResult) => void;
+  /** The owner paid a recurring bill from the "Recurrente" tab: the confirmation text to show. */
+  onBillPaid: (message: string) => void;
 }
 
 /**
- * Quick expense behind the dock's "+" button. The owner's reduced form (monto, categoría, descripción, fecha, método de
- * pago) posts to the same endpoint as the Gastos page; the household role reuses her own movement dialog (kind Gasto).
+ * Quick dialog behind the dock's "+" button. The owner gets two tabs: "Gasto", a reduced form (monto, categoría,
+ * descripción, fecha, método de pago) that posts to the same endpoint as the Gastos page, and "Recurrente", which pays a
+ * pending recurring bill. The household role reuses her own movement dialog (kind Gasto) and has no tabs.
  */
-export function QuickExpense({ role, onClose, onSaved }: Props) {
-  return role === "owner" ? <OwnerQuickExpense onClose={onClose} onSaved={onSaved} /> : <HouseholdQuickExpense onClose={onClose} onSaved={onSaved} />;
+export function QuickExpense({ role, onClose, onSaved, onBillPaid }: Props) {
+  return role === "owner" ? <OwnerQuickExpense onClose={onClose} onSaved={onSaved} onBillPaid={onBillPaid} /> : <HouseholdQuickExpense onClose={onClose} onSaved={onSaved} />;
 }
 
 function Loading({ onClose, title }: { onClose: () => void; title: string }) {
@@ -47,7 +53,7 @@ function Loading({ onClose, title }: { onClose: () => void; title: string }) {
   );
 }
 
-function OwnerQuickExpense({ onClose, onSaved }: Omit<Props, "role">) {
+function OwnerQuickExpense({ onClose, onSaved, onBillPaid }: Omit<Props, "role">) {
   const settings = useQuery({ queryKey: settingsKeys.all, queryFn: getSettings, retry: false });
   if (settings.isPending) return <Loading title="Gasto rápido" onClose={onClose} />;
   if (settings.isError)
@@ -61,7 +67,47 @@ function OwnerQuickExpense({ onClose, onSaved }: Omit<Props, "role">) {
         </div>
       </Modal>
     );
-  return <OwnerForm settings={settings.data} onClose={onClose} onSaved={onSaved} />;
+  return <OwnerDialog settings={settings.data} onClose={onClose} onSaved={onSaved} onBillPaid={onBillPaid} />;
+}
+
+type OwnerTab = "gasto" | "recurrente";
+const OWNER_TABS = [
+  { id: "gasto", label: "Gasto" },
+  { id: "recurrente", label: "Recurrente" },
+] as const;
+const TAB_PREFIX = "quick";
+
+/** The owner's dialog: the Gasto form stays mounted (so a draft survives a visit to the other tab) and Recurrente loads when first opened. */
+function OwnerDialog({ settings, onClose, onSaved, onBillPaid }: { settings: AllSettings; onClose: () => void; onSaved: (r: QuickExpenseResult) => void; onBillPaid: (message: string) => void }) {
+  const [tab, setTab] = useState<OwnerTab>("gasto");
+  const [visited, setVisited] = useState(false);
+  const categories = expenseCategories(settings);
+  function select(id: OwnerTab) {
+    setTab(id);
+    if (id === "recurrente") setVisited(true);
+  }
+  return (
+    <Modal title={tab === "gasto" ? "Gasto rápido" : "Pago recurrente"} onClose={onClose}>
+      <div className="space-y-5">
+        <Tabs items={OWNER_TABS} active={tab} onSelect={select} label="Tipo de registro" idPrefix={TAB_PREFIX} />
+        <div role="tabpanel" id={panelId(TAB_PREFIX, "gasto")} aria-labelledby={tabId(TAB_PREFIX, "gasto")} hidden={tab !== "gasto"}>
+          <OwnerForm settings={settings} onClose={onClose} onSaved={onSaved} />
+        </div>
+        <div role="tabpanel" id={panelId(TAB_PREFIX, "recurrente")} aria-labelledby={tabId(TAB_PREFIX, "recurrente")} hidden={tab !== "recurrente"}>
+          {visited && (
+            <QuickBills
+              categories={categories}
+              onClose={onClose}
+              onPaid={(message) => {
+                onBillPaid(message);
+                onClose();
+              }}
+            />
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function OwnerForm({ settings, onClose, onSaved }: { settings: AllSettings; onClose: () => void; onSaved: (r: QuickExpenseResult) => void }) {
@@ -106,7 +152,7 @@ function OwnerForm({ settings, onClose, onSaved }: { settings: AllSettings; onCl
   }
 
   return (
-    <Modal title="Gasto rápido" onClose={onClose}>
+    <>
       <form noValidate onSubmit={onSubmit} className="space-y-5">
         <div className="grid gap-4">
           <TextField label="Monto (MXN)" inputMode="decimal" inputRef={amountRef} value={amount} onChange={(e) => setAmount(e.target.value)} error={errors.amount} autoComplete="off" />
@@ -154,11 +200,11 @@ function OwnerForm({ settings, onClose, onSaved }: { settings: AllSettings; onCl
           </button>
         </div>
       </form>
-    </Modal>
+    </>
   );
 }
 
-function HouseholdQuickExpense({ onClose, onSaved }: Omit<Props, "role">) {
+function HouseholdQuickExpense({ onClose, onSaved }: Omit<Props, "role" | "onBillPaid">) {
   const config = PERSONAL_PAGES.Gasto;
   const categories = useQuery({ queryKey: personalKeys.categories("Gasto"), queryFn: () => listPersonalCategories("Gasto"), retry: false });
   if (categories.isPending) return <Loading title={config.newLabel} onClose={onClose} />;
