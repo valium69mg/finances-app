@@ -17,6 +17,8 @@ export interface Expense {
   /** Decimal string, or null for MXN expenses. */
   exchange_rate: string | null;
   amount_mxn: string;
+  /** Part paid from the savings of a future expense (left out of the monthly KPIs); absent when none. */
+  covered_by_savings?: string;
 }
 
 /** Body for create and update. Only `amount` is required; the backend fills the rest. */

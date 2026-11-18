@@ -326,3 +326,20 @@ test.describe("expenses page: keyword quick-pick and category errors", () => {
     await expect.poll(() => api.requests.filter((r) => r.path === "/expenses").at(-1)?.body).toMatchObject({ category: "Servicios" });
   });
 });
+
+test.describe("expenses page: paid from savings", () => {
+  test("rows paid from the savings of a future expense carry a badge, with the amount when it is partial", async ({ page }) => {
+    await open(page, {
+      expenses: [
+        seeded({ id: 1, description: "Laptop", amount: "800.00", amount_mxn: "800.00", covered_by_savings: "800.00" }),
+        seeded({ id: 2, description: "Seguro", amount: "500.00", amount_mxn: "500.00", covered_by_savings: "300.00" }),
+        seeded({ id: 3, description: "Tacos sueltos" }),
+      ],
+    }, { expanded: false });
+    await expect(page.getByRole("listitem").filter({ hasText: "Laptop" })).toContainText("Pagado con ahorro");
+    await expect(page.getByRole("listitem").filter({ hasText: "Laptop" })).not.toContainText("Pagado con ahorro:");
+    await expect(page.getByRole("listitem").filter({ hasText: "Seguro" })).toContainText("Pagado con ahorro: $300");
+    await expect(page.getByRole("listitem").filter({ hasText: "Tacos sueltos" })).not.toContainText("Pagado con ahorro");
+    await expectNoHorizontalOverflow(page, "badges");
+  });
+});

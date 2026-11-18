@@ -17,6 +17,13 @@ interface Props {
   onEdit: (expense: Expense) => void;
 }
 
+/** "Pagado con ahorro", with the covered amount when the savings paid only part of the expense. */
+export function coveredLabel(e: Expense): string | null {
+  const covered = e.covered_by_savings;
+  if (!covered || Number(covered) <= 0) return null;
+  return Number(covered) >= Number(e.amount_mxn) ? "Pagado con ahorro" : `Pagado con ahorro: ${formatMoney(covered)}`;
+}
+
 export function ExpenseList({ month, category = "", waiting = false, editingId, onEdit }: Props) {
   const list = useQuery({ queryKey: expensesKeys.list(month), queryFn: () => listExpenses(month), retry: false });
 
@@ -59,6 +66,9 @@ export function ExpenseList({ month, category = "", waiting = false, editingId, 
                 <span className="mt-0.5 block break-words text-sm text-muted">
                   {e.date} · {e.category || "Sin categoría"} · {e.payment_method}
                 </span>
+                {coveredLabel(e) && (
+                  <span className="mt-1 inline-block rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-xs font-medium">{coveredLabel(e)}</span>
+                )}
               </span>
               <span className="shrink-0 text-right">
                 <span className="block font-semibold tabular-nums">

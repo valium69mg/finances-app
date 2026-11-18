@@ -677,6 +677,7 @@ export interface MockIncome {
   amount: string;
   exchange_rate: string | null;
   amount_mxn: string;
+  covered_by_savings?: string;
 }
 
 /** Description keyword -> income category, standing in for the backend's keyword inference. */
