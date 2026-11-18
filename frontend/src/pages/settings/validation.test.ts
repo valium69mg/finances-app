@@ -32,27 +32,32 @@ describe("categories", () => {
   it("round-trips the budget as a string without touching precision", () => {
     const draft = toCategoryDraft({ name: "A", kind: "fixed", budget: "12345678901234.56", includes: "", keywords: ["x", "y"] });
     expect(fromCategoryDraft(draft).budget).toBe("12345678901234.56");
-    expect(draft.keywords).toBe("x, y");
+    expect(draft.keywords).toEqual(["x", "y"]);
   });
 
-  it("maps an empty budget to null and splits keywords", () => {
-    const out = fromCategoryDraft({ name: "A", kind: "fixed", budget: " ", includes: "", keywords: "a, b,, c " });
+  it("maps an empty budget to null and cleans the keyword list", () => {
+    const out = fromCategoryDraft({ name: "A", kind: "fixed", budget: " ", includes: "", keywords: ["a", " b", "", "B", "c "] });
     expect(out.budget).toBeNull();
     expect(out.keywords).toEqual(["a", "b", "c"]);
   });
 
   it("flags an invalid budget by row", () => {
     const errors = validateCategories([
-      { name: "A", kind: "k", budget: "10", includes: "", keywords: "" },
-      { name: "B", kind: "k", budget: "abc", includes: "", keywords: "" },
-      { name: "C", kind: "k", budget: "", includes: "", keywords: "" },
+      { name: "A", kind: "k", budget: "10", includes: "", keywords: [] },
+      { name: "B", kind: "k", budget: "abc", includes: "", keywords: [] },
+      { name: "C", kind: "k", budget: "", includes: "", keywords: [] },
     ]);
     expect(Object.keys(errors)).toEqual(["1.budget"]);
   });
 });
 
 describe("new categories", () => {
-  const saved = { name: "Renta", kind: "Gasto", budget: "", includes: "", keywords: "" };
+  it("treats names differing only in case or accents as the same", () => {
+    const errors = validateCategories([{ name: "Súper", kind: "Gasto", budget: "", includes: "", keywords: [] }, { ...newCategoryDraft(), name: "SUPER" }]);
+    expect(Object.keys(errors)).toEqual(["1.name"]);
+  });
+
+  const saved = { name: "Renta", kind: "Gasto", budget: "", includes: "", keywords: [] };
   const added = (name: string) => ({ ...newCategoryDraft(), name });
 
   it("starts as an empty Gasto row with a unique key", () => {
@@ -189,7 +194,7 @@ describe("general percentages", () => {
 });
 
 describe("category budget total against the base", () => {
-  const cat = (name: string, kind: string, budget: string) => ({ name, kind, budget, includes: "", keywords: "" });
+  const cat = (name: string, kind: string, budget: string) => ({ name, kind, budget, includes: "", keywords: [] });
 
   it("blocks when the Gasto and Ahorro budgets exceed the base and names the excess", () => {
     const e = validateCategories([cat("A", "Gasto", "40000"), cat("B", "Ahorro", "22090.01")], "62090.00");

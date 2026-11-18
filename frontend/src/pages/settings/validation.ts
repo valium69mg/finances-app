@@ -1,4 +1,5 @@
 import type { Bracket, Category, Client, General, Instrument, Pause } from "../../api/settings";
+import { addKeywords, normalizeKeyword } from "../../lib/keywords";
 import { distribution, isAtMostHundred, isBudgetKind, isHundred, isPlainDecimal, percentToRate, rateToPercent, sumDecimals } from "../../lib/planning";
 import { formatMoney } from "../expenses/money";
 
@@ -106,7 +107,8 @@ export interface CategoryDraft {
   kind: string;
   budget: string;
   includes: string;
-  keywords: string;
+  /** One chip per keyword (the tag input edits the list). */
+  keywords: string[];
   /** True for a row added in this form and not saved yet: its name and kind are still editable. */
   isNew?: boolean;
   /** Stable React key of a new row (its name is empty or changing while typing). */
@@ -123,7 +125,7 @@ export const newCategoryDraft = (): CategoryDraft => ({
   kind: "Gasto",
   budget: "",
   includes: "",
-  keywords: "",
+  keywords: [],
   isNew: true,
   uid: `new-${++nextUid}`,
 });
@@ -133,7 +135,7 @@ export const toCategoryDraft = (c: Category): CategoryDraft => ({
   kind: c.kind,
   budget: c.budget ?? "",
   includes: c.includes,
-  keywords: c.keywords.join(", "),
+  keywords: [...c.keywords],
 });
 
 export const fromCategoryDraft = (d: CategoryDraft): Category => ({
@@ -141,24 +143,22 @@ export const fromCategoryDraft = (d: CategoryDraft): Category => ({
   kind: d.kind,
   budget: d.budget.trim() === "" ? null : d.budget.trim(),
   includes: d.includes,
-  keywords: d.keywords
-    .split(",")
-    .map((k) => k.trim())
-    .filter(Boolean),
+  // Same cleaning as the server: trimmed, no empties, no repeats ignoring case and accents.
+  keywords: addKeywords([], d.keywords.join(",")).keywords,
 });
 
 /**
- * New rows need a name that is not taken (ignoring case) by any other row. Budgets
+ * New rows need a name that is not taken (ignoring case and accents) by any other row. Budgets
  * must be decimals and, when the base monthly income is available, the
  * Gasto and Ahorro budgets may not add up to more than it ("total" error). Without
  * a base (null) only the amounts are checked.
  */
 export function validateCategories(cats: CategoryDraft[], base: string | null = null): Errors {
   const e: Errors = {};
-  const taken = (name: string) => cats.filter((o) => o.name.trim().toLowerCase() === name).length > 1;
+  const taken = (name: string) => cats.filter((o) => normalizeKeyword(o.name) === name).length > 1;
   cats.forEach((c, i) => {
     if (c.isNew) {
-      const name = c.name.trim().toLowerCase();
+      const name = normalizeKeyword(c.name);
       if (!name) e[`${i}.name`] = MSG.categoryName;
       else if (taken(name)) e[`${i}.name`] = MSG.categoryDuplicate;
     }

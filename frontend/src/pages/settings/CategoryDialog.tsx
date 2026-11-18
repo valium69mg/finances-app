@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { updateCategories, type Category } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
+import { TagInput, type TagInputHandle } from "../../components/TagInput";
 import { amountToPercent, isBudgetKind, percentToAmount } from "../../lib/planning";
 import { SelectField } from "../expenses/SelectField";
 import { EditDialog } from "./EditDialog";
 import { PercentField } from "./PercentField";
 import { categoryListWith } from "./summary";
-import { ErrorBanner, fieldGrid, useSave } from "./ui";
+import { ErrorBanner, describeKeywordInUse, fieldGrid, keywordInUse, useSave } from "./ui";
 import { KINDS, fromCategoryDraft, newCategoryDraft, toCategoryDraft, validateCategories, type CategoryDraft, type Errors } from "./validation";
 
 interface Props {
@@ -26,6 +27,8 @@ export function CategoryDialog({ saved, index, base, onClose }: Props) {
   /** Percentage text while it is being typed; the rest of the time it is derived from the amount. */
   const [typing, setTyping] = useState<string | null>(null);
   const save = useSave(updateCategories);
+  const tags = useRef<TagInputHandle>(null);
+  const rejected = keywordInUse(save.error);
 
   const patch = (change: Partial<CategoryDraft>) => setDraft({ ...draft, ...change });
   const position = adding ? saved.length : index;
@@ -37,12 +40,14 @@ export function CategoryDialog({ saved, index, base, onClose }: Props) {
   }
 
   function onSubmit() {
-    const found = validateCategories(categoryListWith(saved, draft, index), base);
+    // A word still being typed is part of the save.
+    const withPending: CategoryDraft = { ...draft, keywords: tags.current?.commit() ?? draft.keywords };
+    const found = validateCategories(categoryListWith(saved, withPending, index), base);
     // Only this category's own errors and the shared total are on screen.
     const own: Errors = Object.fromEntries(Object.entries(found).filter(([k]) => k === "total" || k.startsWith(`${position}.`)));
     setErrors(own);
     if (Object.keys(own).length > 0) return false;
-    save.mutate(categoryListWith(saved, draft, index).map(fromCategoryDraft), { onSuccess: onClose });
+    save.mutate(categoryListWith(saved, withPending, index).map(fromCategoryDraft), { onSuccess: onClose });
     return true;
   }
 
@@ -87,7 +92,15 @@ export function CategoryDialog({ saved, index, base, onClose }: Props) {
           <TextField label="Incluye" value={draft.includes} onChange={(e) => patch({ includes: e.target.value })} />
         </div>
         <div className="sm:col-span-2">
-          <TextField label="Palabras clave" hint="Separadas por comas." value={draft.keywords} onChange={(e) => patch({ keywords: e.target.value })} />
+          <TagInput
+            label="Palabras clave"
+            hint="Escribe una y pulsa Enter o coma. Cada palabra solo puede estar en una categoría."
+            value={draft.keywords}
+            onChange={(keywords) => patch({ keywords })}
+            handleRef={tags}
+            invalidKeyword={rejected?.keyword}
+            invalidMessage={rejected ? describeKeywordInUse(save.error) : undefined}
+          />
         </div>
       </div>
       <p className="text-sm text-muted">Presupuesto mensual en MXN. Déjalo vacío si la categoría no tiene presupuesto.</p>

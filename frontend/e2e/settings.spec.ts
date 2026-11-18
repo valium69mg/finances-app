@@ -100,7 +100,8 @@ test.describe("settings: categories", () => {
     const budget = d.getByLabel("Presupuesto", { exact: true });
     await expect(budget).toHaveValue("12000.50");
     await expect(d.getByLabel("Incluye")).toHaveValue("Renta y mantenimiento");
-    await expect(d.getByLabel("Palabras clave")).toHaveValue("renta, alquiler");
+    await expect(d.getByRole("button", { name: "Quitar renta" })).toBeVisible();
+    await expect(d.getByRole("button", { name: "Quitar alquiler" })).toBeVisible();
     await budget.fill("13500.75");
     await expectNoHorizontalOverflow(page, "category dialog");
     await d.getByRole("button", { name: "Guardar cambios" }).click();
@@ -150,7 +151,8 @@ test.describe("settings: categories", () => {
     await expect(d.getByLabel("Tipo")).toHaveValue("Gasto");
     await d.getByLabel("Nombre").fill("  Donaciones ");
     await d.getByLabel("Presupuesto", { exact: true }).fill("500");
-    await d.getByLabel("Palabras clave").fill("iglesia, diezmo");
+    await d.getByRole("textbox", { name: "Palabras clave" }).fill("iglesia, diezmo");
+    await d.getByRole("textbox", { name: "Palabras clave" }).press("Enter");
     await expectNoHorizontalOverflow(page, "new category dialog");
     await d.getByRole("button", { name: "Agregar", exact: true }).click();
     await expect(d).toHaveCount(0);
@@ -376,5 +378,56 @@ test.describe("settings: investment pause", () => {
     await expect(page.getByText("Sin pausa", { exact: true })).toBeVisible();
     expect(api.writes.some((w) => w.method === "DELETE" && w.path === "/settings/investment-pause")).toBe(true);
     await expect(page.getByRole("button", { name: "Configurar pausa" })).toBeVisible();
+  });
+});
+
+
+test.describe("settings: keyword tag input", () => {
+  const keywords = (d: ReturnType<typeof dialog>) => d.getByRole("list", { name: "Lista de palabras clave" }).getByRole("listitem");
+
+  test("adds chips with Enter and comma, splits a paste, ignores repeats and removes with the x button and Backspace", async ({ page }) => {
+    const api = await open(page, "categorias");
+    await row(page, "Renta").click();
+    const d = dialog(page, "Editar Renta");
+    const field = d.getByRole("textbox", { name: "Palabras clave" });
+
+    await field.fill("predial");
+    await field.press("Enter");
+    await field.fill("agua,");
+    await field.press(",");
+    await expect(keywords(d)).toHaveCount(4);
+    // A repeat ignoring case and accents is not added and the user is told.
+    await field.fill("ALQUILER");
+    await field.press("Enter");
+    await expect(keywords(d)).toHaveCount(4);
+    await expect(d.getByRole("status")).toContainText("Ya estaba: ALQUILER");
+
+    await d.getByRole("button", { name: "Quitar agua" }).click();
+    await expect(keywords(d)).toHaveCount(3);
+    await field.focus();
+    await field.press("Backspace");
+    await expect(keywords(d)).toHaveCount(2);
+    await expectNoHorizontalOverflow(page, "keyword chips");
+
+    // The word still being typed is saved too.
+    await field.fill("seguro");
+    await d.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(d).toHaveCount(0);
+    const body = lastPut(api, "/settings/categories")?.body as { name: string; keywords: string[] }[];
+    expect(body.find((c) => c.name === "Renta")?.keywords).toEqual(["renta", "alquiler", "seguro"]);
+  });
+
+  test("shows the owner next to the chip when a keyword already belongs to another category", async ({ page }) => {
+    await open(page, "categorias");
+    await row(page, "Servicios").click();
+    const d = dialog(page, "Editar Servicios");
+    await d.getByRole("textbox", { name: "Palabras clave" }).fill("Netflix");
+    await d.getByRole("textbox", { name: "Palabras clave" }).press("Enter");
+    await d.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(d.getByRole("alert").filter({ hasText: "La palabra clave «Netflix» ya pertenece a la categoría Suscripciones." }).first()).toBeVisible();
+    await expect(keywords(d).filter({ hasText: "Netflix" })).toHaveAttribute("data-invalid", "true");
+    await d.getByRole("button", { name: "Quitar Netflix" }).click();
+    await d.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(d).toHaveCount(0);
   });
 });

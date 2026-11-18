@@ -8,6 +8,8 @@ export class ApiError extends Error {
     public code: string,
     /** Human-readable detail some endpoints add next to the code (e.g. invalid_settings). */
     public message: string = code,
+    /** The whole JSON error body, for the endpoints that add fields next to the code (e.g. keyword_in_use). */
+    public body: Record<string, unknown> = {},
   ) {
     super(code);
     this.name = "ApiError";
@@ -94,14 +96,16 @@ export function createApiClient(opts: ApiClientOptions) {
     if (!res.ok) {
       let code = "unknown_error";
       let message: string | undefined;
+      let details: Record<string, unknown> = {};
       try {
         const body = (await res.json()) as { error?: string; message?: string };
+        details = body as Record<string, unknown>;
         code = body.error ?? code;
         message = typeof body.message === "string" ? body.message : undefined;
       } catch {
         // Non-JSON error body.
       }
-      throw new ApiError(res.status, code, message);
+      throw new ApiError(res.status, code, message, details);
     }
     if (res.status === 204) return undefined as T;
     if (blob) return (await res.blob()) as T;

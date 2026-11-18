@@ -519,6 +519,18 @@ export async function mockApi(
       writes.push({ method: request.method(), path: pathname, body });
       const section = SETTINGS_SECTIONS[pathname];
       if (settingsFail) return json(route, 400, { error: "invalid_settings", message: settingsFail });
+      if (pathname === "/settings/categories" && request.method() === "PUT") {
+        // Mirrors the server: a keyword a category gains may not belong to another category of its kind.
+        const norm = (t: string) => t.trim().normalize("NFKD").replace(/\p{Mn}/gu, "").toLowerCase();
+        for (const c of body as { name: string; kind: string; keywords: string[] }[]) {
+          const had = new Set((settings.categories.find((o: { name: string }) => o.name === c.name)?.keywords ?? []).map(norm));
+          for (const kw of c.keywords) {
+            if (had.has(norm(kw))) continue;
+            const owner = (body as { name: string; kind: string; keywords: string[] }[]).find((o) => o.name !== c.name && o.kind === c.kind && o.keywords.some((k) => norm(k) === norm(kw)));
+            if (owner) return json(route, 409, { error: "keyword_in_use", message: `keyword "${kw}" already belongs to the category "${owner.name}"`, keyword: kw, category: owner.name });
+          }
+        }
+      }
       if (section) {
         settings[section] = body;
         return json(route, 204);

@@ -16,9 +16,24 @@ export const tapLink = "focus-ring inline-flex min-h-11 items-center rounded fon
 export const dangerButton =
   "focus-ring inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-destructive px-4 py-2 text-sm font-medium text-destructive transition-colors duration-200 hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60";
 
+/** The rejected keyword and the category that owns it, from a keyword_in_use answer. */
+export function keywordInUse(err: unknown): { keyword: string; category: string } | null {
+  if (!(err instanceof ApiError) || err.code !== "keyword_in_use") return null;
+  const { keyword, category } = err.body;
+  return typeof keyword === "string" && typeof category === "string" ? { keyword, category } : null;
+}
+
+export function describeKeywordInUse(err: unknown): string {
+  const owner = keywordInUse(err);
+  return owner
+    ? `La palabra clave «${owner.keyword}» ya pertenece a la categoría ${owner.category}.`
+    : "Una palabra clave ya pertenece a otra categoría. Quítala de una de las dos.";
+}
+
 /** Maps an API failure to Spanish copy; the backend `message` is shown for invalid_settings. */
 export function describeSaveError(err: unknown): string {
   if (err instanceof ApiError) {
+    if (err.code === "keyword_in_use") return describeKeywordInUse(err);
     if (err.code === "invalid_settings") return `Los datos no son válidos: ${err.message}`;
     if (err.code === "settings_incomplete") {
       return "Faltan parámetros fiscales. Completa los rangos de RESICO y los datos generales antes de continuar.";
