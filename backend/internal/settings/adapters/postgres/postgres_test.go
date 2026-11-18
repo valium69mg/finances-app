@@ -54,7 +54,7 @@ func newRepo(t *testing.T) *postgres.Repo {
 	}
 	t.Cleanup(pool.Close)
 
-	for _, name := range []string{"000005_settings.up.sql", "000014_cycle_start_day.up.sql", "000021_client_postal_code.up.sql", "000027_cycle_start_day_last_weekday.up.sql"} {
+	for _, name := range []string{"000005_settings.up.sql", "000014_cycle_start_day.up.sql", "000021_client_postal_code.up.sql", "000027_cycle_start_day_last_weekday.up.sql", "000029_category_fixed.up.sql"} {
 		sql, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "..", "migrations", name))
 		if err != nil {
 			t.Fatalf("read migration: %v", err)
@@ -295,5 +295,34 @@ func TestSaveCategoriesAppendsNewOnesAfterTheExisting(t *testing.T) {
 	}
 	if names := got.Catalog().CategoryNames("Gasto"); names[len(names)-1] != "Efectivo" {
 		t.Fatalf("new Gasto categories missing from the catalog: %v", names)
+	}
+}
+
+func TestFixedFlagRoundTripsAndOnlyGastoCanBeFixed(t *testing.T) {
+	repo := newRepo(t)
+	ctx := context.Background()
+	if err := repo.Import(ctx, fullConfig()); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := repo.Load(ctx)
+	for _, c := range cfg.Categories {
+		if c.Fixed {
+			t.Fatalf("%s is fixed by default", c.Name)
+		}
+	}
+	cats := append([]domain.Category{}, cfg.Categories...)
+	cats = append(cats, domain.Category{Name: "Renta fija", Kind: "Gasto", Fixed: true})
+	if err := repo.SaveCategories(ctx, cats); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := repo.Load(ctx)
+	if last := got.Categories[len(got.Categories)-1]; last.Name != "Renta fija" || !last.Fixed {
+		t.Errorf("last = %+v, want the fixed flag back", last)
+	}
+	// The database refuses a fixed saving or income category on its own.
+	bad := append([]domain.Category{}, cfg.Categories...)
+	bad = append(bad, domain.Category{Name: "Ahorro fijo", Kind: "Ahorro", Fixed: true})
+	if err := repo.SaveCategories(ctx, bad); err == nil {
+		t.Error("a fixed Ahorro category was stored")
 	}
 }

@@ -182,6 +182,23 @@ func TestPutCategoriesParsesDecimals(t *testing.T) {
 	}
 }
 
+func TestPutCategoriesCarriesTheFixedFlag(t *testing.T) {
+	svc := &fakeService{}
+	body := `[{"name":"Renta","kind":"Gasto","budget":"1000","includes":"","keywords":[],"fixed":true},
+	          {"name":"Ocio","kind":"Gasto","budget":null,"includes":"","keywords":[]}]`
+	if rec := do(newServer(svc), http.MethodPut, "/settings/categories", body, true); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d: %s", rec.Code, rec.Body)
+	}
+	if !svc.gotCategories[0].Fixed || svc.gotCategories[1].Fixed {
+		t.Fatalf("categories = %+v", svc.gotCategories)
+	}
+	svc.cfg = domain.Config{Categories: svc.gotCategories}
+	rec := do(newServer(svc), http.MethodGet, "/settings/categories", "", true)
+	if !strings.Contains(rec.Body.String(), `"fixed":true`) || !strings.Contains(rec.Body.String(), `"fixed":false`) {
+		t.Errorf("body = %s", rec.Body)
+	}
+}
+
 func TestPutGeneral(t *testing.T) {
 	svc := &fakeService{}
 	body := `{"salary_usd":"3500","fx_rate_applied":"17.74","morse_fee_rate":"0.001","emergency_months":"6",

@@ -99,6 +99,8 @@ type categoryDTO struct {
 	Budget   *decimal.Decimal `json:"budget"`
 	Includes string           `json:"includes"`
 	Keywords []string         `json:"keywords"`
+	// Fixed marks a Gasto paid about once per cycle (kept out of the dashboard pace).
+	Fixed bool `json:"fixed"`
 }
 
 type clientDTO struct {
@@ -199,7 +201,7 @@ func toCategoryDTOs(cats []domain.Category) []categoryDTO {
 		if kw == nil {
 			kw = []string{}
 		}
-		out[i] = categoryDTO{Name: c.Name, Kind: string(c.Kind), Budget: c.Budget, Includes: c.Includes, Keywords: kw}
+		out[i] = categoryDTO{Name: c.Name, Kind: string(c.Kind), Budget: c.Budget, Includes: c.Includes, Keywords: kw, Fixed: c.Fixed}
 	}
 	return out
 }
@@ -275,7 +277,7 @@ func (d generalDTO) toDomain() domain.General {
 func categoriesFromDTO(in []categoryDTO) []domain.Category {
 	out := make([]domain.Category, len(in))
 	for i, c := range in {
-		out[i] = domain.Category{Name: c.Name, Kind: ledger.Kind(c.Kind), Budget: c.Budget, Includes: c.Includes, Keywords: c.Keywords}
+		out[i] = domain.Category{Name: c.Name, Kind: ledger.Kind(c.Kind), Budget: c.Budget, Includes: c.Includes, Keywords: c.Keywords, Fixed: c.Fixed}
 	}
 	return out
 }

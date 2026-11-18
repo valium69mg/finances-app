@@ -90,6 +90,11 @@ func sample() dashboard.Overview {
 			{Name: "Mandado", Kind: ledger.KindExpense, Real: d("1500"), Budget: p("1000"), Diff: p("-500")},
 			{Name: "Ocio", Kind: ledger.KindExpense, Real: d("200")},
 		},
+		Spending: dashboard.Spending{
+			HasFixed: true,
+			Fixed:    dashboard.Block{Spent: d("1500"), Budget: d("1000")},
+			Variable: dashboard.Block{Spent: d("200"), Budget: d("0")},
+		},
 		Totals:    dashboard.Totals{Income: d("50000"), Expenses: d("1700"), Savings: d("5000")},
 		Available: d("43300"),
 		Emergency: savings.EmergencyStatus{Accumulated: d("10000"), Goal: d("120000")},
@@ -143,6 +148,7 @@ func TestGet(t *testing.T) {
 		`"income":"50000","expenses":"1700","savings":"5000","available":"43300",` +
 		`"emergency":{"accumulated":"10000","goal":"120000"},` +
 		`"tax":{"rate":"0.011","estimated_isr":"550","filing_status":"pendiente","previous_period":"2026-09","previous_period_pending":true},` +
+		`"spending":{"has_fixed":true,"fixed":{"spent":"1500","budget":"1000"},"variable":{"spent":"200","budget":"0"}},` +
 		`"cycle":{"today":"2026-10-15","day":16,"days":31},` +
 		`"future_expenses":{"items":[{"id":4,"name":"Laptop","due_date":"2027-01-20","target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500","cycles_left":3}],` +
 		`"target":"10000","saved":"2500","remaining":"7500","suggested_monthly":"2500","free_balance":"300.5"},` +

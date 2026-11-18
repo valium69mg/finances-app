@@ -169,6 +169,9 @@ func ValidateCategories(cats []Category) error {
 		default:
 			return invalid("category %q has unknown kind %q", c.Name, c.Kind)
 		}
+		if c.Fixed && c.Kind != ledger.KindExpense {
+			return invalid("category %q cannot be fixed: only Gasto categories can", c.Name)
+		}
 		if c.Budget != nil {
 			if err := checkMoney("category budget", *c.Budget); err != nil {
 				return err

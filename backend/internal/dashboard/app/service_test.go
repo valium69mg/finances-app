@@ -497,3 +497,31 @@ func TestBudgetDefaultsToTheCurrentMonthAndRejectsABadOne(t *testing.T) {
 		t.Fatalf("err = %v, want ledger.ErrInvalid", err)
 	}
 }
+
+func TestMonthSplitsFixedFromVariableSpending(t *testing.T) {
+	svc, st, _, _, _ := newServiceWithFilings()
+	st.budgets[1].Fixed = true // Vivienda
+	got, err := svc.Month(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := got.Spending
+	if !s.HasFixed || !s.Fixed.Spent.Equal(d("3600")) || !s.Fixed.Budget.Equal(d("3600")) {
+		t.Errorf("fixed = %+v, want 3600 of 3600", s.Fixed)
+	}
+	// Mandado 1500 (budget 1000) + Ocio 200 (no budget).
+	if !s.Variable.Spent.Equal(d("1700")) || !s.Variable.Budget.Equal(d("1000")) {
+		t.Errorf("variable = %+v, want spent 1700 of 1000", s.Variable)
+	}
+}
+
+func TestMonthWithoutFixedCategoriesKeepsASingleBlock(t *testing.T) {
+	svc, _, _, _, _ := newServiceWithFilings()
+	got, err := svc.Month(context.Background(), "2026-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Spending.HasFixed || !got.Spending.Variable.Spent.Equal(d("5300")) {
+		t.Errorf("spending = %+v, want everything variable", got.Spending)
+	}
+}

@@ -57,6 +57,20 @@ type categoryDTO struct {
 	OverBudget bool             `json:"over_budget"`
 }
 
+// spendingDTO splits the Gasto categories into fixed and variable for the cycle
+// pace. has_fixed is false while no category is marked fixed (the page then
+// keeps a single block).
+type spendingDTO struct {
+	HasFixed bool     `json:"has_fixed"`
+	Fixed    blockDTO `json:"fixed"`
+	Variable blockDTO `json:"variable"`
+}
+
+type blockDTO struct {
+	Spent  decimal.Decimal `json:"spent"`
+	Budget decimal.Decimal `json:"budget"`
+}
+
 type emergencyDTO struct {
 	Accumulated decimal.Decimal `json:"accumulated"`
 	Goal        decimal.Decimal `json:"goal"`
@@ -142,6 +156,7 @@ type dashboardDTO struct {
 	Available   decimal.Decimal `json:"available"`
 	Emergency   emergencyDTO    `json:"emergency"`
 	Tax         *taxDTO         `json:"tax"`
+	Spending    spendingDTO     `json:"spending"`
 
 	Cycle          cycleDTO            `json:"cycle"`
 	FutureExpenses futureExpensesDTO   `json:"future_expenses"`
@@ -159,8 +174,13 @@ func toDTO(d dashboard.Overview) dashboardDTO {
 		Expenses:    d.Totals.Expenses,
 		Savings:     d.Totals.Savings,
 		Available:   d.Available,
-		Emergency:   emergencyDTO{Accumulated: d.Emergency.Accumulated, Goal: d.Emergency.Goal},
-		Cycle:       cycleDTO{Today: d.Cycle.Today, Day: d.Cycle.Day, Days: d.Cycle.Days},
+		Spending: spendingDTO{
+			HasFixed: d.Spending.HasFixed,
+			Fixed:    blockDTO{Spent: d.Spending.Fixed.Spent, Budget: d.Spending.Fixed.Budget},
+			Variable: blockDTO{Spent: d.Spending.Variable.Spent, Budget: d.Spending.Variable.Budget},
+		},
+		Emergency: emergencyDTO{Accumulated: d.Emergency.Accumulated, Goal: d.Emergency.Goal},
+		Cycle:     cycleDTO{Today: d.Cycle.Today, Day: d.Cycle.Day, Days: d.Cycle.Days},
 		FutureExpenses: futureExpensesDTO{
 			Items:  make([]futureExpenseDTO, len(d.Future.Items)),
 			Target: d.Future.Target, Saved: d.Future.Saved, Remaining: d.Future.Remaining, SuggestedMonthly: d.Future.Suggested,

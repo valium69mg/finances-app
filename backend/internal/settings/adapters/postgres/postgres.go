@@ -148,7 +148,7 @@ func loadGeneral(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
 }
 
 func loadCategories(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
-	rows, err := tx.Query(ctx, `SELECT name, kind, budget::text, includes, keywords FROM categories ORDER BY position`)
+	rows, err := tx.Query(ctx, `SELECT name, kind, budget::text, includes, keywords, fixed FROM categories ORDER BY position`)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func loadCategories(ctx context.Context, tx pgx.Tx, cfg *domain.Config) error {
 		var c domain.Category
 		var kind string
 		var budget *string
-		if err := rows.Scan(&c.Name, &kind, &budget, &c.Includes, &c.Keywords); err != nil {
+		if err := rows.Scan(&c.Name, &kind, &budget, &c.Includes, &c.Keywords, &c.Fixed); err != nil {
 			return err
 		}
 		c.Kind = ledger.Kind(kind)
@@ -374,9 +374,9 @@ func saveCategories(ctx context.Context, tx pgx.Tx, cats []domain.Category) erro
 			kw = []string{}
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO categories (name, position, kind, budget, includes, keywords)
-			 VALUES ($1, $2, $3, $4::text::numeric, $5, $6)`,
-			c.Name, i, string(c.Kind), strPtr(c.Budget), c.Includes, kw); err != nil {
+			`INSERT INTO categories (name, position, kind, budget, includes, keywords, fixed)
+			 VALUES ($1, $2, $3, $4::text::numeric, $5, $6, $7)`,
+			c.Name, i, string(c.Kind), strPtr(c.Budget), c.Includes, kw, c.Fixed); err != nil {
 			return fmt.Errorf("insert category %q: %w", c.Name, err)
 		}
 	}

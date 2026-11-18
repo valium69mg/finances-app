@@ -36,6 +36,9 @@ type Category struct {
 	Kind     ledger.Kind
 	Budget   *decimal.Decimal
 	Keywords []string
+	// Fixed marks a Gasto paid about once per cycle (rent, services): the
+	// dashboard keeps it out of the spending pace. Only Gasto categories.
+	Fixed bool
 	// Includes is a free-text note describing what the budget covers.
 	Includes string
 }

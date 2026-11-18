@@ -102,3 +102,42 @@ func TestRowsAndTotalsLeaveOutWhatSavingsCovered(t *testing.T) {
 		t.Errorf("available changed: %s -> %s", old.Available(), totals.Available())
 	}
 }
+
+func TestSplitSpendingSeparatesFixedFromVariable(t *testing.T) {
+	budgets := []dashboard.Budget{
+		{Name: "Renta", Kind: ledger.KindExpense, Amount: ptr("10000"), Fixed: true},
+		{Name: "Luz", Kind: ledger.KindExpense, Amount: ptr("500"), Fixed: true},
+		{Name: "Mandado", Kind: ledger.KindExpense, Amount: ptr("3000")},
+		{Name: "Ocio", Kind: ledger.KindExpense}, // no budget: spending counts, budget does not
+		{Name: "Inversiones", Kind: ledger.KindSavings, Amount: ptr("999")},
+	}
+	covered := mov("2026-10-02", ledger.KindExpense, "Renta", "12000") // rent over budget
+	covered.CoveredBySavings = d("2000")                               // 2,000 of it came from savings
+	month := []ledger.Movement{
+		covered,
+		mov("2026-10-03", ledger.KindExpense, "Mandado", "700"),
+		mov("2026-10-04", ledger.KindExpense, "Ocio", "100"),
+		mov("2026-10-05", ledger.KindSavings, "Inversiones", "50"),
+	}
+	rows := dashboard.ExpenseRows(budgets, month)
+	got := dashboard.SplitSpending(rows)
+	if !got.HasFixed || !got.Fixed.Spent.Equal(d("10000")) || !got.Fixed.Budget.Equal(d("10500")) {
+		t.Errorf("fixed = %+v, want spent 10000 (12000 - 2000 covered) of 10500", got)
+	}
+	if !got.Variable.Spent.Equal(d("800")) || !got.Variable.Budget.Equal(d("3000")) {
+		t.Errorf("variable = %+v, want spent 800 of 3000", got.Variable)
+	}
+}
+
+func TestSplitSpendingWithoutFixedCategories(t *testing.T) {
+	budgets := []dashboard.Budget{{Name: "Mandado", Kind: ledger.KindExpense, Amount: ptr("3000")}}
+	got := dashboard.SplitSpending(dashboard.ExpenseRows(budgets, []ledger.Movement{mov("2026-10-03", ledger.KindExpense, "Mandado", "700")}))
+	if got.HasFixed || !got.Fixed.Spent.IsZero() || !got.Fixed.Budget.IsZero() || !got.Variable.Spent.Equal(d("700")) {
+		t.Errorf("spending = %+v", got)
+	}
+	// A fixed category with no budget and no spending still turns the split on.
+	only := dashboard.SplitSpending(dashboard.ExpenseRows([]dashboard.Budget{{Name: "Renta", Kind: ledger.KindExpense, Fixed: true}}, nil))
+	if !only.HasFixed {
+		t.Error("a fixed category without movements must still set HasFixed")
+	}
+}

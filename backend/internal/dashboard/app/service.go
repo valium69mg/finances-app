@@ -145,11 +145,13 @@ func (s *Service) Month(ctx context.Context, month string) (dashboard.Overview, 
 		return dashboard.Overview{}, err
 	}
 
+	rows := dashboard.ExpenseRows(budgets, expenses)
 	out := dashboard.Overview{
+		Spending:    dashboard.SplitSpending(rows),
 		Month:       month,
 		PeriodStart: from,
 		PeriodEnd:   to,
-		Rows:        dashboard.ExpenseRows(budgets, expenses),
+		Rows:        rows,
 		Totals:      totals,
 		Available:   totals.Available(),
 		Emergency:   emergency,
@@ -205,7 +207,7 @@ func (s *Service) cycleBudgets(ctx context.Context, cfg settings.Config, month s
 	}
 	budgets = make([]dashboard.Budget, len(resolved))
 	for i, b := range resolved {
-		budgets[i] = dashboard.Budget{Name: b.Name, Kind: ledger.Kind(b.Kind), Amount: b.Budget}
+		budgets[i] = dashboard.Budget{Name: b.Name, Kind: ledger.Kind(b.Kind), Amount: b.Budget, Fixed: b.Fixed}
 	}
 	return month, from, to, budgets, nil
 }

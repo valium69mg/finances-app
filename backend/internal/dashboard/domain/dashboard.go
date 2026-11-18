@@ -21,6 +21,8 @@ type Row struct {
 	Real   decimal.Decimal
 	Diff   *decimal.Decimal
 	Pct    *decimal.Decimal
+	// Fixed is true for a Gasto category marked as a fixed expense.
+	Fixed bool
 }
 
 // Totals are the month totals by kind, over every movement of the month

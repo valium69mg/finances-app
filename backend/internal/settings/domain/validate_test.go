@@ -200,3 +200,15 @@ func TestBudgetTotalCannotExceedBase(t *testing.T) {
 		t.Errorf("no base, no rule: %v", err)
 	}
 }
+
+func TestOnlyGastoCategoriesCanBeFixed(t *testing.T) {
+	if err := domain.ValidateCategories([]domain.Category{{Name: "Renta", Kind: ledger.KindExpense, Fixed: true}}); err != nil {
+		t.Errorf("fixed Gasto: %v", err)
+	}
+	for _, kind := range []ledger.Kind{ledger.KindSavings, ledger.KindIncome} {
+		err := domain.ValidateCategories([]domain.Category{{Name: "X", Kind: kind, Fixed: true}})
+		if !errors.Is(err, domain.ErrInvalid) {
+			t.Errorf("fixed %s: err = %v, want ErrInvalid", kind, err)
+		}
+	}
+}

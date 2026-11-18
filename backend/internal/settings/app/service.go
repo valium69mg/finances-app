@@ -125,6 +125,8 @@ type CategoryBudget struct {
 	Name   string
 	Kind   string
 	Budget *decimal.Decimal
+	// Fixed is true for a Gasto category marked as a fixed expense.
+	Fixed bool
 }
 
 // MonthBudgets resolves every category budget for a YYYY-MM month: the computed
@@ -145,7 +147,7 @@ func (s *Service) MonthBudgets(ctx context.Context, month string) ([]CategoryBud
 	}
 	out := make([]CategoryBudget, len(cfg.Categories))
 	for i, c := range cfg.Categories {
-		out[i] = CategoryBudget{Name: c.Name, Kind: string(c.Kind), Budget: domain.CategoryBudget(c, overrides)}
+		out[i] = CategoryBudget{Name: c.Name, Kind: string(c.Kind), Budget: domain.CategoryBudget(c, overrides), Fixed: c.Fixed}
 	}
 	return out, nil
 }

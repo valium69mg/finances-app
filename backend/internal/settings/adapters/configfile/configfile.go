@@ -71,6 +71,7 @@ type file struct {
 		Budget   *json.Number `json:"budget"`
 		Includes string       `json:"includes"`
 		Keywords []string     `json:"keywords"`
+		Fixed    bool         `json:"fixed"`
 	} `json:"categories"`
 	Pause *struct {
 		Months     []string               `json:"meses"`
@@ -161,7 +162,7 @@ func Parse(data []byte) (domain.Config, error) {
 	for _, c := range f.Categories {
 		cfg.Categories = append(cfg.Categories, domain.Category{
 			Name: c.Name, Kind: ledger.Kind(c.Type), Budget: numPtr("category "+c.Name+" budget", c.Budget),
-			Includes: c.Includes, Keywords: c.Keywords,
+			Includes: c.Includes, Keywords: c.Keywords, Fixed: c.Fixed,
 		})
 	}
 	if p := f.Pause; p != nil {

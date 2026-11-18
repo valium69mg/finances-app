@@ -15,6 +15,8 @@ type Budget struct {
 	Name   string
 	Kind   ledger.Kind
 	Amount *decimal.Decimal
+	// Fixed marks a Gasto category paid about once per cycle (rent, services).
+	Fixed bool
 }
 
 // TaxCard is the estimated RESICO ISR of the month and the rate it uses, plus
@@ -37,10 +39,12 @@ type Overview struct {
 	PeriodStart string
 	PeriodEnd   string
 	Rows        []Row // Gasto categories, in the order of the budgets
-	Totals      Totals
-	Available   decimal.Decimal
-	Emergency   savings.EmergencyStatus
-	Tax         *TaxCard
+	// Spending splits the Gasto rows into fixed and variable for the cycle pace.
+	Spending  Spending
+	Totals    Totals
+	Available decimal.Decimal
+	Emergency savings.EmergencyStatus
+	Tax       *TaxCard
 	// Cycle is where today sits in the displayed cycle.
 	Cycle CycleProgress
 	// Future is the plan of the active future expenses (the Futuros module).
@@ -76,7 +80,9 @@ func RowsOfKind(kind ledger.Kind, budgets []Budget, monthly []ledger.Movement) [
 		if b.Kind != kind {
 			continue
 		}
-		rows = append(rows, newRow(b.Name, b.Kind, b.Amount, monthly))
+		row := newRow(b.Name, b.Kind, b.Amount, monthly)
+		row.Fixed = b.Fixed
+		rows = append(rows, row)
 	}
 	return rows
 }
