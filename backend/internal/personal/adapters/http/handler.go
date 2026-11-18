@@ -139,9 +139,12 @@ type movementDTO struct {
 	Date        string          `json:"date"`
 	// FutureExpenseID is the future expense an Ahorro feeds, null otherwise. A
 	// manual update never changes it.
-	FutureExpenseID *int   `json:"future_expense_id"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
+	FutureExpenseID *int `json:"future_expense_id"`
+	// CoveredBySavings is the part of a Gasto paid from the savings of a future
+	// expense, capped by its amount; absent when savings paid nothing.
+	CoveredBySavings *decimal.Decimal `json:"covered_by_savings,omitempty"`
+	CreatedAt        string           `json:"created_at"`
+	UpdatedAt        string           `json:"updated_at"`
 }
 
 const timeFormat = "2006-01-02T15:04:05Z"
@@ -151,11 +154,15 @@ func toCategoryDTO(c domain.Category) categoryDTO {
 }
 
 func toMovementDTO(m domain.Movement) movementDTO {
-	return movementDTO{
+	out := movementDTO{
 		ID: m.ID, Kind: string(m.Kind), CategoryID: m.CategoryID, Category: m.CategoryName, Amount: m.Amount,
 		Description: m.Description, Date: m.Date, FutureExpenseID: m.FutureExpenseID,
 		CreatedAt: m.CreatedAt.UTC().Format(timeFormat), UpdatedAt: m.UpdatedAt.UTC().Format(timeFormat),
 	}
+	if covered := m.EffectiveCovered(); covered.IsPositive() {
+		out.CoveredBySavings = &covered
+	}
+	return out
 }
 
 func (r movementRequest) input() domain.MovementInput {

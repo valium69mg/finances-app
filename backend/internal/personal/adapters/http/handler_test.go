@@ -369,3 +369,17 @@ func TestReadErrorsOfTheOwnersView(t *testing.T) {
 		}
 	}
 }
+
+func TestMovementExposesCoveredBySavingsOnlyWhenPositive(t *testing.T) {
+	covered := ropaMovement()
+	covered.ID, covered.Amount, covered.CoveredBySavings = 1, d("100"), d("60")
+	plain := ropaMovement()
+	plain.ID = 2
+	over := ropaMovement()
+	over.ID, over.Amount, over.CoveredBySavings = 3, d("50"), d("80")
+	rec := do(server(&fakeService{movements: []domain.Movement{covered, plain, over}}), "GET", "/personal/movements", "")
+	body := rec.Body.String()
+	if strings.Count(body, "covered_by_savings") != 2 || !strings.Contains(body, `"covered_by_savings":"60"`) || !strings.Contains(body, `"covered_by_savings":"50"`) {
+		t.Errorf("body %s; want covered_by_savings 60 and 50 (capped) on two rows only", body)
+	}
+}
