@@ -1,12 +1,14 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Save } from "lucide-react";
 import { useFocusOnEdit } from "../../hooks/useFocusOnEdit";
 import { createExpense, expensesKeys, inferCategory, updateExpense, type Expense, type ExpenseInput, type SaveExpenseResult } from "../../api/expenses";
 import type { AllSettings } from "../../api/settings";
 import { TextField } from "../../components/AuthCard";
+import { DescriptionField } from "../../components/DescriptionField";
+import { keywordOwners } from "../../lib/keywords";
 import { cycleOf, cycleRangeLabel } from "../cycle";
-import { MAX_MOVEMENT_DESCRIPTION_LENGTH } from "../movementErrors";
+import { CATEGORY_NOT_INFERRED_MESSAGE, MAX_MOVEMENT_DESCRIPTION_LENGTH, isCategoryNotInferred } from "../movementErrors";
 import { ErrorBanner, fieldGrid, primaryButton, secondaryButton } from "../settings/ui";
 import { describeExpenseError } from "./errors";
 import { DEBOUNCE_MS, useDebounced, withValue } from "./formHelpers";
@@ -39,6 +41,7 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit, inDialog
   const [errors, setErrors] = useState<{ amount?: string; rate?: string; date?: string }>({});
   const formRef = useFocusOnEdit<HTMLFormElement>(editing !== null && !inDialog);
   const amountRef = useRef<HTMLInputElement>(null);
+  const categoryRef = useRef<HTMLSelectElement>(null);
 
   const debouncedDescription = useDebounced(description.trim(), DEBOUNCE_MS);
   const inferQuery = useQuery({
@@ -53,6 +56,10 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit, inDialog
 
   const save = useMutation({
     mutationFn: (input: ExpenseInput) => (editing ? updateExpense(editing.id, input) : createExpense(input)),
+    // The category could not be deduced: point at the select so the user chooses one.
+    onError: (err) => {
+      if (isCategoryNotInferred(err)) categoryRef.current?.focus();
+    },
     onSuccess: (result) => {
       void qc.invalidateQueries({ queryKey: expensesKeys.all });
       onSaved(result);
@@ -83,6 +90,7 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit, inDialog
     save.mutate(input);
   }
 
+  const owners = useMemo(() => keywordOwners(settings.categories, "Gasto"), [settings.categories]);
   const categoryOptions = withValue(
     settings.categories.map((c) => c.name),
     category,
@@ -100,7 +108,13 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit, inDialog
         </h2>
       )}
       <div className={inDialog ? fieldGrid : `${fieldGrid} lg:grid-cols-3`}>
-        <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH} autoComplete="off" />
+        <DescriptionField
+          value={description}
+          onChange={setDescription}
+          owners={owners}
+          onPick={(owner) => setChosen(owner.category)}
+          maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH}
+        />
         <TextField
           label="Monto"
           inputMode="decimal"
@@ -143,6 +157,8 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit, inDialog
         <SelectField
           label="Categoría"
           value={category}
+          selectRef={categoryRef}
+          error={save.isError && isCategoryNotInferred(save.error) && category === "" ? CATEGORY_NOT_INFERRED_MESSAGE : undefined}
           onChange={(e) => setChosen(e.target.value === "" ? null : e.target.value)}
           hint={chosen === null && suggestion ? `Sugerida según la descripción: ${suggestion}. Puedes cambiarla.` : undefined}
         >
@@ -155,7 +171,7 @@ export function ExpenseForm({ settings, editing, onSaved, onCancelEdit, inDialog
         </SelectField>
       </div>
 
-      {save.isError && <ErrorBanner>{describeExpenseError(save.error)}</ErrorBanner>}
+      {save.isError && !isCategoryNotInferred(save.error) && <ErrorBanner>{describeExpenseError(save.error)}</ErrorBanner>}
 
       <div className="flex flex-wrap items-center gap-3">
         <button type="submit" disabled={save.isPending} aria-busy={save.isPending} className={primaryButton}>

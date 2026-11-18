@@ -256,6 +256,25 @@ test.describe("bottom dock", () => {
       await expect(quickExpenseButton(page)).toBeFocused();
     });
 
+    test("owner: a keyword chip picks the category and a description with no clue shows the dedicated error", async ({ page }) => {
+      const api = await open(page, "owner", "/gastos");
+      await quickExpenseButton(page).click();
+      const dialog = page.getByRole("dialog", { name: "Gasto rápido" });
+      await dialog.getByLabel("Monto (MXN)").fill("80");
+      await dialog.getByLabel("Descripción").fill("zzz sin pista");
+      await dialog.getByRole("button", { name: "Agregar gasto" }).click();
+      await expect(dialog.getByText("No se pudo deducir la categoría a partir de la descripción. Elige una categoría.")).toBeVisible();
+      await expect(dialog.getByLabel("Categoría")).toBeFocused();
+
+      await dialog.getByLabel("Descripción").fill("mega");
+      await dialog.getByRole("button", { name: /megacable\s*·\s*Servicios/ }).click();
+      await expect(dialog.getByLabel("Categoría")).toHaveValue("Servicios");
+      await expect(dialog.getByLabel("Descripción")).toHaveValue("megacable");
+      await dialog.getByRole("button", { name: "Agregar gasto" }).click();
+      await expect(dialog).toBeHidden();
+      expect(api.requests.filter((r) => r.path === "/expenses").at(-1)?.body).toMatchObject({ category: "Servicios", description: "megacable" });
+    });
+
     test("owner: Escape closes it without saving", async ({ page }) => {
       const api = await open(page, "owner");
       await quickExpenseButton(page).click();

@@ -5,13 +5,15 @@ import { createExpense, expensesKeys, type ExpenseInput, type SaveExpenseResult 
 import { dashboardKeys } from "../api/dashboard";
 import { listPersonalCategories, personalKeys } from "../api/personal";
 import { getSettings, settingsKeys, type AllSettings } from "../api/settings";
+import { keywordOwners } from "../lib/keywords";
 import { TextField } from "./AuthCard";
+import { DescriptionField } from "./DescriptionField";
 import { Modal } from "./Modal";
 import { describeExpenseError } from "../pages/expenses/errors";
 import { withValue } from "../pages/expenses/formHelpers";
 import { isPositiveDecimal, todayISO } from "../pages/expenses/money";
 import { SelectField } from "../pages/expenses/SelectField";
-import { MAX_MOVEMENT_DESCRIPTION_LENGTH } from "../pages/movementErrors";
+import { CATEGORY_NOT_INFERRED_MESSAGE, MAX_MOVEMENT_DESCRIPTION_LENGTH, isCategoryNotInferred } from "../pages/movementErrors";
 import { PERSONAL_PAGES } from "../pages/personal/config";
 import { describePersonalError } from "../pages/personal/errors";
 import { MovementDialog } from "../pages/personal/MovementDialog";
@@ -72,9 +74,14 @@ function OwnerForm({ settings, onClose, onSaved }: { settings: AllSettings; onCl
   const [method, setMethod] = useState(methods.includes("Débito") ? "Débito" : (methods[0] ?? ""));
   const [errors, setErrors] = useState<{ amount?: string; date?: string }>({});
   const amountRef = useRef<HTMLInputElement>(null);
+  const categoryRef = useRef<HTMLSelectElement>(null);
 
   const save = useMutation({
     mutationFn: (input: ExpenseInput) => createExpense(input),
+    // The category could not be deduced: point at the select so the user chooses one.
+    onError: (err) => {
+      if (isCategoryNotInferred(err)) categoryRef.current?.focus();
+    },
     onSuccess: async (result) => {
       await Promise.all([qc.invalidateQueries({ queryKey: expensesKeys.all }), qc.invalidateQueries({ queryKey: dashboardKeys.all })]);
       onSaved(result);
@@ -103,7 +110,13 @@ function OwnerForm({ settings, onClose, onSaved }: { settings: AllSettings; onCl
       <form noValidate onSubmit={onSubmit} className="space-y-5">
         <div className="grid gap-4">
           <TextField label="Monto (MXN)" inputMode="decimal" inputRef={amountRef} value={amount} onChange={(e) => setAmount(e.target.value)} error={errors.amount} autoComplete="off" />
-          <SelectField label="Categoría" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <SelectField
+            label="Categoría"
+            value={category}
+            selectRef={categoryRef}
+            error={save.isError && isCategoryNotInferred(save.error) && category === "" ? CATEGORY_NOT_INFERRED_MESSAGE : undefined}
+            onChange={(e) => setCategory(e.target.value)}
+          >
             <option value="">Automática (según la descripción)</option>
             {withValue(
               settings.categories.map((c) => c.name),
@@ -114,7 +127,13 @@ function OwnerForm({ settings, onClose, onSaved }: { settings: AllSettings; onCl
               </option>
             ))}
           </SelectField>
-          <TextField label="Descripción" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH} autoComplete="off" />
+          <DescriptionField
+            value={description}
+            onChange={setDescription}
+            owners={keywordOwners(settings.categories, "Gasto")}
+            onPick={(owner) => setCategory(owner.category)}
+            maxLength={MAX_MOVEMENT_DESCRIPTION_LENGTH}
+          />
           <TextField label="Fecha" type="date" value={date} onChange={(e) => setDate(e.target.value)} error={errors.date} />
           <SelectField label="Método de pago" value={method} onChange={(e) => setMethod(e.target.value)}>
             {withValue(methods, method).map((m) => (
@@ -124,7 +143,7 @@ function OwnerForm({ settings, onClose, onSaved }: { settings: AllSettings; onCl
             ))}
           </SelectField>
         </div>
-        {save.isError && <ErrorBanner>{describeExpenseError(save.error)}</ErrorBanner>}
+        {save.isError && !isCategoryNotInferred(save.error) && <ErrorBanner>{describeExpenseError(save.error)}</ErrorBanner>}
         <div className="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={save.isPending} aria-busy={save.isPending} className={primaryButton}>
             {save.isPending ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="h-4 w-4" aria-hidden="true" />}

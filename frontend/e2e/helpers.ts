@@ -490,6 +490,9 @@ export async function mockApi(
       const body = request.postDataJSON();
       requests.push({ path: pathname, body });
       if (expensesFail) return json(route, 400, { error: "invalid_expense", message: expensesFail });
+      if (!body.category && !Object.entries(INFER_KEYWORDS).some(([k]) => String(body.description ?? "").toLowerCase().includes(k))) {
+        return json(route, 400, { error: "category_not_inferred", message: "invalid movement: could not infer the category from the description, choose one" });
+      }
       const expense = buildExpense(nextExpenseId++, body, settings);
       expenses.push(expense);
       return json(route, 201, { expense, budget: budgetFor(expense, expenses, settings) });

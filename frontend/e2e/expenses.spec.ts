@@ -263,6 +263,7 @@ test.describe("expenses page", () => {
       });
       await expectNoHorizontalOverflow(page, `${vp.name}px list`);
       await page.getByLabel("Moneda").selectOption("USD");
+      await page.getByLabel("Descripción").first().fill("tacos");
       await page.getByLabel("Monto").fill("10");
       await page.getByRole("button", { name: "Agregar gasto" }).click();
       await expect(page.getByText("Gasto guardado.")).toBeVisible();
@@ -271,4 +272,57 @@ test.describe("expenses page", () => {
       await expectNoHorizontalOverflow(page, `${vp.name}px dialog + confirm`);
     });
   }
+});
+
+test.describe("expenses page: keyword quick-pick and category errors", () => {
+  test("typing shows known keywords with their category; a tap picks the category and completes the description", async ({ page }) => {
+    const api = await open(page);
+    const form = page.getByRole("form", { name: "Nuevo gasto" });
+    await form.getByLabel("Descripción").fill("mega");
+    const chip = form.getByRole("button", { name: /megacable\s*·\s*Servicios/ });
+    await expect(chip).toBeVisible();
+    await expect((await chip.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(40);
+    await chip.click();
+    await expect(form.getByLabel("Descripción")).toHaveValue("megacable");
+    await expect(form.getByLabel("Categoría")).toHaveValue("Servicios");
+    await form.getByLabel("Monto").fill("350");
+    await form.getByRole("button", { name: "Agregar gasto" }).click();
+    await expect.poll(() => api.requests.filter((r) => r.path === "/expenses").length).toBe(1);
+    expect(api.requests.find((r) => r.path === "/expenses")?.body).toMatchObject({ category: "Servicios", description: "megacable" });
+  });
+
+  test("keyboard: ArrowDown enters the chips, Enter picks, Escape closes the list; a longer description is kept", async ({ page }) => {
+    await open(page);
+    const form = page.getByRole("form", { name: "Nuevo gasto" });
+    const description = form.getByLabel("Descripción");
+    await description.fill("net");
+    await description.press("ArrowDown");
+    await expect(form.getByRole("button", { name: /netflix\s*·\s*Suscripciones/ })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(form.getByLabel("Categoría")).toHaveValue("Suscripciones");
+    await expect(description).toHaveValue("netflix");
+    await expect(description).toBeFocused();
+
+    await description.fill("pago de luz bimestral");
+    await expect(form.getByRole("button", { name: /luz\s*·\s*Servicios/ })).toBeVisible();
+    await description.press("Escape");
+    await expect(form.getByRole("group", { name: "Palabras clave sugeridas" })).toHaveCount(0);
+    await description.fill("pago de luz del mes");
+    await form.getByRole("button", { name: /luz\s*·\s*Servicios/ }).click();
+    await expect(description).toHaveValue("pago de luz del mes");
+    await expect(form.getByLabel("Categoría")).toHaveValue("Servicios");
+  });
+
+  test("a description that infers no category shows the dedicated message and focuses the category", async ({ page }) => {
+    const api = await open(page);
+    const form = page.getByRole("form", { name: "Nuevo gasto" });
+    await form.getByLabel("Descripción").fill("zzz sin pista");
+    await form.getByLabel("Monto").fill("50");
+    await form.getByRole("button", { name: "Agregar gasto" }).click();
+    await expect(form.getByText("No se pudo deducir la categoría a partir de la descripción. Elige una categoría.")).toBeVisible();
+    await expect(form.getByLabel("Categoría")).toBeFocused();
+    await form.getByLabel("Categoría").selectOption("Servicios");
+    await form.getByRole("button", { name: "Agregar gasto" }).click();
+    await expect.poll(() => api.requests.filter((r) => r.path === "/expenses").at(-1)?.body).toMatchObject({ category: "Servicios" });
+  });
 });

@@ -3,7 +3,7 @@ import { ApiError } from "../api/client";
 import { describeDashboardError } from "./dashboard/errors";
 import { describeExpenseError } from "./expenses/errors";
 import { describeIncomeError } from "./income/errors";
-import { describeMovementError } from "./movementErrors";
+import { describeMovementError, isCategoryNotInferred } from "./movementErrors";
 import { describeSavingsError, describeValuationError } from "./savings/errors";
 
 describe("describeMovementError", () => {
@@ -21,6 +21,18 @@ describe("describeMovementError", () => {
     expect(describeMovementError(new ApiError(500, "internal_error"), opts)).toContain("El servidor tuvo un problema");
     expect(describeMovementError(new ApiError(400, "other_code", "x"), opts)).toContain("No se pudo completar");
     expect(describeMovementError(new TypeError("offline"), opts)).toContain("No se pudo conectar");
+  });
+});
+
+describe("category_not_inferred", () => {
+  it("has its own Spanish message in every movement module", () => {
+    const err = new ApiError(400, "category_not_inferred", "invalid movement: could not infer the category");
+    const expected = "No se pudo deducir la categoría a partir de la descripción. Elige una categoría.";
+    expect(describeExpenseError(err)).toBe(expected);
+    expect(describeMovementError(err, { invalidCode: "invalid_thing", noun: "la cosa" })).toBe(expected);
+    expect(isCategoryNotInferred(err)).toBe(true);
+    expect(isCategoryNotInferred(new ApiError(400, "invalid_expense"))).toBe(false);
+    expect(isCategoryNotInferred(new Error("x"))).toBe(false);
   });
 });
 

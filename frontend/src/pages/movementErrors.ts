@@ -16,8 +16,17 @@ interface MovementErrorOptions {
  * copy: the backend `message` for the module's validation code, a "no longer
  * exists" hint for a 404 and the generic save error for anything else.
  */
+/** Backend code of an expense that names no category and none can be deduced from its description. */
+export const CATEGORY_NOT_INFERRED = "category_not_inferred";
+
+export const CATEGORY_NOT_INFERRED_MESSAGE = "No se pudo deducir la categoría a partir de la descripción. Elige una categoría.";
+
+/** True when the failure is the expense's category that could not be inferred (the form then points at the category). */
+export const isCategoryNotInferred = (err: unknown): boolean => err instanceof ApiError && err.code === CATEGORY_NOT_INFERRED;
+
 export function describeMovementError(err: unknown, { invalidCode, noun }: MovementErrorOptions): string {
   if (err instanceof ApiError) {
+    if (err.code === CATEGORY_NOT_INFERRED) return CATEGORY_NOT_INFERRED_MESSAGE;
     if (err.code === invalidCode) return `Los datos no son válidos: ${err.message}`;
     if (err.status === 404) return `${noun.charAt(0).toUpperCase()}${noun.slice(1)} ya no existe. Actualiza la lista e intenta de nuevo.`;
   }
