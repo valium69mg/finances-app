@@ -140,6 +140,8 @@ type movementDTO struct {
 	// FutureExpenseID is the future expense an Ahorro feeds, null otherwise. A
 	// manual update never changes it.
 	FutureExpenseID *int `json:"future_expense_id"`
+	// TransferID is shared by the two rows of a future expense assignment, null otherwise.
+	TransferID *string `json:"transfer_id"`
 	// CoveredBySavings is the part of a Gasto paid from the savings of a future
 	// expense, capped by its amount; absent when savings paid nothing.
 	CoveredBySavings *decimal.Decimal `json:"covered_by_savings,omitempty"`
@@ -161,6 +163,10 @@ func toMovementDTO(m domain.Movement) movementDTO {
 	}
 	if covered := m.EffectiveCovered(); covered.IsPositive() {
 		out.CoveredBySavings = &covered
+	}
+	if m.TransferID != "" {
+		id := m.TransferID
+		out.TransferID = &id
 	}
 	return out
 }

@@ -582,3 +582,67 @@ func TestSchemaRejectsMisplacedSavingsMarkers(t *testing.T) {
 		t.Errorf("kind change of a covered Gasto: %v; want ErrInvalidInput", err)
 	}
 }
+
+func TestAssignmentRowsShareATransferIDAndDeleteTogether(t *testing.T) {
+	f := setup(t)
+	it := f.item(t, f.her, "1000")
+	f.seedFree(t, f.her, "300")
+	if err := f.repo.AssignFuture(ctx, f.her, it.ID, d("120"), "2026-10-01", "Asignado a Viaje"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := f.repo.ListMovements(ctx, f.her, app.Filter{From: "2026-10-01", To: "2026-10-01"})
+	if err != nil || len(rows) != 2 || rows[0].TransferID == "" || rows[0].TransferID != rows[1].TransferID {
+		t.Fatalf("rows = %+v, %v; want two sharing a transfer id", rows, err)
+	}
+	if err := f.repo.DeleteMovement(ctx, f.other, rows[0].ID); !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("another user deleting: %v, want ErrNotFound", err)
+	}
+	if err := f.repo.DeleteMovement(ctx, f.her, rows[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := f.repo.GetFutureExpense(ctx, f.her, it.ID)
+	if !got.Saved.IsZero() || !f.free(t, f.her).Equal(d("300")) {
+		t.Errorf("saved %s free %s; want 0 and 300 after deleting the pair", got.Saved, f.free(t, f.her))
+	}
+}
+
+// Migration 000031 links the assignment pairs created before transfer_id
+// existed: duplicates (same day, same amount) pair in id order and a row with
+// no counterpart stays unlinked. Down unlinks them again.
+func TestMigrationLinksExistingAssignmentPairs(t *testing.T) {
+	f := setup(t)
+	it := f.item(t, f.her, "1000")
+	f.seedFree(t, f.her, "500")
+	for i := 0; i < 2; i++ {
+		if err := f.repo.AssignFuture(ctx, f.her, it.ID, d("100"), "2026-10-02", "Asignado a Viaje"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cats, _ := f.repo.ListCategories(ctx, f.her, domain.KindSavings)
+	gf := find(t, cats, domain.SavingsCategory)
+	lonely := mv(domain.KindSavings, gf, "-30", "2026-10-03")
+	lonely.Description = "Asignado a Viaje"
+	if _, err := f.repo.CreateMovement(ctx, f.her, lonely); err != nil {
+		t.Fatal(err)
+	}
+
+	root := filepath.Join("..", "..", "..", "..", "..", "migrations")
+	for _, name := range []string{"000031_future_expense_assignment_transfer_id.down.sql", "000031_future_expense_assignment_transfer_id.up.sql"} {
+		sql, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	if n := count(t, f, `SELECT count(*) FROM personal_movements WHERE transfer_id IS NOT NULL`); n != 4 {
+		t.Errorf("linked rows = %d, want 4 (two pairs; the lonely row stays unlinked)", n)
+	}
+	if n := count(t, f, `SELECT count(*) FROM (SELECT transfer_id FROM personal_movements WHERE transfer_id IS NOT NULL GROUP BY transfer_id HAVING count(*) = 2 AND sum(amount) = 0 AND count(future_expense_id) = 1) g`); n != 2 {
+		t.Errorf("balanced pairs = %d, want 2", n)
+	}
+	if got := f.free(t, f.her); !got.Equal(d("270")) {
+		t.Errorf("free = %s, want 270: linking changes no balance", got)
+	}
+}

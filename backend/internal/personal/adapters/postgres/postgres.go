@@ -153,7 +153,7 @@ func (r *Repo) RenameCategory(ctx context.Context, userID string, id int, name s
 // --- movements ----------------------------------------------------------
 
 const movementColumns = `m.id, m.kind, m.category_id, c.name, m.amount::text, m.description, m.date::text, m.future_expense_id,
-	m.covered_by_savings::text, m.savings_settlement, m.created_at, m.updated_at`
+	m.covered_by_savings::text, m.savings_settlement, m.transfer_id::text, m.created_at, m.updated_at`
 
 func scanMovement(row pgx.Row) (domain.Movement, error) {
 	var (
@@ -162,10 +162,14 @@ func scanMovement(row pgx.Row) (domain.Movement, error) {
 		kind, amount         string
 		futureID             *int64
 		coveredText          *string
+		transferID           *string
 		createdAt, updatedAt time.Time
 	)
-	if err := row.Scan(&id, &kind, &categoryID, &m.CategoryName, &amount, &m.Description, &m.Date, &futureID, &coveredText, &m.SavingsSettlement, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&id, &kind, &categoryID, &m.CategoryName, &amount, &m.Description, &m.Date, &futureID, &coveredText, &m.SavingsSettlement, &transferID, &createdAt, &updatedAt); err != nil {
 		return domain.Movement{}, err
+	}
+	if transferID != nil {
+		m.TransferID = *transferID
 	}
 	if futureID != nil {
 		f := int(*futureID)
@@ -250,11 +254,11 @@ func insertMovement(ctx context.Context, q rowQuerier, userID string, v domain.V
 	m, err := scanMovement(q.QueryRow(ctx, `
 		WITH m AS (
 			INSERT INTO personal_movements (user_id, kind, category_id, amount, description, date, future_expense_id,
-			                                covered_by_savings, savings_settlement)
-			VALUES ($1::text::uuid, $2, $3, $4::text::numeric, $5, $6::date, $7::bigint, $8::text::numeric, $9)
+			                                covered_by_savings, savings_settlement, transfer_id)
+			VALUES ($1::text::uuid, $2, $3, $4::text::numeric, $5, $6::date, $7::bigint, $8::text::numeric, $9, NULLIF($10::text, '')::uuid)
 			RETURNING *)
 		SELECT `+movementColumns+` FROM m JOIN personal_categories c ON c.id = m.category_id`,
-		userID, string(v.Kind), int64(v.CategoryID), v.Amount.String(), v.Description, v.Date, futureID, coveredArg(v.CoveredBySavings), v.SavingsSettlement))
+		userID, string(v.Kind), int64(v.CategoryID), v.Amount.String(), v.Description, v.Date, futureID, coveredArg(v.CoveredBySavings), v.SavingsSettlement, v.TransferID))
 	if err != nil {
 		return domain.Movement{}, mapWriteError(err)
 	}
@@ -290,9 +294,15 @@ func (r *Repo) UpdateMovement(ctx context.Context, userID string, id int, v doma
 	return m, nil
 }
 
-// DeleteMovement removes a movement of the user.
+// DeleteMovement removes a movement of the user. A row of a future expense
+// assignment goes with its pair (same transfer_id) in one statement, which
+// returns the money to the free balance.
 func (r *Repo) DeleteMovement(ctx context.Context, userID string, id int) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM personal_movements WHERE id = $1 AND user_id = $2::text::uuid`, int64(id), userID)
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM personal_movements
+		WHERE user_id = $2::text::uuid
+		  AND (id = $1 OR transfer_id = (SELECT transfer_id FROM personal_movements WHERE id = $1 AND user_id = $2::text::uuid))`,
+		int64(id), userID)
 	if err != nil {
 		return err
 	}

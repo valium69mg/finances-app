@@ -92,8 +92,11 @@ type Movement struct {
 	// SavingsSettlement marks the Ahorro rows a future expense payment writes
 	// (the release and the remainder, whose net is minus the covered amount).
 	SavingsSettlement bool
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// TransferID is shared by the two rows of a future expense assignment and
+	// empty otherwise.
+	TransferID string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // EffectiveCovered is the part of a Gasto that savings covered, capped by its
@@ -213,6 +216,8 @@ type ValidMovement struct {
 	// future expense, never by user input (ValidateMovement leaves them empty).
 	CoveredBySavings  decimal.Decimal
 	SavingsSettlement bool
+	// TransferID links the two rows of a future expense assignment; empty means none.
+	TransferID string
 }
 
 // ValidateAmount checks a user-supplied amount: in range first (before any

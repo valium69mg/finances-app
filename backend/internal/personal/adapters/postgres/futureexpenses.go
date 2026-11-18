@@ -257,11 +257,17 @@ func (r *Repo) AssignFuture(ctx context.Context, userID string, id int, amount d
 	if err != nil {
 		return err
 	}
+	var transferID string
+	if err := tx.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&transferID); err != nil {
+		return err
+	}
 	for _, row := range []app.SavingRow{
 		{Amount: amount.Neg(), Date: date, Description: description},
 		{Amount: amount, Date: date, Description: description, Linked: true},
 	} {
-		if _, err := insertMovement(ctx, tx, userID, savingMovement(catID, row), linkOf(id, row.Linked)); err != nil {
+		v := savingMovement(catID, row)
+		v.TransferID = transferID
+		if _, err := insertMovement(ctx, tx, userID, v, linkOf(id, row.Linked)); err != nil {
 			return err
 		}
 	}

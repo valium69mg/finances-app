@@ -128,7 +128,7 @@ func ropaMovement() domain.Movement {
 	}
 }
 
-const ropaJSON = `{"id":7,"kind":"Gasto","category_id":5,"category":"Ropa","amount":"199.9","description":"Blusa","date":"2026-10-04","future_expense_id":null,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}`
+const ropaJSON = `{"id":7,"kind":"Gasto","category_id":5,"category":"Ropa","amount":"199.9","description":"Blusa","date":"2026-10-04","future_expense_id":null,"transfer_id":null,"created_at":"2026-10-01T12:00:00Z","updated_at":"2026-10-01T12:00:00Z"}`
 
 func TestRoutesRequireAuth(t *testing.T) {
 	h := server(&fakeService{})
