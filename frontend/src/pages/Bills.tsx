@@ -11,7 +11,7 @@ import { BillList } from "./bills/BillList";
 import { describeBillsError } from "./bills/errors";
 import { expenseCategories } from "./bills/form";
 import { PayDialog } from "./bills/PayDialog";
-import { formatMoney } from "./expenses/money";
+import { paidNotice } from "./bills/paidNotice";
 import { dateLabel } from "./taxfiling/labels";
 import { Checkbox, ErrorBanner, secondaryButton } from "./settings/ui";
 import { PageTitle } from "../components/PageTitle";
@@ -37,12 +37,10 @@ export function Bills() {
   const deep = useDeepLink({ param: "pago", items: loaded.data, open: paying, onOpen: setPaying, canOpen: (b) => b.active });
 
   function onPaid(result: PayResult) {
-    const { bill, expense } = result;
+    const { bill } = result;
     setPaying(null);
     setEditing((cur) => (cur?.id === bill.id ? null : cur)); // its due date moved: drop the stale edit
-    setNotice(
-      `Pago de ${bill.name} registrado: ${formatMoney(expense.amount)} ${expense.currency} en ${expense.category}. Próximo vencimiento: ${dateLabel(bill.next_due_date)}.`,
-    );
+    setNotice(paidNotice(result));
   }
 
   return (
