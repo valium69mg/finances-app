@@ -51,6 +51,19 @@ describe("categories", () => {
   });
 });
 
+describe("fixed expense flag", () => {
+  const base = { name: "Renta", kind: "Gasto", budget: "100", includes: "", keywords: [] };
+  it("round-trips for a Gasto and defaults to false", () => {
+    expect(toCategoryDraft({ ...base, budget: "100" }).fixed).toBe(false);
+    expect(toCategoryDraft({ ...base, fixed: true }).fixed).toBe(true);
+    expect(fromCategoryDraft({ ...base, fixed: true }).fixed).toBe(true);
+    expect(fromCategoryDraft(base).fixed).toBe(false);
+  });
+  it("is never sent for a kind other than Gasto", () => {
+    expect(fromCategoryDraft({ ...base, kind: "Ahorro", fixed: true }).fixed).toBe(false);
+  });
+});
+
 describe("new categories", () => {
   it("treats names differing only in case or accents as the same", () => {
     const errors = validateCategories([{ name: "Súper", kind: "Gasto", budget: "", includes: "", keywords: [] }, { ...newCategoryDraft(), name: "SUPER" }]);

@@ -30,6 +30,8 @@ export interface Category {
   budget: string | null;
   includes: string;
   keywords: string[];
+  /** Gasto paid about once per cycle (rent, services): kept out of the dashboard pace. Absent means false. */
+  fixed?: boolean;
 }
 
 export interface Client {

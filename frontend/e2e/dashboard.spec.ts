@@ -193,6 +193,35 @@ test.describe("dashboard page", () => {
     await expect(cycle).toContainText("Vas por encima del ritmo de gasto del ciclo.");
   });
 
+  test("without fixed categories keeps one block and links to Configuración", async ({ page }) => {
+    await open(page, { expenses: [expense({})], income: [salary] });
+    const cycle = page.getByRole("region", { name: "Progreso del ciclo" });
+    await expect(cycle.getByText("Fijos", { exact: true })).toHaveCount(0);
+    await cycle.getByRole("link", { name: "Marca tus gastos fijos en Configuración" }).click();
+    await expect(page).toHaveURL(/\/configuracion\?seccion=categorias/);
+  });
+
+  test("with fixed categories shows Fijos without a pace and the pace only for the variables", async ({ page }) => {
+    await open(page, {
+      expenses: [expense({ amount: "15000.00", amount_mxn: "15000.00" })],
+      income: [salary],
+      settingsPatch: (settings) => {
+        settings.categories.find((c: { name: string }) => c.name === "Renta").fixed = true;
+      },
+    });
+    const cycle = page.getByRole("region", { name: "Progreso del ciclo" });
+    await expect(cycle.getByText("Fijos", { exact: true })).toBeVisible();
+    // Rent is 15,000 of a 12,000.50 budget: over its budget, reported without a pace message.
+    await expect(cycle).toContainText("Pagados $15,000.00 de $12,000.50");
+    await expect(cycle).toContainText("por encima del presupuesto");
+    await expect(cycle.getByText("Variables", { exact: true })).toBeVisible();
+    await expect(cycle).toContainText("Gastado $0.00 de");
+    await expect(cycle).toContainText("Vas dentro del ritmo de gasto del ciclo.");
+    await expect(cycle).not.toContainText("Vas por encima del ritmo");
+    await expect(cycle.getByRole("link", { name: /Marca tus gastos fijos/ })).toHaveCount(0);
+    await expectNoHorizontalOverflow(page, "split cycle card");
+  });
+
   test("shows the future expenses with progress, the suggested monthly amount and a total", async ({ page }) => {
     await open(page, {
       dashboardFuture: {

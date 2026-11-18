@@ -617,6 +617,12 @@ function buildDashboard(
         over_budget: budget !== null && spent > budget,
       };
     });
+  const fixedNames = new Set<string>(settings.categories.filter((c: { fixed?: boolean }) => c.fixed).map((c: { name: string }) => c.name));
+  const block = (fixed: boolean) => ({
+    spent: categories.filter((c: { category: string }) => fixedNames.has(c.category) === fixed).reduce((t: number, c: { spent: string }) => t + Number(c.spent), 0).toFixed(2),
+    budget: categories.filter((c: { category: string }) => fixedNames.has(c.category) === fixed).reduce((t: number, c: { budget: string | null }) => t + Number(c.budget ?? 0), 0).toFixed(2),
+  });
+  const spending = { has_fixed: fixedNames.size > 0, fixed: block(true), variable: block(false) };
   const rate = resicoRate(income);
   const range = cycleRange(month, settings.general.cycle_start_day ?? 0);
   const dayMs = 86_400_000;
@@ -652,6 +658,7 @@ function buildDashboard(
       goal: "60000.00",
     },
     cycle: { today, day, days },
+    spending,
     future_expenses: future ?? { items: [], target: "0.00", saved: "0.00", remaining: "0.00", suggested_monthly: "0.00", free_balance: "0.00" },
     upcoming_bills: upcoming,
     recent_movements: recent,

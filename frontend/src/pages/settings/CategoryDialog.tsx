@@ -7,7 +7,7 @@ import { SelectField } from "../expenses/SelectField";
 import { EditDialog } from "./EditDialog";
 import { PercentField } from "./PercentField";
 import { categoryListWith } from "./summary";
-import { ErrorBanner, describeKeywordInUse, fieldGrid, keywordInUse, useSave } from "./ui";
+import { Checkbox, ErrorBanner, describeKeywordInUse, fieldGrid, keywordInUse, useSave } from "./ui";
 import { KINDS, fromCategoryDraft, newCategoryDraft, toCategoryDraft, validateCategories, type CategoryDraft, type Errors } from "./validation";
 
 interface Props {
@@ -64,7 +64,7 @@ export function CategoryDialog({ saved, index, base, onClose }: Props) {
       {adding ? (
         <div className={fieldGrid}>
           <TextField label="Nombre" value={draft.name} onChange={(e) => patch({ name: e.target.value })} error={errors[`${position}.name`]} autoComplete="off" />
-          <SelectField label="Tipo" value={draft.kind} onChange={(e) => patch({ kind: e.target.value })}>
+          <SelectField label="Tipo" value={draft.kind} onChange={(e) => patch({ kind: e.target.value, fixed: e.target.value === "Gasto" && draft.fixed === true })}>
             {KINDS.map((k) => (
               <option key={k} value={k}>
                 {k}
@@ -87,6 +87,12 @@ export function CategoryDialog({ saved, index, base, onClose }: Props) {
             onChange={(e) => onPercent(e.target.value)}
             onBlur={() => setTyping(null)}
           />
+        )}
+        {draft.kind === "Gasto" && (
+          <div className="sm:col-span-2">
+            <Checkbox label="Gasto fijo" checked={draft.fixed === true} onChange={(fixed) => patch({ fixed })} />
+            <p className="text-sm text-muted">Se paga una vez por ciclo, como renta o servicios; no cuenta para el ritmo de gasto.</p>
+          </div>
         )}
         <div className="sm:col-span-2">
           <TextField label="Incluye" value={draft.includes} onChange={(e) => patch({ includes: e.target.value })} />

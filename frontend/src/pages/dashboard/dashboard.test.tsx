@@ -70,6 +70,7 @@ describe("TotalsCards", () => {
     emergency: { accumulated: "0", goal: "0" },
     tax: null,
     cycle: { today: "2026-10-15", day: 16, days: 31 },
+    spending: { has_fixed: false, fixed: { spent: "0", budget: "0" }, variable: { spent: "1700", budget: "0" } },
     future_expenses: { items: [], target: "0", saved: "0", remaining: "0", suggested_monthly: "0", free_balance: "0" },
     upcoming_bills: [],
     recent_movements: [],
@@ -340,6 +341,54 @@ describe("CycleProgress", () => {
   it("handles a cycle that has not started and a missing budget", () => {
     render(<CycleProgress dashboard={base({ cycle: { today: "2026-08-01", day: 0, days: 30 }, categories: [cat({ budget: null })] })} />);
     expect(screen.getByText("El periodo aún no empieza")).toBeInTheDocument();
+    expect(screen.getByText("Sin presupuesto de gasto para comparar el ritmo.")).toBeInTheDocument();
+  });
+});
+
+describe("CycleProgress with fixed and variable spending", () => {
+  const split = (fixedSpent: string, fixedBudget: string, varSpent: string, varBudget: string, hasFixed = true) => ({
+    cycle: { today: "2026-10-05", day: 5, days: 30 },
+    expenses: String(Number(fixedSpent) + Number(varSpent)),
+    categories: [cat({ budget: fixedBudget }), cat({ category: "Mandado", budget: varBudget })],
+    spending: { has_fixed: hasFixed, fixed: { spent: fixedSpent, budget: fixedBudget }, variable: { spent: varSpent, budget: varBudget } },
+  });
+  const wrap = (ui: React.ReactElement) => render(<MemoryRouter>{ui}</MemoryRouter>);
+
+  it("without fixed categories keeps one block and hints at Configuración", () => {
+    wrap(<CycleProgress dashboard={split("0", "0", "1000", "3000", false)} />);
+    expect(screen.queryByText("Fijos")).not.toBeInTheDocument();
+    expect(screen.getByText(/Gastado \$1,000\.00 de \$3,000\.00/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Marca tus gastos fijos en Configuración" })).toHaveAttribute("href", "/configuracion?seccion=categorias");
+  });
+
+  it("with fixed categories shows Fijos without a pace and applies the pace only to the variables", () => {
+    // Day 5 of 30: rent paid in full (10,000 of 10,000) would read far above the pace if it counted.
+    wrap(<CycleProgress dashboard={split("10000", "10000", "300", "3000")} />);
+    expect(screen.getByText("Fijos")).toBeInTheDocument();
+    expect(screen.getByText("Pagados $10,000.00 de $10,000.00")).not.toHaveClass("text-destructive");
+    expect(screen.getByText("Variables")).toBeInTheDocument();
+    expect(screen.getByText("Gastado $300.00 de $3,000.00 (10%)")).toBeInTheDocument();
+    expect(screen.getByText("Vas dentro del ritmo de gasto del ciclo.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Marca tus gastos fijos/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Gastos fijos pagados" })).toHaveAttribute("aria-valuenow", "100");
+  });
+
+  it("flags the variables above the pace even when the fixed ones are fine", () => {
+    wrap(<CycleProgress dashboard={split("5000", "10000", "1000", "3000")} />);
+    expect(screen.getByText("Vas por encima del ritmo de gasto del ciclo.")).toHaveClass("text-destructive");
+    expect(screen.getAllByText(/ritmo de gasto/)).toHaveLength(1);
+  });
+
+  it("shows fixed spending above its budget as over budget, in text and color", () => {
+    wrap(<CycleProgress dashboard={split("12000", "10000", "300", "3000")} />);
+    const text = screen.getByText(/Pagados \$12,000\.00 de \$10,000\.00/);
+    expect(text).toHaveTextContent("por encima del presupuesto");
+    expect(text).toHaveClass("text-destructive");
+    expect(screen.getByRole("progressbar", { name: "Gastos fijos pagados" })).toHaveAttribute("aria-valuenow", "100");
+  });
+
+  it("says there is no variable budget to compare when every budgeted category is fixed", () => {
+    wrap(<CycleProgress dashboard={split("10000", "10000", "200", "0")} />);
     expect(screen.getByText("Sin presupuesto de gasto para comparar el ritmo.")).toBeInTheDocument();
   });
 });

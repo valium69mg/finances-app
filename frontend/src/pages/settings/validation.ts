@@ -109,6 +109,8 @@ export interface CategoryDraft {
   includes: string;
   /** One chip per keyword (the tag input edits the list). */
   keywords: string[];
+  /** Fixed expense: only Gasto categories. */
+  fixed?: boolean;
   /** True for a row added in this form and not saved yet: its name and kind are still editable. */
   isNew?: boolean;
   /** Stable React key of a new row (its name is empty or changing while typing). */
@@ -126,6 +128,7 @@ export const newCategoryDraft = (): CategoryDraft => ({
   budget: "",
   includes: "",
   keywords: [],
+  fixed: false,
   isNew: true,
   uid: `new-${++nextUid}`,
 });
@@ -136,6 +139,7 @@ export const toCategoryDraft = (c: Category): CategoryDraft => ({
   budget: c.budget ?? "",
   includes: c.includes,
   keywords: [...c.keywords],
+  fixed: c.fixed === true,
 });
 
 export const fromCategoryDraft = (d: CategoryDraft): Category => ({
@@ -145,6 +149,7 @@ export const fromCategoryDraft = (d: CategoryDraft): Category => ({
   includes: d.includes,
   // Same cleaning as the server: trimmed, no empties, no repeats ignoring case and accents.
   keywords: addKeywords([], d.keywords.join(",")).keywords,
+  fixed: d.kind === "Gasto" && d.fixed === true,
 });
 
 /**

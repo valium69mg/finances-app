@@ -431,3 +431,35 @@ test.describe("settings: keyword tag input", () => {
     await expect(d).toHaveCount(0);
   });
 });
+
+
+test.describe("settings: fixed expense switch", () => {
+  test("marks a Gasto category as fixed, shows the label and saves the flag", async ({ page }) => {
+    const api = await open(page, "categorias");
+    await row(page, "Servicios").click();
+    const d = dialog(page, "Editar Servicios");
+    const fixed = d.getByRole("checkbox", { name: "Gasto fijo" });
+    await expect(fixed).not.toBeChecked();
+    await expect(d.getByText("Se paga una vez por ciclo, como renta o servicios; no cuenta para el ritmo de gasto.")).toBeVisible();
+    await fixed.check();
+    await d.getByRole("button", { name: "Guardar cambios" }).click();
+    await expect(d).toHaveCount(0);
+    const body = lastPut(api, "/settings/categories")?.body as { name: string; fixed: boolean }[];
+    expect(body.find((c) => c.name === "Servicios")?.fixed).toBe(true);
+    expect(body.find((c) => c.name === "Suscripciones")?.fixed).toBe(false);
+    await expect(row(page, "Servicios")).toContainText("Fijo");
+    await expect(row(page, "Suscripciones")).not.toContainText("Fijo");
+  });
+
+  test("only Gasto categories offer the switch", async ({ page }) => {
+    await open(page, "categorias");
+    await row(page, "Sueldo").click();
+    await expect(dialog(page, "Editar Sueldo").getByRole("checkbox", { name: "Gasto fijo" })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Agregar categoría" }).click();
+    const d = dialog(page, "Agregar categoría");
+    await expect(d.getByRole("checkbox", { name: "Gasto fijo" })).toBeVisible();
+    await d.getByLabel("Tipo").selectOption("Ahorro");
+    await expect(d.getByRole("checkbox", { name: "Gasto fijo" })).toHaveCount(0);
+  });
+});

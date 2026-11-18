@@ -105,6 +105,20 @@ export interface BudgetDashboard {
   categories: DashboardCategory[];
 }
 
+/** What a group of Gasto categories spent against what they budgeted (decimal strings). */
+export interface SpendingBlock {
+  spent: string;
+  budget: string;
+}
+
+/** The Gasto categories split into fixed (rent, services) and variable, for the cycle pace. */
+export interface DashboardSpending {
+  /** False while no category is marked fixed: the page then keeps one block. */
+  has_fixed: boolean;
+  fixed: SpendingBlock;
+  variable: SpendingBlock;
+}
+
 export interface Dashboard extends BudgetDashboard {
   income: string;
   expenses: string;
@@ -116,6 +130,7 @@ export interface Dashboard extends BudgetDashboard {
   /** Null when the tax settings are incomplete. */
   tax: DashboardTax | null;
   cycle: DashboardCycle;
+  spending: DashboardSpending;
   future_expenses: FutureExpenses;
   upcoming_bills: UpcomingBill[];
   /** Newest first, at most 8. */

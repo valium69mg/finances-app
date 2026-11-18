@@ -50,7 +50,10 @@ export function CategoriesSection({ data, general }: { data: Category[]; general
               return (
                 <li key={`${c.kind}-${c.name}`}>
                   <button type="button" onClick={() => setEditing(index)} className={`${rowButton} flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:gap-4`}>
-                    <span className="min-w-0 flex-1 break-words font-medium">{c.name}</span>
+                    <span className="min-w-0 flex-1 break-words font-medium">
+                      {c.name}
+                      {c.fixed && <span className="ml-2 rounded-full border border-border px-2 py-0.5 align-middle text-xs font-normal text-muted">Fijo</span>}
+                    </span>
                     <span className="flex shrink-0 items-center gap-3 text-sm sm:w-72 sm:justify-end">
                       <span className={c.budget ? "tabular-nums" : "text-muted"}>{c.budget ? formatMoney(c.budget) : "Sin presupuesto"}</span>
                       {share && <span className="w-14 text-right tabular-nums text-muted">{share.percent} %</span>}
